@@ -8,8 +8,23 @@ on:
         required: false
         default: v1
         type: string
+      include_review_comments:
+        description: Include unresolved PR review threads.
+        required: false
+        default: true
+        type: boolean
+      include_failing_jobs:
+        description: Include same-run failing GitHub Actions jobs.
+        required: false
+        default: true
+        type: boolean
       prompt_preamble:
         description: Optional text inserted before the default prompt preamble.
+        required: false
+        default: ""
+        type: string
+      prompt_template_file:
+        description: Optional template file path in the caller repository workspace.
         required: false
         default: ""
         type: string
@@ -48,6 +63,21 @@ on:
         required: false
         default: false
         type: boolean
+      copilot_author_patterns:
+        description: Comma- or newline-separated exact logins and re:regex matchers for Copilot review actors.
+        required: false
+        default: ""
+        type: string
+      debug_artifacts:
+        description: Upload structured debug artifacts for inspection and automation.
+        required: false
+        default: true
+        type: boolean
+      debug_artifact_prefix:
+        description: Prefix for uploaded debug artifacts.
+        required: false
+        default: pr-agent-context-debug
+        type: string
       delete_comment_when_empty:
         description: Delete managed comments when there is no actionable content.
         required: false
@@ -77,6 +107,9 @@ on:
       patch_coverage_percent:
         description: Computed patch coverage percentage, if applicable.
         value: ${{ jobs.pr-agent-context.outputs.patch_coverage_percent }}
+      prompt_sha256:
+        description: SHA-256 of the rendered prompt markdown.
+        value: ${{ jobs.pr-agent-context.outputs.prompt_sha256 }}
       comment_written:
         description: Whether a managed PR comment exists after the run.
         value: ${{ jobs.pr-agent-context.outputs.comment_written }}
@@ -96,6 +129,7 @@ jobs:
       failed_job_count: ${{ steps.run_tool.outputs.failed_job_count }}
       has_actionable_items: ${{ steps.run_tool.outputs.has_actionable_items }}
       patch_coverage_percent: ${{ steps.run_tool.outputs.patch_coverage_percent }}
+      prompt_sha256: ${{ steps.run_tool.outputs.prompt_sha256 }}
       comment_written: ${{ steps.run_tool.outputs.comment_written }}
     steps:
       - name: Check out caller repository
@@ -131,8 +165,12 @@ jobs:
         id: run_tool
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          PR_AGENT_CONTEXT_TOOL_REF: ${{ inputs.tool_ref }}
           PR_AGENT_CONTEXT_WORKSPACE: ${{ github.workspace }}/caller-repo
+          PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS: ${{ inputs.include_review_comments }}
+          PR_AGENT_CONTEXT_INCLUDE_FAILING_JOBS: ${{ inputs.include_failing_jobs }}
           PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
+          PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE: ${{ inputs.prompt_template_file }}
           PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}
           PR_AGENT_CONTEXT_MAX_FAILED_JOBS: ${{ inputs.max_failed_jobs }}
           PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB: ${{ inputs.max_log_lines_per_job }}
@@ -140,7 +178,19 @@ jobs:
           PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE: ${{ inputs.include_patch_coverage }}
           PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX: ${{ inputs.coverage_artifact_prefix }}
           PR_AGENT_CONTEXT_FORCE_PATCH_COVERAGE_SECTION: ${{ inputs.force_patch_coverage_section }}
+          PR_AGENT_CONTEXT_COPILOT_AUTHOR_PATTERNS: ${{ inputs.copilot_author_patterns }}
+          PR_AGENT_CONTEXT_DEBUG_ARTIFACTS: ${{ inputs.debug_artifacts }}
+          PR_AGENT_CONTEXT_DEBUG_ARTIFACT_PREFIX: ${{ inputs.debug_artifact_prefix }}
           PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY: ${{ inputs.delete_comment_when_empty }}
           PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN: ${{ inputs.skip_comment_on_readonly_token }}
           PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR: ${{ github.workspace }}/coverage-artifacts
+          PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR: ${{ github.workspace }}/pr-agent-context-debug
         run: pr-agent-context run
+
+      - name: Upload debug artifacts
+        if: ${{ always() && inputs.debug_artifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.debug_artifact_prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: pr-agent-context-debug
+          if-no-files-found: warn

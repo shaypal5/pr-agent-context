@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from pr_agent_context.config import PullRequestRef
+
 
 class ReviewMessage(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -48,6 +50,16 @@ class WorkflowFailure(BaseModel):
     item_id: str | None = None
 
 
+class TruncationNote(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    target: str
+    strategy: str
+    message: str
+    original_size: int
+    truncated_size: int
+
+
 class CoverageFileGap(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -71,6 +83,15 @@ class PatchCoverageSummary(BaseModel):
     is_na: bool = False
 
 
+class CollectedContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    pull_request: PullRequestRef
+    review_threads: list[ReviewThread] = Field(default_factory=list)
+    workflow_failures: list[WorkflowFailure] = Field(default_factory=list)
+    patch_coverage: PatchCoverageSummary | None = None
+
+
 class ManagedComment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -83,13 +104,41 @@ class ManagedComment(BaseModel):
     updated_at: datetime | None = None
 
 
+class TemplateDiagnostics(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    template_source: Literal["built_in", "file"]
+    template_path: str | None = None
+    placeholders_used: list[str] = Field(default_factory=list)
+    prompt_preamble_inserted: bool = False
+
+
 class RenderedPrompt(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     prompt_markdown: str
     comment_body: str
+    prompt_sha256: str
     has_actionable_items: bool
     should_publish_comment: bool
+    truncation_notes: list[TruncationNote] = Field(default_factory=list)
+    template_diagnostics: TemplateDiagnostics
+
+
+class DebugSummary(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    tool_ref: str
+    unresolved_thread_count: int
+    failed_job_count: int
+    patch_coverage_percent: float | None = None
+    has_actionable_items: bool
+    should_publish_comment: bool
+    comment_written: bool
+    comment_id: int | None = None
+    comment_url: str | None = None
+    prompt_sha256: str
+    truncation_count: int = 0
 
 
 class PublicationResult(BaseModel):

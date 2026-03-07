@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -9,11 +10,14 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from pr_agent_context.constants import (
+    DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
+    DEFAULT_DEBUG_ARTIFACT_PREFIX,
     DEFAULT_MAX_FAILED_JOBS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
     DEFAULT_TARGET_PATCH_COVERAGE,
+    DEFAULT_TOOL_REF,
 )
 
 
@@ -35,26 +39,50 @@ class PullRequestRef(BaseModel):
     head_sha: str
 
 
+class CopilotAuthorMatcherConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    exact_logins: tuple[str, ...] = ()
+    regex_patterns: tuple[str, ...] = ()
+
+    def matches(self, author_login: str) -> bool:
+        if author_login in self.exact_logins:
+            return True
+        return any(
+            re.search(pattern, author_login, re.IGNORECASE) for pattern in self.regex_patterns
+        )
+
+
 class RunConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     github_api_url: str = "https://api.github.com"
     github_token: str
+    tool_ref: str = DEFAULT_TOOL_REF
     pull_request: PullRequestRef
     run_id: int
     run_attempt: int
     workspace: Path
+    include_review_comments: bool = True
+    include_failing_jobs: bool = True
+    include_patch_coverage: bool = True
+    force_patch_coverage_section: bool = False
     prompt_preamble: str = ""
+    prompt_template_file: Path | None = None
+    debug_artifacts: bool = True
+    debug_artifact_prefix: str = DEFAULT_DEBUG_ARTIFACT_PREFIX
+    copilot_author_patterns: CopilotAuthorMatcherConfig = Field(
+        default_factory=lambda: _parse_copilot_author_patterns(None)
+    )
     max_review_threads: int = DEFAULT_MAX_REVIEW_THREADS
     max_failed_jobs: int = DEFAULT_MAX_FAILED_JOBS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
-    include_patch_coverage: bool = True
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
-    force_patch_coverage_section: bool = False
     delete_comment_when_empty: bool = True
     skip_comment_on_readonly_token: bool = True
     coverage_artifacts_dir: Path | None = Field(default=None)
+    debug_artifacts_dir: Path | None = Field(default=None)
     github_output_path: Path | None = Field(default=None)
 
     @classmethod
@@ -65,10 +93,17 @@ class RunConfig(BaseModel):
         event = _load_event_payload(env_map["GITHUB_EVENT_PATH"])
         pull_request_number = _extract_pull_request_number(event)
         base_sha, head_sha = _extract_pull_request_shas(event)
+        workspace = Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd()))
+        debug_artifacts = _parse_bool(
+            env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS"),
+            default=True,
+        )
 
         return cls(
             github_api_url=env_map.get("GITHUB_API_URL", "https://api.github.com"),
             github_token=env_map["GITHUB_TOKEN"],
+            tool_ref=env_map.get("PR_AGENT_CONTEXT_TOOL_REF", DEFAULT_TOOL_REF).strip()
+            or DEFAULT_TOOL_REF,
             pull_request=PullRequestRef(
                 owner=owner,
                 repo=repo,
@@ -78,8 +113,37 @@ class RunConfig(BaseModel):
             ),
             run_id=int(env_map["GITHUB_RUN_ID"]),
             run_attempt=int(env_map.get("GITHUB_RUN_ATTEMPT", "1")),
-            workspace=Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd())),
+            workspace=workspace,
+            include_review_comments=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS"),
+                default=True,
+            ),
+            include_failing_jobs=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_FAILING_JOBS"),
+                default=True,
+            ),
+            include_patch_coverage=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE"),
+                default=True,
+            ),
+            force_patch_coverage_section=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_FORCE_PATCH_COVERAGE_SECTION"),
+                default=False,
+            ),
             prompt_preamble=env_map.get("PR_AGENT_CONTEXT_PROMPT_PREAMBLE", "").strip(),
+            prompt_template_file=_resolve_workspace_path(
+                workspace,
+                env_map.get("PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE"),
+            ),
+            debug_artifacts=debug_artifacts,
+            debug_artifact_prefix=env_map.get(
+                "PR_AGENT_CONTEXT_DEBUG_ARTIFACT_PREFIX",
+                DEFAULT_DEBUG_ARTIFACT_PREFIX,
+            ).strip()
+            or DEFAULT_DEBUG_ARTIFACT_PREFIX,
+            copilot_author_patterns=_parse_copilot_author_patterns(
+                env_map.get("PR_AGENT_CONTEXT_COPILOT_AUTHOR_PATTERNS")
+            ),
             max_review_threads=int(
                 env_map.get(
                     "PR_AGENT_CONTEXT_MAX_REVIEW_THREADS",
@@ -104,19 +168,11 @@ class RunConfig(BaseModel):
                     str(DEFAULT_TARGET_PATCH_COVERAGE),
                 )
             ),
-            include_patch_coverage=_parse_bool(
-                env_map.get("PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE"),
-                default=True,
-            ),
             coverage_artifact_prefix=env_map.get(
                 "PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX",
                 DEFAULT_COVERAGE_ARTIFACT_PREFIX,
             ).strip()
             or DEFAULT_COVERAGE_ARTIFACT_PREFIX,
-            force_patch_coverage_section=_parse_bool(
-                env_map.get("PR_AGENT_CONTEXT_FORCE_PATCH_COVERAGE_SECTION"),
-                default=False,
-            ),
             delete_comment_when_empty=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY"),
                 default=True,
@@ -129,6 +185,11 @@ class RunConfig(BaseModel):
                 Path(env_map["PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR"])
                 if env_map.get("PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR")
                 else None
+            ),
+            debug_artifacts_dir=(
+                Path(env_map["PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR"])
+                if env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR")
+                else (workspace / "pr-agent-context-debug" if debug_artifacts else None)
             ),
             github_output_path=(
                 Path(env_map["GITHUB_OUTPUT"]) if env_map.get("GITHUB_OUTPUT") else None
@@ -164,3 +225,41 @@ def _extract_pull_request_shas(event: Mapping[str, Any]) -> tuple[str, str]:
     if not base_sha or not head_sha:
         raise ValueError("Pull request event is missing base/head SHAs.")
     return base_sha, head_sha
+
+
+def _parse_copilot_author_patterns(value: str | None) -> CopilotAuthorMatcherConfig:
+    entries = _split_pattern_entries(value) or list(DEFAULT_COPILOT_AUTHOR_PATTERNS)
+    exact_logins: list[str] = []
+    regex_patterns: list[str] = []
+    for entry in entries:
+        if entry.startswith("re:"):
+            pattern = entry[3:].strip()
+            if not pattern:
+                raise ValueError("Empty regex pattern in copilot_author_patterns.")
+            re.compile(pattern)
+            regex_patterns.append(pattern)
+            continue
+        exact_logins.append(entry)
+    return CopilotAuthorMatcherConfig(
+        exact_logins=tuple(sorted(set(exact_logins))),
+        regex_patterns=tuple(sorted(set(regex_patterns))),
+    )
+
+
+def _split_pattern_entries(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    raw_entries = [entry.strip() for part in value.splitlines() for entry in part.split(",")]
+    return [entry for entry in raw_entries if entry]
+
+
+def _resolve_workspace_path(workspace: Path, raw_path: str | None) -> Path | None:
+    if raw_path is None or not raw_path.strip():
+        return None
+    candidate = Path(raw_path.strip())
+    if not candidate.is_absolute():
+        candidate = workspace / candidate
+    resolved = candidate.resolve()
+    if not resolved.exists():
+        raise ValueError(f"Configured path does not exist: {raw_path}")
+    return resolved

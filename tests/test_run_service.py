@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 from contextlib import redirect_stdout
 from io import BytesIO
@@ -80,6 +81,7 @@ def _zip_bytes(text: str) -> bytes:
 def _build_config(tmp_path):
     return RunConfig(
         github_token="token",
+        tool_ref="v3",
         pull_request=PullRequestRef(
             owner="shaypal5",
             repo="example",
@@ -95,6 +97,8 @@ def _build_config(tmp_path):
         max_failed_jobs=20,
         max_log_lines_per_job=6,
         include_patch_coverage=False,
+        debug_artifacts=True,
+        debug_artifacts_dir=tmp_path / "debug",
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=True,
         github_output_path=tmp_path / "github-output.txt",
@@ -147,6 +151,7 @@ def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
     assert outputs["unresolved_thread_count"] == "2"
     assert outputs["failed_job_count"] == "3"
     assert outputs["comment_written"] == "true"
+    assert len(outputs["prompt_sha256"]) == 64
 
 
 def test_run_service_deletes_managed_comments_when_no_actionable_items(
@@ -307,6 +312,7 @@ def test_run_service_renders_actionable_patch_coverage_from_artifacts(
     outputs = _read_outputs(config.github_output_path)
     assert outputs["has_actionable_items"] == "true"
     assert outputs["patch_coverage_percent"] == "75.0"
+    assert len(outputs["prompt_sha256"]) == 64
     assert client.created_bodies
     assert "# Codecov/patch" in client.created_bodies[0]
     assert "- src/pkg/module.py: 5" in client.created_bodies[0]
@@ -380,3 +386,28 @@ def test_run_service_can_force_na_patch_coverage_section(
     assert client.created_bodies
     assert "no changed executable Python lines" in client.created_bodies[0]
     assert stdout.getvalue() == ""
+
+
+def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path)
+
+    assert run_service(config, client=client) == 0
+
+    summary = json.loads((config.debug_artifacts_dir / "summary.json").read_text(encoding="utf-8"))
+    collected = json.loads(
+        (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
+    )
+    prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
+    comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
+
+    assert summary["tool_ref"] == "v3"
+    assert summary["unresolved_thread_count"] == 2
+    assert "template_diagnostics" in summary
+    assert collected["pull_request"]["number"] == 17
+    assert prompt_text.startswith("Repository: foldermix")
+    assert comment_body.startswith("<!-- pr-agent-context:managed-comment -->")
