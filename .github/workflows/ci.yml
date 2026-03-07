@@ -8,6 +8,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -31,10 +33,10 @@ jobs:
           path: .coverage*
           if-no-files-found: error
       - name: Upload coverage reports to Codecov
-        if: ${{ always() && secrets.CODECOV_TOKEN != '' }}
+        if: ${{ always() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
           files: ./coverage.xml
           flags: py${{ matrix.python-version }}
           name: py${{ matrix.python-version }}
