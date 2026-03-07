@@ -42,7 +42,7 @@ jobs:
       coverage_artifact_prefix: pr-agent-context-coverage
 ```
 
-The reusable workflow keeps Milestone 1 defaults and adds these Milestone 2 inputs:
+The reusable workflow inputs are:
 
 - `target_patch_coverage`: required patch coverage percentage, default `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
@@ -83,6 +83,7 @@ jobs:
         with:
           name: pr-agent-context-coverage-${{ matrix.os }}-py${{ matrix.python-version }}
           path: .coverage*
+          include-hidden-files: true
           if-no-files-found: ignore
 ```
 
