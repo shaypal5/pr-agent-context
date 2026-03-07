@@ -8,6 +8,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -22,4 +24,20 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Pytest
-        run: pytest
+        run: pytest --cov=src/pr_agent_context --cov-branch --cov-report=xml --cov-report=term
+      - name: Upload raw coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-agent-context-coverage-py${{ matrix.python-version }}
+          path: .coverage*
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Upload coverage reports to Codecov
+        if: ${{ always() && env.CODECOV_TOKEN != '' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: py${{ matrix.python-version }}
+          name: py${{ matrix.python-version }}

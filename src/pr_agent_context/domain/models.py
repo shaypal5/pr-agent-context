@@ -48,6 +48,29 @@ class WorkflowFailure(BaseModel):
     item_id: str | None = None
 
 
+class CoverageFileGap(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    changed_added_lines: list[int] = Field(default_factory=list)
+    changed_executable_lines: list[int] = Field(default_factory=list)
+    covered_changed_executable_lines: list[int] = Field(default_factory=list)
+    uncovered_changed_executable_lines: list[int] = Field(default_factory=list)
+    has_measured_data: bool = False
+
+
+class PatchCoverageSummary(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    target_percent: float
+    actual_percent: float | None = None
+    total_changed_executable_lines: int = 0
+    covered_changed_executable_lines: int = 0
+    files: list[CoverageFileGap] = Field(default_factory=list)
+    actionable: bool = False
+    is_na: bool = False
+
+
 class ManagedComment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -66,6 +89,7 @@ class RenderedPrompt(BaseModel):
     prompt_markdown: str
     comment_body: str
     has_actionable_items: bool
+    should_publish_comment: bool
 
 
 class PublicationResult(BaseModel):
