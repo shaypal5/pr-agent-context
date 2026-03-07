@@ -1,0 +1,123 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "reviewThreads": {
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": [
+            {
+              "databaseId": 101,
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "src/example.py",
+              "line": 12,
+              "startLine": null,
+              "originalLine": 12,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1001,
+                    "body": "Consider extracting this branch into a helper function so the retry path is easier to test.",
+                    "createdAt": "2026-03-07T09:00:00Z",
+                    "updatedAt": "2026-03-07T09:00:00Z",
+                    "url": "https://github.com/shaypal5/example/pull/17#discussion_r1001",
+                    "author": {
+                      "login": "copilot-pull-request-reviewer[bot]",
+                      "__typename": "Bot"
+                    }
+                  },
+                  {
+                    "databaseId": 1002,
+                    "body": "I want to keep the helper private to this module, but the extraction makes sense.",
+                    "createdAt": "2026-03-07T09:10:00Z",
+                    "updatedAt": "2026-03-07T09:10:00Z",
+                    "url": "https://github.com/shaypal5/example/pull/17#discussion_r1002",
+                    "author": {
+                      "login": "shaypalachy",
+                      "__typename": "User"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "databaseId": 150,
+              "isResolved": true,
+              "isOutdated": false,
+              "path": "src/ignored.py",
+              "line": 9,
+              "startLine": null,
+              "originalLine": 9,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 1501,
+                    "body": "Resolved comment.",
+                    "createdAt": "2026-03-07T09:00:00Z",
+                    "updatedAt": "2026-03-07T09:00:00Z",
+                    "url": "https://github.com/shaypal5/example/pull/17#discussion_r1501",
+                    "author": {
+                      "login": "octocat",
+                      "__typename": "User"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "databaseId": 202,
+              "isResolved": false,
+              "isOutdated": false,
+              "path": "tests/test_example.py",
+              "line": 34,
+              "startLine": null,
+              "originalLine": 34,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 2001,
+                    "body": "This assertion is brittle across Python versions.",
+                    "createdAt": "2026-03-07T09:15:00Z",
+                    "updatedAt": "2026-03-07T09:15:00Z",
+                    "url": "https://github.com/shaypal5/example/pull/17#discussion_r2001",
+                    "author": {
+                      "login": "octocat",
+                      "__typename": "User"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "databaseId": 250,
+              "isResolved": false,
+              "isOutdated": true,
+              "path": "src/outdated.py",
+              "line": 3,
+              "startLine": null,
+              "originalLine": 3,
+              "comments": {
+                "nodes": [
+                  {
+                    "databaseId": 2501,
+                    "body": "Outdated comment.",
+                    "createdAt": "2026-03-07T09:00:00Z",
+                    "updatedAt": "2026-03-07T09:00:00Z",
+                    "url": "https://github.com/shaypal5/example/pull/17#discussion_r2501",
+                    "author": {
+                      "login": "octocat",
+                      "__typename": "User"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

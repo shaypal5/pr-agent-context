@@ -1,0 +1,69 @@
+{
+  "total_count": 5,
+  "jobs": [
+    {
+      "id": 1001,
+      "name": "smoke (ubuntu-latest, 3.12)",
+      "workflow_name": "CI",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaypal5/example/actions/runs/1/job/1001",
+      "steps": [
+        {
+          "name": "Set up Python",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run pytest",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "id": 1002,
+      "name": "pre-commit.ci (ubuntu-latest)",
+      "workflow_name": "CI",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaypal5/example/actions/runs/1/job/1002",
+      "steps": [
+        {
+          "name": "Run pre-commit",
+          "conclusion": "failure"
+        }
+      ]
+    },
+    {
+      "id": 1003,
+      "name": "integration (windows-latest)",
+      "workflow_name": "QA",
+      "conclusion": "timed_out",
+      "html_url": "https://github.com/shaypal5/example/actions/runs/1/job/1003",
+      "steps": []
+    },
+    {
+      "id": 1004,
+      "name": "docs",
+      "workflow_name": "CI",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaypal5/example/actions/runs/1/job/1004",
+      "steps": [
+        {
+          "name": "Build docs",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "id": 1005,
+      "name": "lint",
+      "workflow_name": "CI",
+      "conclusion": "cancelled",
+      "html_url": "https://github.com/shaypal5/example/actions/runs/1/job/1005",
+      "steps": [
+        {
+          "name": "Ruff",
+          "conclusion": "cancelled"
+        }
+      ]
+    }
+  ]
+}

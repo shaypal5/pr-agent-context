@@ -1,0 +1,7 @@
+2026-03-07T10:01:00Z ##[group]Run pre-commit
+pre-commit install
+black....................................................................Failed
+- hook id: black
+- files were modified by this hook
+would reformat src/example.py
+::error::Process completed with exit code 1.

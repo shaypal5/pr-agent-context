@@ -1,0 +1,10 @@
+2026-03-07T10:00:00Z ##[group]Run pytest
+Running tests
+============================= test session starts =============================
+tests/test_example.py::test_behavior FAILED
+E   AssertionError: expected 3, got 2
+Traceback (most recent call last):
+  File "tests/test_example.py", line 12, in test_behavior
+    assert func() == 3
+AssertionError
+##[error]Process completed with exit code 1.
