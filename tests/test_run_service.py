@@ -29,10 +29,7 @@ class FakeGitHubClient:
                 "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-500",
                 "created_at": "2026-03-07T09:30:00Z",
                 "updated_at": "2026-03-07T09:30:00Z",
-                "user": {
-                    "login": "github-actions[bot]",
-                    "type": "Bot"
-                }
+                "user": {"login": "github-actions[bot]", "type": "Bot"},
             }
             self.created_bodies.append(payload["body"])
             self.issue_comments_payload.append(created)
@@ -113,7 +110,7 @@ def test_run_service_deletes_managed_comments_when_no_actionable_items(
                 "pullRequest": {
                     "reviewThreads": {
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        "nodes": []
+                        "nodes": [],
                     }
                 }
             }

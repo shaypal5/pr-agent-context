@@ -24,7 +24,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_MAX_FAILED_JOBS": "7",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
             "PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY": "false",
-            "PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN": "true"
+            "PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN": "true",
         }
     )
 

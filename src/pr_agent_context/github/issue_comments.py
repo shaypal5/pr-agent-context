@@ -128,9 +128,8 @@ def managed_comments_only(comments: Iterable[ManagedComment]) -> list[ManagedCom
 
 
 def is_managed_comment(comment: ManagedComment) -> bool:
-    return (
-        comment.body.startswith(MANAGED_COMMENT_MARKER)
-        and _is_bot_author(comment.author_login, comment.author_type)
+    return comment.body.startswith(MANAGED_COMMENT_MARKER) and _is_bot_author(
+        comment.author_login, comment.author_type
     )
 
 

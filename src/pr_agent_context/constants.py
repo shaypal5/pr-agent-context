@@ -22,9 +22,7 @@ COPILOT_AUTHOR_LOGINS = {
     "copilot-pull-request-reviewer[bot]",
     "github-copilot[bot]",
 }
-COPILOT_AUTHOR_PATTERNS = (
-    re.compile(r"copilot.*bot", re.IGNORECASE),
-)
+COPILOT_AUTHOR_PATTERNS = (re.compile(r"copilot.*bot", re.IGNORECASE),)
 
 FAILED_JOB_CONCLUSIONS = {"failure", "timed_out", "startup_failure"}
 ERROR_MARKERS = (
