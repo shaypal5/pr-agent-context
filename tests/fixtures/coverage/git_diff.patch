@@ -1,0 +1,27 @@
+diff --git a/src/pkg/module.py b/src/pkg/module.py
+index 1111111..2222222 100644
+--- a/src/pkg/module.py
++++ b/src/pkg/module.py
+@@ -2 +2,2 @@
+-    return x + 1
++    value = x + 1
++    return value
+@@ -10,0 +11,3 @@
++def extra(flag):
++    if flag:
++        return "yes"
+diff --git a/src/pkg/notes.py b/src/pkg/notes.py
+index 3333333..4444444 100644
+--- a/src/pkg/notes.py
++++ b/src/pkg/notes.py
+@@ -1,0 +1,2 @@
++# note
++# another
+diff --git a/docs/readme.md b/docs/readme.md
+index 5555555..6666666 100644
+--- a/docs/readme.md
++++ b/docs/readme.md
+@@ -3 +3,2 @@
+-old
++new
++more

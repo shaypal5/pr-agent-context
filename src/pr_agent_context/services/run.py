@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from pr_agent_context.config import RunConfig
+from pr_agent_context.coverage.artifacts import discover_coverage_files
+from pr_agent_context.coverage.combine import build_combined_coverage
+from pr_agent_context.coverage.git_diff import collect_changed_lines
+from pr_agent_context.coverage.patch import compute_patch_coverage
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.issue_comments import sync_managed_comment
 from pr_agent_context.github.review_threads import collect_unresolved_review_threads
@@ -32,19 +36,39 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         max_failed_jobs=config.max_failed_jobs,
         max_log_lines_per_job=config.max_log_lines_per_job,
     )
+    patch_coverage = None
+    if config.include_patch_coverage:
+        changed_lines = collect_changed_lines(
+            config.workspace,
+            base_sha=config.pull_request.base_sha,
+            head_sha=config.pull_request.head_sha,
+        )
+        coverage_files = discover_coverage_files(config.coverage_artifacts_dir)
+        combined_coverage = build_combined_coverage(
+            workspace=config.workspace,
+            coverage_files=coverage_files,
+        )
+        patch_coverage = compute_patch_coverage(
+            workspace=config.workspace,
+            changed_lines_by_file=changed_lines,
+            coverage=combined_coverage,
+            target_percent=config.target_patch_coverage,
+        )
     numbered_threads, numbered_failures = assign_item_ids(review_threads, workflow_failures)
     rendered = render_prompt(
         pull_request_number=config.pull_request.number,
         review_threads=numbered_threads,
         workflow_failures=numbered_failures,
+        patch_coverage=patch_coverage,
         prompt_preamble=config.prompt_preamble,
+        force_patch_coverage_section=config.force_patch_coverage_section,
     )
     publication = sync_managed_comment(
         api_client,
         owner=config.pull_request.owner,
         repo=config.pull_request.repo,
         pull_request_number=config.pull_request.number,
-        body=rendered.comment_body if rendered.has_actionable_items else None,
+        body=rendered.comment_body if rendered.should_publish_comment else None,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
     )
@@ -55,6 +79,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         unresolved_thread_count=len(numbered_threads),
         failed_job_count=len(numbered_failures),
         has_actionable_items=rendered.has_actionable_items,
+        patch_coverage_percent=_patch_coverage_percent(patch_coverage),
         comment_written=publication.comment_written,
         comment_id=publication.comment_id,
         comment_url=publication.comment_url,
@@ -68,6 +93,7 @@ def _write_outputs(
     unresolved_thread_count: int,
     failed_job_count: int,
     has_actionable_items: bool,
+    patch_coverage_percent: float | None,
     comment_written: bool,
     comment_id: int | None,
     comment_url: str | None,
@@ -78,8 +104,16 @@ def _write_outputs(
         f"unresolved_thread_count={unresolved_thread_count}",
         f"failed_job_count={failed_job_count}",
         f"has_actionable_items={str(has_actionable_items).lower()}",
+        "patch_coverage_percent="
+        f"{'' if patch_coverage_percent is None else round(patch_coverage_percent, 2)}",
         f"comment_written={str(comment_written).lower()}",
         f"comment_id={comment_id or ''}",
         f"comment_url={comment_url or ''}",
     ]
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _patch_coverage_percent(patch_coverage) -> float | None:
+    if patch_coverage is None or patch_coverage.actual_percent is None:
+        return None
+    return patch_coverage.actual_percent
