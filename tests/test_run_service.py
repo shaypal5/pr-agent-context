@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import io
+import subprocess
 from contextlib import redirect_stdout
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZipFile
+
+from coverage import Coverage
 
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.config import PullRequestRef, RunConfig
@@ -76,7 +80,13 @@ def _zip_bytes(text: str) -> bytes:
 def _build_config(tmp_path):
     return RunConfig(
         github_token="token",
-        pull_request=PullRequestRef(owner="shaypal5", repo="example", number=17),
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha="abc123",
+            head_sha="def456",
+        ),
         run_id=1,
         run_attempt=1,
         workspace=tmp_path,
@@ -84,6 +94,7 @@ def _build_config(tmp_path):
         max_review_threads=50,
         max_failed_jobs=20,
         max_log_lines_per_job=6,
+        include_patch_coverage=False,
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=True,
         github_output_path=tmp_path / "github-output.txt",
@@ -93,6 +104,32 @@ def _build_config(tmp_path):
 def _read_outputs(path):
     lines = path.read_text(encoding="utf-8").splitlines()
     return dict(line.split("=", maxsplit=1) for line in lines)
+
+
+def _run_git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _write_file(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _build_coverage_data(script_path: Path, data_file: Path, invocation: str) -> None:
+    coverage = Coverage(config_file=False, data_file=str(data_file))
+    coverage.start()
+    globals_dict = {"__name__": "__main__"}
+    exec(compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"), globals_dict)
+    exec(invocation, globals_dict)
+    coverage.stop()
+    coverage.save()
 
 
 def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
@@ -192,3 +229,154 @@ def test_run_service_updates_existing_managed_comment_without_reordering(
     updated_body = client.updated_bodies[0]
     assert updated_body.index("## COPILOT-1") < updated_body.index("## REVIEW-1")
     assert updated_body.index("## FAIL-1") < updated_body.index("## FAIL-2")
+
+
+def test_run_service_renders_actionable_patch_coverage_from_artifacts(
+    tmp_path,
+    issue_comments_payload,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.name", "Test User")
+    _run_git(repo, "config", "user.email", "test@example.com")
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def compute(flag):\n    return 1 if flag else 2\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "base")
+    base_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    _write_file(
+        module_path,
+        "def compute(flag):\n"
+        "    if flag:\n"
+        "        value = 1\n"
+        "    else:\n"
+        "        value = 2\n"
+        "    return value\n",
+    )
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "head")
+    head_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    coverage_dir = tmp_path / "coverage-artifacts" / "linux"
+    coverage_dir.mkdir(parents=True)
+    _build_coverage_data(module_path, coverage_dir / ".coverage.py311", "compute(True)")
+
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=repo,
+        target_patch_coverage=100,
+        include_patch_coverage=True,
+        coverage_artifacts_dir=tmp_path / "coverage-artifacts",
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    assert outputs["has_actionable_items"] == "true"
+    assert outputs["patch_coverage_percent"] == "75.0"
+    assert client.created_bodies
+    assert "# Codecov/patch" in client.created_bodies[0]
+    assert "- src/pkg/module.py: 5" in client.created_bodies[0]
+    assert "# Codecov/patch" in stdout.getvalue()
+
+
+def test_run_service_can_force_na_patch_coverage_section(
+    tmp_path,
+    issue_comments_payload,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.name", "Test User")
+    _run_git(repo, "config", "user.email", "test@example.com")
+    notes_path = repo / "src" / "pkg" / "notes.py"
+    _write_file(notes_path, "# base\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "base")
+    base_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    _write_file(notes_path, "# base\n# added comment\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "head")
+    head_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=repo,
+        include_patch_coverage=True,
+        force_patch_coverage_section=True,
+        coverage_artifacts_dir=tmp_path / "coverage-artifacts",
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    assert outputs["has_actionable_items"] == "false"
+    assert outputs["patch_coverage_percent"] == ""
+    assert client.created_bodies
+    assert "no changed executable Python lines" in client.created_bodies[0]
+    assert stdout.getvalue() == ""
