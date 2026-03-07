@@ -1,0 +1,107 @@
+name: PR Agent Context
+
+on:
+  workflow_call:
+    inputs:
+      tool_ref:
+        description: Ref of shaypal5/pr-agent-context to check out.
+        required: false
+        default: v1
+        type: string
+      prompt_preamble:
+        description: Optional text inserted before the default prompt preamble.
+        required: false
+        default: ""
+        type: string
+      max_review_threads:
+        description: Maximum unresolved review threads to include.
+        required: false
+        default: 50
+        type: number
+      max_failed_jobs:
+        description: Maximum failed jobs to include.
+        required: false
+        default: 20
+        type: number
+      max_log_lines_per_job:
+        description: Maximum log excerpt lines per failed job.
+        required: false
+        default: 80
+        type: number
+      delete_comment_when_empty:
+        description: Delete managed comments when there is no actionable content.
+        required: false
+        default: true
+        type: boolean
+      skip_comment_on_readonly_token:
+        description: Skip comment mutation when the token cannot write.
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      comment_id:
+        description: The managed PR comment ID, if a comment exists after the run.
+        value: ${{ jobs.pr-agent-context.outputs.comment_id }}
+      comment_url:
+        description: The managed PR comment URL, if a comment exists after the run.
+        value: ${{ jobs.pr-agent-context.outputs.comment_url }}
+      unresolved_thread_count:
+        description: Count of unresolved review threads included in the prompt.
+        value: ${{ jobs.pr-agent-context.outputs.unresolved_thread_count }}
+      failed_job_count:
+        description: Count of failed jobs included in the prompt.
+        value: ${{ jobs.pr-agent-context.outputs.failed_job_count }}
+      has_actionable_items:
+        description: Whether the rendered prompt contains actionable content.
+        value: ${{ jobs.pr-agent-context.outputs.has_actionable_items }}
+      comment_written:
+        description: Whether a managed PR comment exists after the run.
+        value: ${{ jobs.pr-agent-context.outputs.comment_written }}
+
+jobs:
+  pr-agent-context:
+    name: PR agent context
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    outputs:
+      comment_id: ${{ steps.run_tool.outputs.comment_id }}
+      comment_url: ${{ steps.run_tool.outputs.comment_url }}
+      unresolved_thread_count: ${{ steps.run_tool.outputs.unresolved_thread_count }}
+      failed_job_count: ${{ steps.run_tool.outputs.failed_job_count }}
+      has_actionable_items: ${{ steps.run_tool.outputs.has_actionable_items }}
+      comment_written: ${{ steps.run_tool.outputs.comment_written }}
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v4
+        with:
+          path: caller-repo
+
+      - name: Check out pr-agent-context
+        uses: actions/checkout@v4
+        with:
+          repository: shaypal5/pr-agent-context
+          ref: ${{ inputs.tool_ref }}
+          path: pr-agent-context
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pr-agent-context
+        run: python -m pip install ./pr-agent-context
+
+      - name: Run pr-agent-context
+        id: run_tool
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_AGENT_CONTEXT_WORKSPACE: ${{ github.workspace }}/caller-repo
+          PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
+          PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}
+          PR_AGENT_CONTEXT_MAX_FAILED_JOBS: ${{ inputs.max_failed_jobs }}
+          PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB: ${{ inputs.max_log_lines_per_job }}
+          PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY: ${{ inputs.delete_comment_when_empty }}
+          PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN: ${{ inputs.skip_comment_on_readonly_token }}
+        run: pr-agent-context run
