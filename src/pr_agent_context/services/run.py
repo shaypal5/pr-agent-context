@@ -48,7 +48,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
     )
-    if rendered.prompt_markdown:
+    if rendered.has_actionable_items:
         print(rendered.prompt_markdown)
     _write_outputs(
         config.github_output_path,

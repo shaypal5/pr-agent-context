@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from io import BytesIO
+from zipfile import ZipFile
+
 from conftest import load_text_fixture
-from pr_agent_context.github.workflow_jobs import parse_failed_jobs, split_job_display_name
+from pr_agent_context.github.workflow_jobs import (
+    extract_log_text,
+    parse_failed_jobs,
+    split_job_display_name,
+)
 
 
 def test_split_job_display_name():
@@ -31,3 +38,12 @@ def test_parse_failed_jobs_sorts_and_trims_logs(workflow_jobs_payload):
     assert "would reformat src/example.py" in failures[0].excerpt_lines
     assert len(failures[1].excerpt_lines) <= 6
     assert failures[2].conclusion == "timed_out"
+
+
+def test_extract_log_text_reads_zip_archives():
+    payload = BytesIO()
+    with ZipFile(payload, "w") as archive:
+        archive.writestr("0_step.txt", "first line\nsecond line\n")
+        archive.writestr("1_step.txt", "third line\n")
+
+    assert extract_log_text(payload.getvalue()) == "first line\nsecond line\nthird line"

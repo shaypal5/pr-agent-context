@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import io
+from contextlib import redirect_stdout
+from io import BytesIO
+from zipfile import ZipFile
+
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.config import PullRequestRef, RunConfig
 from pr_agent_context.services.run import run_service
@@ -50,15 +55,22 @@ class FakeGitHubClient:
             return {}
         raise AssertionError(f"Unexpected call: {method} {path}")
 
-    def request_text(self, method, path, params=None, extra_headers=None):
+    def request_bytes(self, method, path, params=None, extra_headers=None):
         job_id = int(path.split("/")[-2])
         if job_id == 1001:
-            return load_text_fixture("github/logs/pytest_failure.log")
+            return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
         if job_id == 1002:
-            return load_text_fixture("github/logs/pre_commit_failure.log")
+            return _zip_bytes(load_text_fixture("github/logs/pre_commit_failure.log"))
         if job_id == 1003:
-            return load_text_fixture("github/logs/timeout_failure.log")
+            return _zip_bytes(load_text_fixture("github/logs/timeout_failure.log"))
         raise AssertionError(f"Unknown job log request: {path}")
+
+
+def _zip_bytes(text: str) -> bytes:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        archive.writestr("job.log", text)
+    return buffer.getvalue()
 
 
 def _build_config(tmp_path):
@@ -130,6 +142,36 @@ def test_run_service_deletes_managed_comments_when_no_actionable_items(
     assert client.deleted_ids == [2, 3]
     assert outputs["has_actionable_items"] == "false"
     assert outputs["comment_written"] == "false"
+
+
+def test_run_service_does_not_print_empty_prompt(
+    tmp_path,
+    issue_comments_payload,
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=issue_comments_payload,
+    )
+    config = _build_config(tmp_path)
+    stdout = io.StringIO()
+
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    assert stdout.getvalue() == ""
 
 
 def test_run_service_updates_existing_managed_comment_without_reordering(

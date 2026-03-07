@@ -90,3 +90,24 @@ def test_sync_managed_comment_deletes_all_when_body_missing(issue_comments_paylo
 
     assert client.deleted_ids == [2, 3]
     assert result.comment_written is False
+
+
+def test_sync_managed_comment_preserves_existing_comment_when_delete_disabled(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        body=None,
+        delete_comment_when_empty=False,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert client.deleted_ids == []
+    assert result.comment_id == 3
+    assert result.comment_url == "https://github.com/shaypal5/example/pull/17#issuecomment-3"
+    assert result.comment_written is True

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from io import BytesIO
+from zipfile import BadZipFile, ZipFile
 
 from pr_agent_context.constants import ERROR_MARKERS, FAILED_JOB_CONCLUSIONS
 from pr_agent_context.domain.models import WorkflowFailure
@@ -36,9 +38,11 @@ def collect_failed_jobs(
 
     return parse_failed_jobs(
         jobs,
-        log_fetcher=lambda job_id: client.request_text(
-            "GET",
-            f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+        log_fetcher=lambda job_id: extract_log_text(
+            client.request_bytes(
+                "GET",
+                f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+            )
         ),
         max_failed_jobs=max_failed_jobs,
         max_log_lines_per_job=max_log_lines_per_job,
@@ -130,3 +134,21 @@ def trim_log_excerpt(log_text: str, *, failed_steps: list[str], max_lines: int) 
         return lines[-max_lines:]
     excerpt = [lines[index] for index in sorted(selected_indexes)]
     return excerpt[:max_lines]
+
+
+def extract_log_text(log_payload: bytes) -> str:
+    try:
+        with ZipFile(BytesIO(log_payload)) as archive:
+            entries = sorted(
+                (info for info in archive.infolist() if not info.is_dir()),
+                key=lambda info: info.filename,
+            )
+            extracted_parts: list[str] = []
+            for entry in entries:
+                with archive.open(entry) as handle:
+                    extracted_parts.append(handle.read().decode("utf-8", errors="replace"))
+            if extracted_parts:
+                return "\n".join(part.rstrip("\n") for part in extracted_parts if part)
+    except BadZipFile:
+        pass
+    return log_payload.decode("utf-8", errors="replace")

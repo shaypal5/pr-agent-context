@@ -78,6 +78,13 @@ def sync_managed_comment(
                         "DELETE",
                         f"/repos/{owner}/{repo}/issues/comments/{comment.comment_id}",
                     )
+                return PublicationResult(comment_written=False)
+            if primary_comment is not None:
+                return PublicationResult(
+                    comment_id=primary_comment.comment_id,
+                    comment_url=primary_comment.url,
+                    comment_written=True,
+                )
             return PublicationResult(comment_written=False)
 
         for duplicate in duplicate_comments:

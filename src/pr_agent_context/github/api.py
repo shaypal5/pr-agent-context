@@ -74,6 +74,22 @@ class GitHubApiClient:
         )
         return raw.decode("utf-8", errors="replace")
 
+    def request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> bytes:
+        return self._request(
+            method,
+            path,
+            params=params,
+            payload=None,
+            extra_headers=extra_headers,
+        )
+
     def _request(
         self,
         method: str,
