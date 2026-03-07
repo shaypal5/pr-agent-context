@@ -21,6 +21,7 @@ dependencies = [
 dev = [
   "pre-commit>=4,<5",
   "pytest>=8,<9",
+  "pytest-cov>=6,<7",
   "ruff>=0.15,<0.16",
 ]
 
