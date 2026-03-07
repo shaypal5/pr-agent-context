@@ -7,6 +7,7 @@ from pr_agent_context.coverage.artifacts import discover_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.git_diff import collect_changed_lines
 from pr_agent_context.coverage.patch import compute_patch_coverage
+from pr_agent_context.domain.models import PatchCoverageSummary
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.issue_comments import sync_managed_comment
 from pr_agent_context.github.review_threads import collect_unresolved_review_threads
@@ -113,7 +114,7 @@ def _write_outputs(
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _patch_coverage_percent(patch_coverage) -> float | None:
+def _patch_coverage_percent(patch_coverage: PatchCoverageSummary | None) -> float | None:
     if patch_coverage is None or patch_coverage.actual_percent is None:
         return None
     return patch_coverage.actual_percent
