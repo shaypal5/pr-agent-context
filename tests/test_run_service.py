@@ -183,7 +183,7 @@ def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
     outputs = _read_outputs(config.github_output_path)
     assert client.deleted_ids == [2]
     assert client.updated_bodies
-    assert "all clear" in client.updated_bodies[0].lower()
+    assert "No actionable items were found in the enabled checks" in client.updated_bodies[0]
     assert outputs["has_actionable_items"] == "false"
     assert outputs["comment_written"] == "true"
 

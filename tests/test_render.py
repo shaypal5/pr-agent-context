@@ -131,7 +131,7 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
         include_patch_coverage=False,
     )
 
-    assert "all clear" in rendered.prompt_markdown.lower()
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
     assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
 

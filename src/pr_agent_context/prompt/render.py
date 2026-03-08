@@ -123,10 +123,6 @@ def _build_opening_instructions(
             head_sha=head_sha or "unknown",
         )
 
-    message = DEFAULT_ALL_CLEAR_PROMPT.format(
-        pr_number=pull_request_number,
-        head_sha=head_sha or "unknown",
-    )
     disabled_checks = [
         label
         for label, enabled in (
@@ -137,11 +133,15 @@ def _build_opening_instructions(
         if not enabled
     ]
     if not disabled_checks:
-        return message
+        return DEFAULT_ALL_CLEAR_PROMPT.format(
+            pr_number=pull_request_number,
+            head_sha=head_sha or "unknown",
+        )
     return (
-        message
+        "No actionable items were found in the enabled checks for PR "
+        f"#{pull_request_number} at head commit {head_sha or 'unknown'}."
         + "\n\n"
-        + "Note: This all-clear assessment only covers the enabled checks for this run. "
+        + "Note: This assessment only covers the enabled checks for this run. "
         + "Skipped checks: "
         + ", ".join(disabled_checks)
         + "."

@@ -3,8 +3,10 @@
 Repository: foldermix
 
 Below are the details of unresolved review comments and failing GitHub Actions jobs on PR #17 for head commit def456.
- For each unresolved comment, recommend one of: resolve as irrelevant, accept and implement the recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and implement a different solution, or resolve as already treated by the code.
- After I reply with my decision per item, implement the accepted actions, resolve the corresponding PR comments, fix each failing job below, and push all of these changes in a single commit.
+
+For each unresolved comment, recommend one of: resolve as irrelevant, accept and implement the recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and implement a different solution, or resolve as already treated by the code.
+
+After I reply with my decision per item, implement the accepted actions, resolve the corresponding PR comments, fix each failing job below, and push all of these changes in a single commit.
 
 # Copilot Comments
 
