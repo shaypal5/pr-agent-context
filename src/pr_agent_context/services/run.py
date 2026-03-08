@@ -287,13 +287,9 @@ def _write_json(path: Path, payload: dict) -> None:
 
 
 def _log(event: str, **fields: object) -> None:
-    rendered_fields = " ".join(
-        f"{key}={_format_log_value(value)}" for key, value in fields.items() if value != ""
-    )
-    print(f"[pr-agent-context] {event}" + (f" {rendered_fields}" if rendered_fields else ""))
-
-
-def _format_log_value(value: object) -> str:
-    if isinstance(value, bool):
-        return str(value).lower()
-    return str(value)
+    payload: dict[str, object] = {"tool": "pr-agent-context", "event": event}
+    for key, value in fields.items():
+        if value == "":
+            continue
+        payload[key] = value
+    print(json.dumps(payload, sort_keys=True))
