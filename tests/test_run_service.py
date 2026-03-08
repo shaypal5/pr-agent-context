@@ -154,7 +154,7 @@ def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
     assert len(outputs["prompt_sha256"]) == 64
 
 
-def test_run_service_deletes_managed_comments_when_no_actionable_items(
+def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
     tmp_path,
     issue_comments_payload,
 ):
@@ -181,9 +181,11 @@ def test_run_service_deletes_managed_comments_when_no_actionable_items(
     assert run_service(config, client=client) == 0
 
     outputs = _read_outputs(config.github_output_path)
-    assert client.deleted_ids == [2, 3]
+    assert client.deleted_ids == [2]
+    assert client.updated_bodies
+    assert "all clear" in client.updated_bodies[0].lower()
     assert outputs["has_actionable_items"] == "false"
-    assert outputs["comment_written"] == "false"
+    assert outputs["comment_written"] == "true"
 
 
 def test_run_service_does_not_print_empty_prompt(

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
+    DEFAULT_ALL_CLEAR_PROMPT,
     DEFAULT_FAILURE_EXCERPT_CHARS,
     DEFAULT_FAILURE_EXCERPT_MAX_LINES,
     DEFAULT_ITEM_BUDGET_FLOOR,
@@ -33,6 +34,7 @@ from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 def render_prompt(
     *,
     pull_request_number: int,
+    head_sha: str | None = None,
     review_threads: list[ReviewThread],
     workflow_failures: list[WorkflowFailure],
     patch_coverage: PatchCoverageSummary | None = None,
@@ -73,7 +75,21 @@ def render_prompt(
         values={
             "pr_number": str(pull_request_number),
             "prompt_preamble": prompt_preamble.strip(),
-            "opening_instructions": DEFAULT_PROMPT_OPENING.format(pr_number=pull_request_number),
+            "opening_instructions": (
+                DEFAULT_PROMPT_OPENING.format(
+                    pr_number=pull_request_number,
+                    head_sha=head_sha or "unknown",
+                )
+                if (
+                    review_threads
+                    or workflow_failures
+                    or (patch_coverage and patch_coverage.actionable)
+                )
+                else DEFAULT_ALL_CLEAR_PROMPT.format(
+                    pr_number=pull_request_number,
+                    head_sha=head_sha or "unknown",
+                )
+            ),
             "copilot_comments_section": copilot_section,
             "review_comments_section": review_section,
             "failing_jobs_section": failing_section,
@@ -85,18 +101,12 @@ def render_prompt(
     has_actionable_items = bool(
         review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
     )
-    should_publish_comment = bool(
-        review_threads
-        or workflow_failures
-        or (patch_section and force_patch_coverage_section)
-        or (patch_coverage and patch_coverage.actionable)
-    )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
         prompt_sha256=prompt_sha256,
         has_actionable_items=has_actionable_items,
-        should_publish_comment=should_publish_comment,
+        should_publish_comment=True,
         truncation_notes=truncation_notes,
         template_diagnostics=diagnostics,
     )

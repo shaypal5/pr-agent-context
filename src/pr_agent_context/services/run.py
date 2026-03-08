@@ -78,6 +78,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     )
     rendered = render_prompt(
         pull_request_number=config.pull_request.number,
+        head_sha=config.pull_request.head_sha,
         review_threads=numbered_threads,
         workflow_failures=numbered_failures,
         patch_coverage=patch_coverage,

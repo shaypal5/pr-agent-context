@@ -33,6 +33,7 @@ def test_render_prompt_matches_expected_snapshots():
 
     rendered = render_prompt(
         pull_request_number=payload["pull_request_number"],
+        head_sha="def456",
         review_threads=review_threads,
         workflow_failures=workflow_failures,
         prompt_preamble=payload["prompt_preamble"],
@@ -47,6 +48,7 @@ def test_render_prompt_matches_expected_snapshots():
 def test_render_prompt_renders_actionable_patch_coverage_section():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="deadbeef",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(
@@ -70,6 +72,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     )
 
     assert "# Codecov/patch" in rendered.prompt_markdown
+    assert "head commit deadbeef" in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
     assert rendered.has_actionable_items is True
@@ -78,6 +81,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
 def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="abc1234",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(
@@ -93,12 +97,32 @@ def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
     )
 
     assert "# Codecov/patch" not in rendered.prompt_markdown
-    assert rendered.should_publish_comment is False
+    assert "head commit abc1234" in rendered.prompt_markdown
+    assert "all clear" in rendered.prompt_markdown.lower()
+    assert rendered.should_publish_comment is True
+
+
+def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        workflow_failures=[],
+        patch_coverage=None,
+    )
+
+    assert "head commit feedface" in rendered.prompt_markdown
+    assert "all clear" in rendered.prompt_markdown.lower()
+    assert "# Copilot Comments" not in rendered.prompt_markdown
+    assert "# Failing Jobs" not in rendered.prompt_markdown
+    assert rendered.has_actionable_items is False
+    assert rendered.should_publish_comment is True
 
 
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="c0ffee",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(
