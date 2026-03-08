@@ -6,8 +6,8 @@ from pathlib import Path
 from pr_agent_context.constants import DEFAULT_PROMPT_TEMPLATE, SUPPORTED_TEMPLATE_PLACEHOLDERS
 from pr_agent_context.domain.models import TemplateDiagnostics
 
-PLACEHOLDER_RE = re.compile(r"{{\s*([a-z_]+)\s*}}")
-LEFTOVER_PLACEHOLDER_RE = re.compile(r"{{\s*[a-z_]+\s*}}")
+PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*}}")
+LEFTOVER_PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*}}")
 
 
 def load_prompt_template(path: Path | None) -> tuple[str, str | None, str]:

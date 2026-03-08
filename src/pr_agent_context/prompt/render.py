@@ -7,6 +7,7 @@ from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
     DEFAULT_FAILURE_EXCERPT_CHARS,
     DEFAULT_FAILURE_EXCERPT_MAX_LINES,
+    DEFAULT_ITEM_BUDGET_FLOOR,
     DEFAULT_PATCH_SECTION_HARD_LIMIT,
     DEFAULT_PROMPT_OPENING,
     DEFAULT_REPLY_BODY_CHARS,
@@ -80,7 +81,7 @@ def render_prompt(
         },
     )
     prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
-    comment_body = f"{MANAGED_COMMENT_MARKER}\n```markdown\n{prompt_markdown}\n```"
+    comment_body = f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(prompt_markdown)}"
     has_actionable_items = bool(
         review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
     )
@@ -115,12 +116,27 @@ def _render_review_threads_section(
     notes: list[TruncationNote] = []
     for index, thread in enumerate(threads, start=1):
         remaining_items = len(threads) - index + 1
-        remaining_budget = max(1000, budget - sum(len(block) for block in item_blocks))
-        item_budget = max(1200, remaining_budget // remaining_items)
+        used_budget = sum(len(block) for block in item_blocks)
+        remaining_budget = max(0, budget - used_budget)
+        if remaining_budget <= 0:
+            break
+        item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
         rendered, item_notes = _render_review_thread(thread, max_chars=item_budget)
         item_blocks.append(rendered)
         notes.extend(item_notes)
-    return f"# {title}\n\n" + "\n\n".join(item_blocks), notes
+    section_text = f"# {title}\n\n" + "\n\n".join(item_blocks)
+    if len(section_text) <= budget:
+        return section_text, notes
+    trimmed, note = truncate_text(
+        section_text,
+        max_chars=budget,
+        target=section_key,
+        strategy="section_budget_cap",
+        suffix="\n[note: section truncated to fit overall section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
 
 
 def _render_review_thread(
@@ -221,12 +237,27 @@ def _render_failing_jobs_section(
     notes: list[TruncationNote] = []
     for index, failure in enumerate(failures, start=1):
         remaining_items = len(failures) - index + 1
-        remaining_budget = max(1000, budget - sum(len(block) for block in item_blocks))
-        item_budget = max(1200, remaining_budget // remaining_items)
+        used_budget = sum(len(block) for block in item_blocks)
+        remaining_budget = max(0, budget - used_budget)
+        if remaining_budget <= 0:
+            break
+        item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
         rendered, item_notes = _render_workflow_failure(failure, max_chars=item_budget)
         item_blocks.append(rendered)
         notes.extend(item_notes)
-    return f"# {FAILING_JOBS_SECTION}\n\n" + "\n\n".join(item_blocks), notes
+    section_text = f"# {FAILING_JOBS_SECTION}\n\n" + "\n\n".join(item_blocks)
+    if len(section_text) <= budget:
+        return section_text, notes
+    trimmed, note = truncate_text(
+        section_text,
+        max_chars=budget,
+        target="failing_jobs_section",
+        strategy="section_budget_cap",
+        suffix="\n[note: section truncated to fit overall section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
 
 
 def _render_workflow_failure(
@@ -378,6 +409,13 @@ def _indent_block(text: str, *, indent: str = "    ") -> str:
 def _sanitize_block(text: str) -> str:
     normalized = text.replace("\r\n", "\n").strip()
     return normalized.replace("```", "~~~")
+
+
+def _wrap_markdown_code_block(text: str) -> str:
+    fence = "```"
+    if "```" in text:
+        fence = "~~~~"
+    return f"{fence}markdown\n{text}\n{fence}"
 
 
 def _format_percent(value: float) -> str:

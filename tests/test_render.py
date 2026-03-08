@@ -15,10 +15,11 @@ from pr_agent_context.prompt.render import (
     _render_review_thread,
     _render_workflow_failure,
     _sanitize_block,
+    _wrap_markdown_code_block,
     render_prompt,
 )
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
-from pr_agent_context.prompt.truncate import truncate_text
+from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 
 def test_render_prompt_matches_expected_snapshots():
@@ -177,6 +178,19 @@ def test_render_prompt_rejects_unknown_template_placeholders(tmp_path):
         raise AssertionError("Expected ValueError for unsupported placeholder")
 
 
+def test_render_prompt_rejects_unsupported_placeholder_syntax_variants(tmp_path):
+    template = tmp_path / "template.md"
+    template.write_text("{{ PR_NUMBER }} {{ pr-number }} {{ pr_number2 }}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Unsupported prompt template placeholder"):
+        render_prompt(
+            pull_request_number=17,
+            review_threads=[],
+            workflow_failures=[],
+            prompt_template_file=template,
+        )
+
+
 def test_render_prompt_truncates_replies_and_logs_deterministically():
     long_reply = "reply " * 500
     long_excerpt = [f"line {index}" for index in range(400)]
@@ -284,6 +298,23 @@ def test_render_prompt_template_allows_literal_braces_in_rendered_values():
     assert diagnostics.template_source == "file"
 
 
+def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tmp_path):
+    template = tmp_path / "template.md"
+    template.write_text("```python\npass\n```", encoding="utf-8")
+
+    rendered = render_prompt(
+        pull_request_number=17,
+        review_threads=[],
+        workflow_failures=[],
+        prompt_template_file=template,
+    )
+
+    assert rendered.comment_body.startswith(
+        "<!-- pr-agent-context:managed-comment -->\n~~~~markdown"
+    )
+    assert rendered.comment_body.endswith("\n~~~~")
+
+
 def test_render_prompt_template_inserts_preamble_when_placeholder_missing():
     rendered, diagnostics = render_prompt_template(
         template_text="# PR {{ pr_number }}\n\n{{ opening_instructions }}",
@@ -316,6 +347,24 @@ def test_truncate_text_never_exceeds_max_chars_when_suffix_is_longer_than_budget
     assert len(truncated) == 5
     assert note is not None
     assert note.message == "[this suffix is longer than five]"
+    assert note.truncated_size == 5
+
+
+def test_truncate_lines_reports_character_sizes_consistently():
+    lines = ["alpha", "beta", "gamma", "delta"]
+    truncated, note = truncate_lines(
+        lines,
+        max_lines=2,
+        max_chars=20,
+        target="example",
+        strategy="demo",
+        note_message="trimmed",
+    )
+
+    assert truncated == ["alpha", "beta"]
+    assert note is not None
+    assert note.original_size == len("alpha\nbeta\ngamma\ndelta")
+    assert note.truncated_size == len("alpha\nbeta")
 
 
 def test_render_review_thread_drops_metadata_and_then_truncates():
@@ -404,6 +453,42 @@ def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
     tiny_rendered, tiny_notes = _render_workflow_failure(failure, max_chars=220)
     assert "FAIL-1" in tiny_rendered
     assert any(note.strategy == "drop_metadata" for note in tiny_notes)
+
+
+def test_render_review_section_hard_caps_total_budget():
+    threads = [
+        ReviewThread.model_validate(
+            {
+                "thread_id": index,
+                "classifier": "review",
+                "path": f"src/example_{index}.py",
+                "line": 5,
+                "original_line": 5,
+                "is_resolved": False,
+                "is_outdated": False,
+                "url": f"https://example.invalid/thread-{index}",
+                "item_id": f"REVIEW-{index}",
+                "messages": [
+                    {
+                        "comment_id": index,
+                        "author_login": "octocat",
+                        "body": "body " * 700,
+                        "url": f"https://example.invalid/comment-{index}",
+                    }
+                ],
+            }
+        )
+        for index in range(1, 12)
+    ]
+
+    rendered = render_prompt(
+        pull_request_number=17,
+        review_threads=threads,
+        workflow_failures=[],
+    )
+
+    assert len(rendered.prompt_markdown) < 20000
+    assert any(note.strategy == "section_budget_cap" for note in rendered.truncation_notes)
 
 
 def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
@@ -522,6 +607,8 @@ def test_render_helpers_handle_location_and_block_sanitation():
     assert _format_location("src/example.py", None) == "src/example.py"
     assert _indent_block("line1\n\nline2").splitlines()[1] == ""
     assert _sanitize_block("```py\r\npass\r\n```") == "~~~py\npass\n~~~"
+    assert _wrap_markdown_code_block("plain").startswith("```markdown")
+    assert _wrap_markdown_code_block("contains ``` fence").startswith("~~~~markdown")
 
 
 def test_render_format_percent_keeps_decimals_for_non_integral_values():

@@ -23,23 +23,25 @@ def truncate_text(
     if len(text) <= max_chars:
         return text, None
     if max_chars <= len(suffix):
+        truncated_suffix = suffix[:max_chars]
         note = TruncationNote(
             target=target,
             strategy=strategy,
             message=suffix,
             original_size=len(text),
-            truncated_size=0,
+            truncated_size=len(truncated_suffix),
         )
-        return suffix[:max_chars], note
+        return truncated_suffix, note
     clipped = text[: max(0, max_chars - len(suffix))].rstrip()
+    truncated_text = f"{clipped}{suffix}"
     note = TruncationNote(
         target=target,
         strategy=strategy,
         message=suffix,
         original_size=len(text),
-        truncated_size=len(clipped),
+        truncated_size=len(truncated_text),
     )
-    return f"{clipped}{suffix}", note
+    return truncated_text, note
 
 
 def truncate_lines(
@@ -58,11 +60,12 @@ def truncate_lines(
     truncated = lines[:max_lines]
     while truncated and len("\n".join(truncated)) > max_chars:
         truncated = truncated[:-1]
+    truncated_joined = "\n".join(truncated)
     note = TruncationNote(
         target=target,
         strategy=strategy,
         message=note_message,
-        original_size=len(lines),
-        truncated_size=len(truncated),
+        original_size=len(joined),
+        truncated_size=len(truncated_joined),
     )
     return truncated, note
