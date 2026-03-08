@@ -41,3 +41,21 @@ jobs:
           files: ./coverage.xml
           flags: py${{ matrix.python-version }}
           name: py${{ matrix.python-version }}
+
+  pr-agent-context:
+    name: PR agent context
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [test]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v1
+    with:
+      tool_ref: v1
+      target_patch_coverage: "100"
+      include_review_comments: true
+      include_failing_jobs: true
+      include_patch_coverage: true
+      coverage_artifact_prefix: pr-agent-context-coverage
+      debug_artifacts: true
