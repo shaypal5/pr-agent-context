@@ -24,7 +24,7 @@ class GitHubApiClient:
         *,
         token: str,
         api_url: str = "https://api.github.com",
-        user_agent: str = "pr-agent-context/0.1.0",
+        user_agent: str = "pr-agent-context/0.1.1",
     ) -> None:
         self._token = token
         self._api_url = api_url.rstrip("/")
