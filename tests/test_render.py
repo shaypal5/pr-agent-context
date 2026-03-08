@@ -18,6 +18,7 @@ from pr_agent_context.prompt.render import (
     render_prompt,
 )
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
+from pr_agent_context.prompt.truncate import truncate_text
 
 
 def test_render_prompt_matches_expected_snapshots():
@@ -263,6 +264,26 @@ def test_render_prompt_template_rejects_unmatched_braces():
         )
 
 
+def test_render_prompt_template_allows_literal_braces_in_rendered_values():
+    rendered, diagnostics = render_prompt_template(
+        template_text="{{ opening_instructions }}",
+        template_source="file",
+        template_path="template.md",
+        values={
+            "pr_number": "17",
+            "prompt_preamble": "",
+            "opening_instructions": "Investigate literal braces {{ like this }} safely.",
+            "copilot_comments_section": "",
+            "review_comments_section": "",
+            "failing_jobs_section": "",
+            "patch_coverage_section": "",
+        },
+    )
+
+    assert rendered == "Investigate literal braces {{ like this }} safely."
+    assert diagnostics.template_source == "file"
+
+
 def test_render_prompt_template_inserts_preamble_when_placeholder_missing():
     rendered, diagnostics = render_prompt_template(
         template_text="# PR {{ pr_number }}\n\n{{ opening_instructions }}",
@@ -281,6 +302,20 @@ def test_render_prompt_template_inserts_preamble_when_placeholder_missing():
 
     assert rendered.startswith("Repository: example\n\n# PR 17")
     assert diagnostics.prompt_preamble_inserted is True
+
+
+def test_truncate_text_never_exceeds_max_chars_when_suffix_is_longer_than_budget():
+    truncated, note = truncate_text(
+        "abcdefghijklmnopqrstuvwxyz",
+        max_chars=5,
+        target="example",
+        strategy="demo",
+        suffix="[this suffix is longer than five]",
+    )
+
+    assert len(truncated) == 5
+    assert note is not None
+    assert note.message == "[this suffix is longer than five]"
 
 
 def test_render_review_thread_drops_metadata_and_then_truncates():
@@ -364,6 +399,7 @@ def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
     assert rendered.startswith("# Failing Jobs")
     assert "[note: excerpt truncated" in rendered
     assert any(note.strategy == "trim_log_excerpt" for note in notes)
+    assert "line 199" not in rendered
 
     tiny_rendered, tiny_notes = _render_workflow_failure(failure, max_chars=220)
     assert "FAIL-1" in tiny_rendered

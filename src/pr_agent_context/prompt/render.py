@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
     DEFAULT_FAILURE_EXCERPT_CHARS,
-    DEFAULT_FAILURE_EXCERPT_MIN_LINES,
+    DEFAULT_FAILURE_EXCERPT_MAX_LINES,
     DEFAULT_PATCH_SECTION_HARD_LIMIT,
     DEFAULT_PROMPT_OPENING,
     DEFAULT_REPLY_BODY_CHARS,
@@ -36,7 +37,7 @@ def render_prompt(
     patch_coverage: PatchCoverageSummary | None = None,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
-    prompt_template_file=None,
+    prompt_template_file: Path | None = None,
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
 
@@ -247,7 +248,7 @@ def _render_workflow_failure(
     if failure.excerpt_lines:
         excerpt_lines, note = truncate_lines(
             failure.excerpt_lines,
-            max_lines=max(len(failure.excerpt_lines), DEFAULT_FAILURE_EXCERPT_MIN_LINES),
+            max_lines=min(len(failure.excerpt_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES),
             max_chars=DEFAULT_FAILURE_EXCERPT_CHARS,
             target=failure.item_id or "workflow-failure",
             strategy="trim_log_excerpt",

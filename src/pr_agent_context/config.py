@@ -256,10 +256,15 @@ def _split_pattern_entries(value: str | None) -> list[str]:
 def _resolve_workspace_path(workspace: Path, raw_path: str | None) -> Path | None:
     if raw_path is None or not raw_path.strip():
         return None
+    workspace_root = workspace.resolve()
     candidate = Path(raw_path.strip())
     if not candidate.is_absolute():
-        candidate = workspace / candidate
+        candidate = workspace_root / candidate
     resolved = candidate.resolve()
+    try:
+        resolved.relative_to(workspace_root)
+    except ValueError as exc:
+        raise ValueError(f"Configured path must be within the workspace: {raw_path}") from exc
     if not resolved.exists():
         raise ValueError(f"Configured path does not exist: {raw_path}")
     return resolved

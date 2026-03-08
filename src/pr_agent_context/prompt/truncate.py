@@ -11,8 +11,26 @@ def truncate_text(
     strategy: str,
     suffix: str,
 ) -> tuple[str, TruncationNote | None]:
-    if max_chars <= 0 or len(text) <= max_chars:
+    if max_chars <= 0:
+        note = TruncationNote(
+            target=target,
+            strategy=strategy,
+            message=suffix,
+            original_size=len(text),
+            truncated_size=0,
+        )
+        return "", note
+    if len(text) <= max_chars:
         return text, None
+    if max_chars <= len(suffix):
+        note = TruncationNote(
+            target=target,
+            strategy=strategy,
+            message=suffix,
+            original_size=len(text),
+            truncated_size=0,
+        )
+        return suffix[:max_chars], note
     clipped = text[: max(0, max_chars - len(suffix))].rstrip()
     note = TruncationNote(
         target=target,
