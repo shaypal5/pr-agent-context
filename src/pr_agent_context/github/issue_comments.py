@@ -69,6 +69,8 @@ def sync_managed_comment(
     )
     primary_comment = managed_comments[-1] if managed_comments else None
     duplicate_comments = managed_comments[:-1] if managed_comments else []
+    managed_comment_count = len(managed_comments)
+    duplicate_count = len(duplicate_comments)
 
     try:
         if not body:
@@ -78,14 +80,27 @@ def sync_managed_comment(
                         "DELETE",
                         f"/repos/{owner}/{repo}/issues/comments/{comment.comment_id}",
                     )
-                return PublicationResult(comment_written=False)
+                return PublicationResult(
+                    comment_written=False,
+                    action="deleted" if managed_comments else "noop_no_comment",
+                    existing_managed_comment_count=managed_comment_count,
+                    duplicate_managed_comment_count=duplicate_count,
+                )
             if primary_comment is not None:
                 return PublicationResult(
                     comment_id=primary_comment.comment_id,
                     comment_url=primary_comment.url,
                     comment_written=True,
+                    action="preserved_empty",
+                    existing_managed_comment_count=managed_comment_count,
+                    duplicate_managed_comment_count=duplicate_count,
                 )
-            return PublicationResult(comment_written=False)
+            return PublicationResult(
+                comment_written=False,
+                action="noop_no_comment",
+                existing_managed_comment_count=managed_comment_count,
+                duplicate_managed_comment_count=duplicate_count,
+            )
 
         for duplicate in duplicate_comments:
             client.request_json(
@@ -104,6 +119,10 @@ def sync_managed_comment(
                 comment_id=normalized.comment_id,
                 comment_url=normalized.url,
                 comment_written=True,
+                action="created",
+                existing_managed_comment_count=managed_comment_count,
+                duplicate_managed_comment_count=duplicate_count,
+                body_changed=True,
             )
 
         if primary_comment.body != body:
@@ -117,16 +136,34 @@ def sync_managed_comment(
                 comment_id=normalized.comment_id,
                 comment_url=normalized.url,
                 comment_written=True,
+                action="updated",
+                existing_managed_comment_count=managed_comment_count,
+                duplicate_managed_comment_count=duplicate_count,
+                body_changed=True,
             )
 
         return PublicationResult(
             comment_id=primary_comment.comment_id,
             comment_url=primary_comment.url,
             comment_written=True,
+            action="unchanged",
+            existing_managed_comment_count=managed_comment_count,
+            duplicate_managed_comment_count=duplicate_count,
+            body_changed=False,
         )
     except GitHubApiError as error:
         if skip_comment_on_readonly_token and error.status_code == 403:
-            return PublicationResult(comment_written=False)
+            return PublicationResult(
+                comment_id=primary_comment.comment_id if primary_comment else None,
+                comment_url=primary_comment.url if primary_comment else None,
+                comment_written=False,
+                action="skipped_forbidden",
+                existing_managed_comment_count=managed_comment_count,
+                duplicate_managed_comment_count=duplicate_count,
+                body_changed=primary_comment is None or primary_comment.body != body,
+                skipped_reason="comment mutation skipped after GitHub returned 403",
+                error_status_code=error.status_code,
+            )
         raise
 
 

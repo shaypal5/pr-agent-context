@@ -215,7 +215,33 @@ def test_run_service_does_not_print_empty_prompt(
     with redirect_stdout(stdout):
         assert run_service(config, client=client) == 0
 
-    assert stdout.getvalue() == ""
+    output = stdout.getvalue()
+    assert "No actionable items were found" not in output
+    assert "[pr-agent-context] start" in output
+    assert "[pr-agent-context] comment_sync" in output
+
+
+def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload=load_json_fixture("github/workflow_jobs.json"),
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path)
+    stdout = io.StringIO()
+
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    output = stdout.getvalue()
+    assert "[pr-agent-context] start version=" in output
+    assert "pull_request_number=17" in output
+    assert "head_sha=def456" in output
+    assert "[pr-agent-context] review_threads enabled=true count=2" in output
+    assert "[pr-agent-context] workflow_failures enabled=true count=3" in output
+    assert "[pr-agent-context] render" in output
+    assert "[pr-agent-context] comment_sync action=created" in output
+    assert "[pr-agent-context] summary unresolved_thread_count=2 failed_job_count=3" in output
 
 
 def test_run_service_updates_existing_managed_comment_without_reordering(
@@ -387,7 +413,10 @@ def test_run_service_can_force_na_patch_coverage_section(
     assert outputs["patch_coverage_percent"] == ""
     assert client.created_bodies
     assert "no changed executable Python lines" in client.created_bodies[0]
-    assert stdout.getvalue() == ""
+    stdout_text = stdout.getvalue()
+    assert "[pr-agent-context] patch_result" in stdout_text
+    assert "[pr-agent-context] comment_sync action=created" in stdout_text
+    assert "No actionable items were found" not in stdout_text
 
 
 def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):

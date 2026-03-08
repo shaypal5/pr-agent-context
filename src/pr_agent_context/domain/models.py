@@ -155,3 +155,9 @@ class PublicationResult(BaseModel):
     comment_id: int | None = None
     comment_url: str | None = None
     comment_written: bool = False
+    action: str = "none"
+    existing_managed_comment_count: int = 0
+    duplicate_managed_comment_count: int = 0
+    body_changed: bool = False
+    skipped_reason: str | None = None
+    error_status_code: int | None = None
