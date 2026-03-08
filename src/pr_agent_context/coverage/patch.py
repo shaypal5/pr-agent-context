@@ -110,7 +110,9 @@ def _is_in_coverage_scope(
     source_entries = list(coverage.config.source or [])
     source_packages = list(getattr(coverage.config, "source_pkgs", []) or [])
     if not source_entries and not source_packages:
-        return True
+        if not measured_map:
+            return True
+        return _matches_inferred_measured_roots(relative_path, measured_map)
 
     parts = PurePosixPath(relative_path).parts
     for entry in [*source_entries, *source_packages]:
@@ -118,6 +120,22 @@ def _is_in_coverage_scope(
         if _matches_source_entry(file_path, relative_path, parts, workspace, normalized_entry):
             return True
     return False
+
+
+def _matches_inferred_measured_roots(relative_path: str, measured_map: Mapping[str, str]) -> bool:
+    path_parts = PurePosixPath(relative_path).parts
+    if not path_parts:
+        return False
+
+    measured_roots = {
+        measured_path.split("/", 1)[0]
+        for measured_path in measured_map
+        if measured_path not in {"", "."}
+    }
+    if not measured_roots:
+        return True
+
+    return path_parts[0] in measured_roots
 
 
 def _matches_any_pattern(relative_path: str, patterns: list[str] | None) -> bool:

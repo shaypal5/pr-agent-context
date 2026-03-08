@@ -58,6 +58,30 @@ def test_build_combined_coverage_merges_multiple_data_files(tmp_path):
     assert missing == [4, 9]
 
 
+def test_build_combined_coverage_skips_malformed_data_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        module_path,
+        "def alpha(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+
+    valid_coverage = tmp_path / ".coverage.valid"
+    malformed_coverage = tmp_path / ".coverage.malformed"
+    _build_coverage_data(valid_coverage, [(module_path, "alpha(True)")])
+    malformed_coverage.write_bytes(b"this is not a sqlite coverage database")
+
+    combined = build_combined_coverage(
+        workspace=repo,
+        coverage_files=[valid_coverage, malformed_coverage],
+    )
+    _filename, statements, _excluded, missing, _formatted = combined.analysis2(str(module_path))
+
+    assert statements == [1, 2, 3, 4]
+    assert missing == [4]
+
+
 def test_compute_patch_coverage_reports_explicit_uncovered_lines(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -124,6 +148,29 @@ def test_compute_patch_coverage_is_na_when_only_non_executable_lines_changed(tmp
     summary = compute_patch_coverage(
         workspace=repo,
         changed_lines_by_file={"src/pkg/notes.py": [1, 2]},
+        coverage=combined,
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert summary.actual_percent is None
+    assert summary.files == []
+
+
+def test_compute_patch_coverage_ignores_changed_python_files_outside_measured_roots(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    measured = repo / "src" / "pkg" / "module.py"
+    test_file = repo / "tests" / "test_module.py"
+    _write_file(measured, "def covered():\n    return 1\n")
+    _write_file(test_file, "def test_case():\n    assert True\n")
+    coverage_file = tmp_path / ".coverage"
+    _build_coverage_data(coverage_file, [(measured, "covered()")])
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={"tests/test_module.py": [1, 2]},
         coverage=combined,
         target_percent=100,
     )

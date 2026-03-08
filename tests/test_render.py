@@ -33,6 +33,7 @@ def test_render_prompt_matches_expected_snapshots():
 
     rendered = render_prompt(
         pull_request_number=payload["pull_request_number"],
+        head_sha="def456",
         review_threads=review_threads,
         workflow_failures=workflow_failures,
         prompt_preamble=payload["prompt_preamble"],
@@ -47,6 +48,7 @@ def test_render_prompt_matches_expected_snapshots():
 def test_render_prompt_renders_actionable_patch_coverage_section():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="deadbeef",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(
@@ -70,6 +72,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     )
 
     assert "# Codecov/patch" in rendered.prompt_markdown
+    assert "head commit deadbeef" in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
     assert rendered.has_actionable_items is True
@@ -78,6 +81,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
 def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="abc1234",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(
@@ -93,12 +97,119 @@ def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
     )
 
     assert "# Codecov/patch" not in rendered.prompt_markdown
-    assert rendered.should_publish_comment is False
+    assert "head commit abc1234" in rendered.prompt_markdown
+    assert "all clear" in rendered.prompt_markdown.lower()
+    assert rendered.should_publish_comment is True
+
+
+def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        workflow_failures=[],
+        patch_coverage=None,
+    )
+
+    assert "head commit feedface" in rendered.prompt_markdown
+    assert "all clear" in rendered.prompt_markdown.lower()
+    assert "# Copilot Comments" not in rendered.prompt_markdown
+    assert "# Failing Jobs" not in rendered.prompt_markdown
+    assert rendered.has_actionable_items is False
+    assert rendered.should_publish_comment is True
+
+
+def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        workflow_failures=[],
+        patch_coverage=None,
+        include_review_comments=False,
+        include_failing_jobs=True,
+        include_patch_coverage=False,
+    )
+
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
+    assert "only covers the enabled checks for this run" in rendered.prompt_markdown
+    assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
+
+
+def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[
+            ReviewThread.model_validate(
+                {
+                    "thread_id": 1,
+                    "classifier": "review",
+                    "path": "src/example.py",
+                    "line": 5,
+                    "original_line": 5,
+                    "is_resolved": False,
+                    "is_outdated": False,
+                    "url": "https://example.invalid/thread",
+                    "item_id": "REVIEW-1",
+                    "messages": [
+                        {
+                            "comment_id": 1,
+                            "author_login": "octocat",
+                            "body": "body",
+                            "url": "https://example.invalid/comment",
+                        }
+                    ],
+                }
+            )
+        ],
+        workflow_failures=[
+            WorkflowFailure.model_validate(
+                {
+                    "job_id": 1,
+                    "workflow_name": "CI",
+                    "job_name": "smoke",
+                    "url": "https://example.invalid/job",
+                    "failed_steps": ["pytest"],
+                    "excerpt_lines": ["failure"],
+                    "item_id": "FAIL-1",
+                }
+            )
+        ],
+        patch_coverage=PatchCoverageSummary(
+            target_percent=100,
+            actual_percent=0,
+            total_changed_executable_lines=4,
+            covered_changed_executable_lines=0,
+            files=[
+                {
+                    "path": "src/pkg/example.py",
+                    "changed_added_lines": [1, 2, 3, 4],
+                    "changed_executable_lines": [1, 2, 3, 4],
+                    "covered_changed_executable_lines": [],
+                    "uncovered_changed_executable_lines": [1, 2, 3, 4],
+                    "has_measured_data": True,
+                }
+            ],
+            actionable=True,
+            is_na=False,
+        ),
+        include_review_comments=False,
+        include_failing_jobs=False,
+        include_patch_coverage=False,
+    )
+
+    assert rendered.has_actionable_items is False
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
+    assert (
+        "Skipped checks: review comments, failing jobs, patch coverage." in rendered.prompt_markdown
+    )
 
 
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
     rendered = render_prompt(
         pull_request_number=17,
+        head_sha="c0ffee",
         review_threads=[],
         workflow_failures=[],
         patch_coverage=PatchCoverageSummary(

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
+    DEFAULT_ALL_CLEAR_PROMPT,
     DEFAULT_FAILURE_EXCERPT_CHARS,
     DEFAULT_FAILURE_EXCERPT_MAX_LINES,
     DEFAULT_ITEM_BUDGET_FLOOR,
@@ -33,14 +34,26 @@ from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 def render_prompt(
     *,
     pull_request_number: int,
+    head_sha: str | None = None,
     review_threads: list[ReviewThread],
     workflow_failures: list[WorkflowFailure],
     patch_coverage: PatchCoverageSummary | None = None,
+    include_review_comments: bool = True,
+    include_failing_jobs: bool = True,
+    include_patch_coverage: bool = True,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
     prompt_template_file: Path | None = None,
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
+    has_review_items = include_review_comments and bool(review_threads)
+    has_failing_job_items = include_failing_jobs and bool(workflow_failures)
+    has_patch_coverage_items = include_patch_coverage and bool(
+        patch_coverage and patch_coverage.actionable
+    )
+    has_actionable_items = bool(
+        has_review_items or has_failing_job_items or has_patch_coverage_items
+    )
 
     copilot_threads = [thread for thread in review_threads if thread.classifier == "copilot"]
     review_only_threads = [thread for thread in review_threads if thread.classifier != "copilot"]
@@ -73,7 +86,14 @@ def render_prompt(
         values={
             "pr_number": str(pull_request_number),
             "prompt_preamble": prompt_preamble.strip(),
-            "opening_instructions": DEFAULT_PROMPT_OPENING.format(pr_number=pull_request_number),
+            "opening_instructions": _build_opening_instructions(
+                pull_request_number=pull_request_number,
+                head_sha=head_sha,
+                has_actionable_items=has_actionable_items,
+                include_review_comments=include_review_comments,
+                include_failing_jobs=include_failing_jobs,
+                include_patch_coverage=include_patch_coverage,
+            ),
             "copilot_comments_section": copilot_section,
             "review_comments_section": review_section,
             "failing_jobs_section": failing_section,
@@ -82,23 +102,54 @@ def render_prompt(
     )
     prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
     comment_body = f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(prompt_markdown)}"
-    has_actionable_items = bool(
-        review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
-    )
-    should_publish_comment = bool(
-        review_threads
-        or workflow_failures
-        or (patch_section and force_patch_coverage_section)
-        or (patch_coverage and patch_coverage.actionable)
-    )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
         prompt_sha256=prompt_sha256,
         has_actionable_items=has_actionable_items,
-        should_publish_comment=should_publish_comment,
+        should_publish_comment=True,
         truncation_notes=truncation_notes,
         template_diagnostics=diagnostics,
+    )
+
+
+def _build_opening_instructions(
+    *,
+    pull_request_number: int,
+    head_sha: str | None,
+    has_actionable_items: bool,
+    include_review_comments: bool,
+    include_failing_jobs: bool,
+    include_patch_coverage: bool,
+) -> str:
+    if has_actionable_items:
+        return DEFAULT_PROMPT_OPENING.format(
+            pr_number=pull_request_number,
+            head_sha=head_sha or "unknown",
+        )
+
+    disabled_checks = [
+        label
+        for label, enabled in (
+            ("review comments", include_review_comments),
+            ("failing jobs", include_failing_jobs),
+            ("patch coverage", include_patch_coverage),
+        )
+        if not enabled
+    ]
+    if not disabled_checks:
+        return DEFAULT_ALL_CLEAR_PROMPT.format(
+            pr_number=pull_request_number,
+            head_sha=head_sha or "unknown",
+        )
+    return (
+        "No actionable items were found in the enabled checks for PR "
+        f"#{pull_request_number} at head commit {head_sha or 'unknown'}."
+        + "\n\n"
+        + "Note: This assessment only covers the enabled checks for this run. "
+        + "Skipped checks: "
+        + ", ".join(disabled_checks)
+        + "."
     )
 
 
