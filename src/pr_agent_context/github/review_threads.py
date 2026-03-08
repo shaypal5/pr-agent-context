@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from pr_agent_context.config import CopilotAuthorMatcherConfig
-from pr_agent_context.domain.models import ReviewMessage, ReviewThread
+from pr_agent_context.domain.models import ReviewMessage, ReviewThread, review_thread_sort_key
 from pr_agent_context.github.api import GitHubApiClient
 
 REVIEW_THREADS_QUERY = """
@@ -79,13 +79,7 @@ def collect_unresolved_review_threads(
         if not page_info["hasNextPage"]:
             break
         cursor = page_info["endCursor"]
-    return sorted(
-        threads,
-        key=lambda thread: (
-            thread.sort_key if thread.sort_key is not None else float("inf"),
-            str(thread.thread_id),
-        ),
-    )[:max_threads]
+    return sorted(threads, key=review_thread_sort_key)[:max_threads]
 
 
 def parse_review_threads(
