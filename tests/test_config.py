@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import json
 
-from pr_agent_context.config import RunConfig
+import pytest
+
+from pr_agent_context.config import (
+    RunConfig,
+    _extract_pull_request_number,
+    _extract_pull_request_shas,
+    _parse_bool,
+)
 
 
 def test_run_config_from_env(tmp_path):
@@ -83,3 +90,78 @@ def test_run_config_from_env(tmp_path):
     assert config.coverage_artifacts_dir == coverage_dir
     assert config.debug_artifacts_dir == tmp_path / "pr-agent-context-debug"
     assert config.github_output_path == output_path
+
+
+def test_run_config_rejects_empty_regex_pattern(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Empty regex pattern"):
+        RunConfig.from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_TOKEN": "token",
+                "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+                "PR_AGENT_CONTEXT_COPILOT_AUTHOR_PATTERNS": "re:   ",
+            }
+        )
+
+
+def test_run_config_rejects_missing_template_path(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Configured path does not exist"):
+        RunConfig.from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_TOKEN": "token",
+                "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+                "PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE": ".github/missing-template.md",
+            }
+        )
+
+
+def test_config_private_helpers_cover_bool_and_event_fallbacks():
+    assert _parse_bool(True, default=False) is True
+    assert _extract_pull_request_number({"number": 42}) == 42
+
+    with pytest.raises(ValueError, match="Unable to determine pull request number"):
+        _extract_pull_request_number({})
+
+    with pytest.raises(ValueError, match="Unable to determine pull request SHAs"):
+        _extract_pull_request_shas({})
+
+    with pytest.raises(ValueError, match="Unable to determine pull request SHAs"):
+        _extract_pull_request_shas({"pull_request": {"base": {}, "head": "not-a-mapping"}})
+
+    with pytest.raises(ValueError, match="missing base/head SHAs"):
+        _extract_pull_request_shas(
+            {"pull_request": {"base": {"sha": ""}, "head": {"sha": "head123"}}}
+        )
