@@ -413,8 +413,13 @@ def _sanitize_block(text: str) -> str:
 
 def _wrap_markdown_code_block(text: str) -> str:
     fence = "```"
-    if "```" in text:
-        fence = "~~~~"
+    if fence in text:
+        alternative = "~~~"
+        if alternative not in text:
+            fence = alternative
+        else:
+            while fence in text:
+                fence += "`"
     return f"{fence}markdown\n{text}\n{fence}"
 
 

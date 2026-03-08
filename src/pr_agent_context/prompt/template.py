@@ -7,7 +7,6 @@ from pr_agent_context.constants import DEFAULT_PROMPT_TEMPLATE, SUPPORTED_TEMPLA
 from pr_agent_context.domain.models import TemplateDiagnostics
 
 PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*}}")
-LEFTOVER_PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*}}")
 
 
 def load_prompt_template(path: Path | None) -> tuple[str, str | None, str]:
@@ -27,14 +26,17 @@ def render_prompt_template(
     unsupported = sorted(set(placeholders) - set(SUPPORTED_TEMPLATE_PLACEHOLDERS))
     if unsupported:
         raise ValueError("Unsupported prompt template placeholder(s): " + ", ".join(unsupported))
+    missing = sorted(set(placeholders) - set(values))
+    if missing:
+        raise ValueError(
+            "Missing value(s) for prompt template placeholder(s): " + ", ".join(missing)
+        )
 
     template_shell = PLACEHOLDER_RE.sub("", template_text)
     if "{{" in template_shell or "}}" in template_shell:
         raise ValueError("Malformed prompt template: unmatched '{{' or '}}'.")
 
     rendered = PLACEHOLDER_RE.sub(lambda match: values[match.group(1)], template_text)
-    if LEFTOVER_PLACEHOLDER_RE.search(rendered):
-        raise ValueError("Malformed prompt template: unresolved placeholder remained after render.")
 
     prompt_preamble_inserted = False
     if values["prompt_preamble"] and "prompt_preamble" not in placeholders:

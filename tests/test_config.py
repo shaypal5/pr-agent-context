@@ -178,6 +178,36 @@ def test_run_config_rejects_template_path_outside_workspace(tmp_path):
         )
 
 
+def test_run_config_treats_blank_debug_artifacts_dir_as_unset(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+            "PR_AGENT_CONTEXT_DEBUG_ARTIFACTS": "true",
+            "PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR": "   ",
+        }
+    )
+
+    assert config.debug_artifacts_dir == tmp_path / "pr-agent-context-debug"
+
+
 def test_config_private_helpers_cover_bool_and_event_fallbacks():
     assert _parse_bool(True, default=False) is True
     assert _extract_pull_request_number({"number": 42}) == 42

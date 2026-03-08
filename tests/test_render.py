@@ -7,12 +7,14 @@ import pytest
 
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.domain.models import PatchCoverageSummary, ReviewThread, WorkflowFailure
+from pr_agent_context.prompt import render as render_module
 from pr_agent_context.prompt.render import (
     _format_location,
     _indent_block,
     _render_failing_jobs_section,
     _render_patch_coverage_section,
     _render_review_thread,
+    _render_review_threads_section,
     _render_workflow_failure,
     _sanitize_block,
     _wrap_markdown_code_block,
@@ -298,6 +300,23 @@ def test_render_prompt_template_allows_literal_braces_in_rendered_values():
     assert diagnostics.template_source == "file"
 
 
+def test_render_prompt_template_rejects_missing_values():
+    with pytest.raises(ValueError, match="Missing value\\(s\\) for prompt template placeholder"):
+        render_prompt_template(
+            template_text="{{ opening_instructions }}",
+            template_source="file",
+            template_path="template.md",
+            values={
+                "pr_number": "17",
+                "prompt_preamble": "",
+                "copilot_comments_section": "",
+                "review_comments_section": "",
+                "failing_jobs_section": "",
+                "patch_coverage_section": "",
+            },
+        )
+
+
 def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tmp_path):
     template = tmp_path / "template.md"
     template.write_text("```python\npass\n```", encoding="utf-8")
@@ -310,9 +329,16 @@ def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tm
     )
 
     assert rendered.comment_body.startswith(
-        "<!-- pr-agent-context:managed-comment -->\n~~~~markdown"
+        "<!-- pr-agent-context:managed-comment -->\n~~~markdown"
     )
-    assert rendered.comment_body.endswith("\n~~~~")
+    assert rendered.comment_body.endswith("\n~~~")
+
+
+def test_wrap_markdown_code_block_chooses_unique_fence():
+    wrapped = _wrap_markdown_code_block("contains ``` and ~~~ and ```` already")
+
+    assert wrapped.startswith("`````markdown")
+    assert wrapped.endswith("\n`````")
 
 
 def test_render_prompt_template_inserts_preamble_when_placeholder_missing():
@@ -348,6 +374,21 @@ def test_truncate_text_never_exceeds_max_chars_when_suffix_is_longer_than_budget
     assert note is not None
     assert note.message == "[this suffix is longer than five]"
     assert note.truncated_size == 5
+
+
+def test_truncate_text_returns_empty_string_for_non_positive_budget():
+    truncated, note = truncate_text(
+        "abcdefghijklmnopqrstuvwxyz",
+        max_chars=0,
+        target="example",
+        strategy="demo",
+        suffix="[truncated]",
+    )
+
+    assert truncated == ""
+    assert note is not None
+    assert note.original_size == 26
+    assert note.truncated_size == 0
 
 
 def test_truncate_lines_reports_character_sizes_consistently():
@@ -491,6 +532,72 @@ def test_render_review_section_hard_caps_total_budget():
     assert any(note.strategy == "section_budget_cap" for note in rendered.truncation_notes)
 
 
+def test_render_review_threads_section_breaks_when_budget_is_exhausted(monkeypatch):
+    threads = [
+        ReviewThread.model_validate(
+            {
+                "thread_id": index,
+                "classifier": "review",
+                "path": f"src/example_{index}.py",
+                "line": 5,
+                "original_line": 5,
+                "is_resolved": False,
+                "is_outdated": False,
+                "url": f"https://example.invalid/thread-{index}",
+                "item_id": f"REVIEW-{index}",
+                "messages": [
+                    {
+                        "comment_id": index,
+                        "author_login": "octocat",
+                        "body": "body " * 80,
+                        "url": f"https://example.invalid/comment-{index}",
+                    }
+                ],
+            }
+        )
+        for index in range(1, 4)
+    ]
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_comments_section", 1)
+    monkeypatch.setattr(
+        render_module,
+        "_render_review_thread",
+        lambda thread, max_chars: ("x" * 500, []),
+    )
+
+    rendered, notes = _render_review_threads_section(
+        "Other Review Comments",
+        threads,
+        section_key="review_comments_section",
+    )
+
+    assert rendered
+    assert any(note.strategy == "section_budget_cap" for note in notes)
+
+
+def test_render_failing_jobs_section_breaks_when_budget_is_exhausted(monkeypatch):
+    failures = [
+        WorkflowFailure.model_validate(
+            {
+                "job_id": index,
+                "workflow_name": "CI",
+                "job_name": f"smoke-{index}",
+                "matrix_label": "py311-linux",
+                "url": f"https://example.invalid/job-{index}",
+                "failed_steps": ["pytest"],
+                "excerpt_lines": [f"line {line} " + ("x" * 40) for line in range(30)],
+                "item_id": f"FAIL-{index}",
+            }
+        )
+        for index in range(1, 4)
+    ]
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_jobs_section", 1)
+
+    rendered, notes = _render_failing_jobs_section(failures)
+
+    assert rendered
+    assert any(note.strategy == "section_budget_cap" for note in notes)
+
+
 def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
     with_excerpt = WorkflowFailure.model_validate(
         {
@@ -608,7 +715,8 @@ def test_render_helpers_handle_location_and_block_sanitation():
     assert _indent_block("line1\n\nline2").splitlines()[1] == ""
     assert _sanitize_block("```py\r\npass\r\n```") == "~~~py\npass\n~~~"
     assert _wrap_markdown_code_block("plain").startswith("```markdown")
-    assert _wrap_markdown_code_block("contains ``` fence").startswith("~~~~markdown")
+    assert _wrap_markdown_code_block("contains ``` fence").startswith("~~~markdown")
+    assert _wrap_markdown_code_block("contains ``` and ~~~ fences").startswith("````markdown")
 
 
 def test_render_format_percent_keeps_decimals_for_non_integral_values():

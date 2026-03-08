@@ -187,8 +187,9 @@ class RunConfig(BaseModel):
                 else None
             ),
             debug_artifacts_dir=(
-                Path(env_map["PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR"])
-                if env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR")
+                Path(debug_artifacts_dir.strip())
+                if (debug_artifacts_dir := env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR"))
+                and debug_artifacts_dir.strip()
                 else (workspace / "pr-agent-context-debug" if debug_artifacts else None)
             ),
             github_output_path=(
