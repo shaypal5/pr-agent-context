@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from pr_agent_context.constants import COPILOT_AUTHOR_LOGINS, COPILOT_AUTHOR_PATTERNS
+from pr_agent_context.config import CopilotAuthorMatcherConfig
 from pr_agent_context.domain.models import ReviewMessage, ReviewThread
 from pr_agent_context.github.api import GitHubApiClient
 
@@ -56,6 +56,7 @@ def collect_unresolved_review_threads(
     repo: str,
     pull_request_number: int,
     max_threads: int,
+    copilot_matcher: CopilotAuthorMatcherConfig,
 ) -> list[ReviewThread]:
     threads: list[ReviewThread] = []
     cursor: str | None = None
@@ -71,7 +72,9 @@ def collect_unresolved_review_threads(
         )
         pull_request = response["repository"]["pullRequest"]
         review_threads = pull_request["reviewThreads"]
-        threads.extend(parse_review_threads(review_threads["nodes"]))
+        threads.extend(
+            parse_review_threads(review_threads["nodes"], copilot_matcher=copilot_matcher)
+        )
         page_info = review_threads["pageInfo"]
         if not page_info["hasNextPage"]:
             break
@@ -79,7 +82,11 @@ def collect_unresolved_review_threads(
     return sorted(threads, key=lambda thread: thread.thread_id)[:max_threads]
 
 
-def parse_review_threads(nodes: Iterable[dict[str, object]]) -> list[ReviewThread]:
+def parse_review_threads(
+    nodes: Iterable[dict[str, object]],
+    *,
+    copilot_matcher: CopilotAuthorMatcherConfig,
+) -> list[ReviewThread]:
     parsed_threads: list[ReviewThread] = []
     for node in nodes:
         if node.get("isResolved") or node.get("isOutdated"):
@@ -103,7 +110,9 @@ def parse_review_threads(nodes: Iterable[dict[str, object]]) -> list[ReviewThrea
         parsed_threads.append(
             ReviewThread(
                 thread_id=node["databaseId"],
-                classifier=_classify_thread(root_message.author_login),
+                classifier="copilot"
+                if copilot_matcher.matches(root_message.author_login)
+                else "review",
                 path=node.get("path"),
                 line=node.get("line"),
                 start_line=node.get("startLine"),
@@ -115,11 +124,3 @@ def parse_review_threads(nodes: Iterable[dict[str, object]]) -> list[ReviewThrea
             )
         )
     return parsed_threads
-
-
-def _classify_thread(author_login: str) -> str:
-    if author_login in COPILOT_AUTHOR_LOGINS:
-        return "copilot"
-    if any(pattern.search(author_login) for pattern in COPILOT_AUTHOR_PATTERNS):
-        return "copilot"
-    return "review"

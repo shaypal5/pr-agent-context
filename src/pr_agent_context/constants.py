@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import re
-
 MANAGED_COMMENT_MARKER = "<!-- pr-agent-context:managed-comment -->"
 
 DEFAULT_PROMPT_OPENING = (
@@ -19,11 +17,35 @@ REVIEW_COMMENT_SECTION = "Other Review Comments"
 FAILING_JOBS_SECTION = "Failing Jobs"
 PATCH_COVERAGE_SECTION = "Codecov/patch"
 
-COPILOT_AUTHOR_LOGINS = {
+DEFAULT_PROMPT_TEMPLATE = """
+{{ prompt_preamble }}
+
+{{ opening_instructions }}
+
+{{ copilot_comments_section }}
+
+{{ review_comments_section }}
+
+{{ failing_jobs_section }}
+
+{{ patch_coverage_section }}
+"""
+
+SUPPORTED_TEMPLATE_PLACEHOLDERS = (
+    "pr_number",
+    "prompt_preamble",
+    "opening_instructions",
+    "copilot_comments_section",
+    "review_comments_section",
+    "failing_jobs_section",
+    "patch_coverage_section",
+)
+
+DEFAULT_COPILOT_AUTHOR_PATTERNS = (
     "copilot-pull-request-reviewer[bot]",
     "github-copilot[bot]",
-}
-COPILOT_AUTHOR_PATTERNS = (re.compile(r"copilot.*bot", re.IGNORECASE),)
+    "re:copilot.*bot",
+)
 
 FAILED_JOB_CONCLUSIONS = {"failure", "timed_out", "startup_failure"}
 ERROR_MARKERS = (
@@ -41,3 +63,19 @@ DEFAULT_MAX_FAILED_JOBS = 20
 DEFAULT_MAX_LOG_LINES_PER_JOB = 80
 DEFAULT_TARGET_PATCH_COVERAGE = 100.0
 DEFAULT_COVERAGE_ARTIFACT_PREFIX = "pr-agent-context-coverage"
+DEFAULT_TOOL_REF = "v1"
+DEFAULT_DEBUG_ARTIFACT_PREFIX = "pr-agent-context-debug"
+
+DEFAULT_SECTION_BUDGETS = {
+    "copilot_comments_section": 12000,
+    "review_comments_section": 12000,
+    "failing_jobs_section": 14000,
+    "patch_coverage_section": 12000,
+}
+
+DEFAULT_ITEM_BUDGET_FLOOR = 200
+DEFAULT_ROOT_COMMENT_BODY_CHARS = 2400
+DEFAULT_REPLY_BODY_CHARS = 700
+DEFAULT_FAILURE_EXCERPT_CHARS = 2600
+DEFAULT_FAILURE_EXCERPT_MAX_LINES = 40
+DEFAULT_PATCH_SECTION_HARD_LIMIT = 20000

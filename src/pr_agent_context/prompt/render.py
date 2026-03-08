@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
+    DEFAULT_FAILURE_EXCERPT_CHARS,
+    DEFAULT_FAILURE_EXCERPT_MAX_LINES,
+    DEFAULT_ITEM_BUDGET_FLOOR,
+    DEFAULT_PATCH_SECTION_HARD_LIMIT,
     DEFAULT_PROMPT_OPENING,
+    DEFAULT_REPLY_BODY_CHARS,
+    DEFAULT_ROOT_COMMENT_BODY_CHARS,
+    DEFAULT_SECTION_BUDGETS,
     FAILING_JOBS_SECTION,
     MANAGED_COMMENT_MARKER,
     PATCH_COVERAGE_SECTION,
@@ -11,9 +21,13 @@ from pr_agent_context.constants import (
 from pr_agent_context.domain.models import (
     PatchCoverageSummary,
     RenderedPrompt,
+    ReviewMessage,
     ReviewThread,
+    TruncationNote,
     WorkflowFailure,
 )
+from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
+from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 
 def render_prompt(
@@ -24,56 +38,113 @@ def render_prompt(
     patch_coverage: PatchCoverageSummary | None = None,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
+    prompt_template_file: Path | None = None,
 ) -> RenderedPrompt:
-    sections: list[str] = []
-    if prompt_preamble:
-        sections.append(prompt_preamble.strip())
-
-    sections.append(DEFAULT_PROMPT_OPENING.format(pr_number=pull_request_number))
+    truncation_notes: list[TruncationNote] = []
 
     copilot_threads = [thread for thread in review_threads if thread.classifier == "copilot"]
     review_only_threads = [thread for thread in review_threads if thread.classifier != "copilot"]
 
-    if copilot_threads:
-        sections.append(
-            f"# {COPILOT_COMMENT_SECTION}\n\n"
-            + "\n\n".join(_render_review_thread(thread) for thread in copilot_threads)
-        )
-    if review_only_threads:
-        sections.append(
-            f"# {REVIEW_COMMENT_SECTION}\n\n"
-            + "\n\n".join(_render_review_thread(thread) for thread in review_only_threads)
-        )
-    if workflow_failures:
-        sections.append(
-            f"# {FAILING_JOBS_SECTION}\n\n"
-            + "\n\n".join(_render_workflow_failure(failure) for failure in workflow_failures)
-        )
-    coverage_section = _render_patch_coverage_section(
+    copilot_section, notes = _render_review_threads_section(
+        COPILOT_COMMENT_SECTION,
+        copilot_threads,
+        section_key="copilot_comments_section",
+    )
+    truncation_notes.extend(notes)
+    review_section, notes = _render_review_threads_section(
+        REVIEW_COMMENT_SECTION,
+        review_only_threads,
+        section_key="review_comments_section",
+    )
+    truncation_notes.extend(notes)
+    failing_section, notes = _render_failing_jobs_section(workflow_failures)
+    truncation_notes.extend(notes)
+    patch_section, notes = _render_patch_coverage_section(
         patch_coverage,
         force_patch_coverage_section=force_patch_coverage_section,
     )
-    if coverage_section:
-        sections.append(f"# {PATCH_COVERAGE_SECTION}\n\n{coverage_section}")
+    truncation_notes.extend(notes)
 
-    prompt_markdown = "\n\n".join(section.strip() for section in sections if section.strip())
-    comment_body = f"{MANAGED_COMMENT_MARKER}\n```markdown\n{prompt_markdown}\n```"
+    template_text, template_path, template_source = load_prompt_template(prompt_template_file)
+    prompt_markdown, diagnostics = render_prompt_template(
+        template_text=template_text,
+        template_source=template_source,
+        template_path=template_path,
+        values={
+            "pr_number": str(pull_request_number),
+            "prompt_preamble": prompt_preamble.strip(),
+            "opening_instructions": DEFAULT_PROMPT_OPENING.format(pr_number=pull_request_number),
+            "copilot_comments_section": copilot_section,
+            "review_comments_section": review_section,
+            "failing_jobs_section": failing_section,
+            "patch_coverage_section": patch_section,
+        },
+    )
+    prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
+    comment_body = f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(prompt_markdown)}"
+    has_actionable_items = bool(
+        review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
+    )
+    should_publish_comment = bool(
+        review_threads
+        or workflow_failures
+        or (patch_section and force_patch_coverage_section)
+        or (patch_coverage and patch_coverage.actionable)
+    )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
-        has_actionable_items=bool(
-            review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
-        ),
-        should_publish_comment=bool(
-            review_threads
-            or workflow_failures
-            or (coverage_section and force_patch_coverage_section)
-            or (patch_coverage and patch_coverage.actionable)
-        ),
+        prompt_sha256=prompt_sha256,
+        has_actionable_items=has_actionable_items,
+        should_publish_comment=should_publish_comment,
+        truncation_notes=truncation_notes,
+        template_diagnostics=diagnostics,
     )
 
 
-def _render_review_thread(thread: ReviewThread) -> str:
+def _render_review_threads_section(
+    title: str,
+    threads: list[ReviewThread],
+    *,
+    section_key: str,
+) -> tuple[str, list[TruncationNote]]:
+    if not threads:
+        return "", []
+
+    budget = DEFAULT_SECTION_BUDGETS[section_key]
+    item_blocks: list[str] = []
+    notes: list[TruncationNote] = []
+    for index, thread in enumerate(threads, start=1):
+        remaining_items = len(threads) - index + 1
+        used_budget = sum(len(block) for block in item_blocks)
+        remaining_budget = max(0, budget - used_budget)
+        if remaining_budget <= 0:
+            break
+        item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
+        rendered, item_notes = _render_review_thread(thread, max_chars=item_budget)
+        item_blocks.append(rendered)
+        notes.extend(item_notes)
+    section_text = f"# {title}\n\n" + "\n\n".join(item_blocks)
+    if len(section_text) <= budget:
+        return section_text, notes
+    trimmed, note = truncate_text(
+        section_text,
+        max_chars=budget,
+        target=section_key,
+        strategy="section_budget_cap",
+        suffix="\n[note: section truncated to fit overall section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
+
+
+def _render_review_thread(
+    thread: ReviewThread,
+    *,
+    max_chars: int,
+) -> tuple[str, list[TruncationNote]]:
+    notes: list[TruncationNote] = []
     location = _format_location(thread.path, thread.line)
     root = thread.messages[0]
     lines = [
@@ -83,18 +154,118 @@ def _render_review_thread(thread: ReviewThread) -> str:
         f"Root author: {root.author_login}",
         "",
         "Comment:",
-        _indent_block(_sanitize_block(root.body)),
     ]
+    root_body, note = truncate_text(
+        _sanitize_block(root.body),
+        max_chars=DEFAULT_ROOT_COMMENT_BODY_CHARS,
+        target=thread.item_id or "review-thread",
+        strategy="truncate_root_comment",
+        suffix="\n[comment truncated]",
+    )
+    if note:
+        notes.append(note)
+    lines.append(_indent_block(root_body))
+
     replies = thread.messages[1:]
     if replies:
         lines.extend(["", "Replies:"])
         for reply in replies:
-            lines.append(f"- {reply.author_login}")
-            lines.append(_indent_block(_sanitize_block(reply.body), indent="  "))
-    return "\n".join(lines)
+            rendered_reply, reply_notes = _render_reply(
+                reply,
+                target=thread.item_id or "review-thread",
+            )
+            lines.extend(rendered_reply)
+            notes.extend(reply_notes)
+
+    block = "\n".join(lines)
+    if len(block) <= max_chars:
+        return block, notes
+
+    root_author_line = f"Root author: {root.author_login}"
+    lines = [line for line in lines if line != root_author_line]
+    metadata_note = TruncationNote(
+        target=thread.item_id or "review-thread",
+        strategy="drop_metadata",
+        message="Dropped less-important metadata to fit section budget.",
+        original_size=len(block),
+        truncated_size=len("\n".join(lines)),
+    )
+    notes.append(metadata_note)
+    block = "\n".join(lines)
+
+    if len(block) <= max_chars:
+        return block, notes
+
+    trimmed, note = truncate_text(
+        block,
+        max_chars=max_chars,
+        target=thread.item_id or "review-thread",
+        strategy="section_budget",
+        suffix="\n[note: thread truncated to fit section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
 
 
-def _render_workflow_failure(failure: WorkflowFailure) -> str:
+def _render_reply(
+    reply: ReviewMessage,
+    *,
+    target: str,
+) -> tuple[list[str], list[TruncationNote]]:
+    notes: list[TruncationNote] = []
+    body, note = truncate_text(
+        _sanitize_block(reply.body),
+        max_chars=DEFAULT_REPLY_BODY_CHARS,
+        target=target,
+        strategy="truncate_reply_body",
+        suffix="\n[reply truncated]",
+    )
+    if note:
+        notes.append(note)
+    return [f"- {reply.author_login}", _indent_block(body, indent="  ")], notes
+
+
+def _render_failing_jobs_section(
+    failures: list[WorkflowFailure],
+) -> tuple[str, list[TruncationNote]]:
+    if not failures:
+        return "", []
+
+    budget = DEFAULT_SECTION_BUDGETS["failing_jobs_section"]
+    item_blocks: list[str] = []
+    notes: list[TruncationNote] = []
+    for index, failure in enumerate(failures, start=1):
+        remaining_items = len(failures) - index + 1
+        used_budget = sum(len(block) for block in item_blocks)
+        remaining_budget = max(0, budget - used_budget)
+        if remaining_budget <= 0:
+            break
+        item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
+        rendered, item_notes = _render_workflow_failure(failure, max_chars=item_budget)
+        item_blocks.append(rendered)
+        notes.extend(item_notes)
+    section_text = f"# {FAILING_JOBS_SECTION}\n\n" + "\n\n".join(item_blocks)
+    if len(section_text) <= budget:
+        return section_text, notes
+    trimmed, note = truncate_text(
+        section_text,
+        max_chars=budget,
+        target="failing_jobs_section",
+        strategy="section_budget_cap",
+        suffix="\n[note: section truncated to fit overall section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
+
+
+def _render_workflow_failure(
+    failure: WorkflowFailure,
+    *,
+    max_chars: int,
+) -> tuple[str, list[TruncationNote]]:
+    notes: list[TruncationNote] = []
     lines = [
         f"## {failure.item_id}",
         f"Workflow: {failure.workflow_name}",
@@ -106,14 +277,121 @@ def _render_workflow_failure(failure: WorkflowFailure) -> str:
     if failure.failed_steps:
         lines.append(f"Failed steps: {', '.join(failure.failed_steps)}")
     if failure.excerpt_lines:
+        excerpt_lines, note = truncate_lines(
+            failure.excerpt_lines,
+            max_lines=min(len(failure.excerpt_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES),
+            max_chars=DEFAULT_FAILURE_EXCERPT_CHARS,
+            target=failure.item_id or "workflow-failure",
+            strategy="trim_log_excerpt",
+            note_message="Excerpt truncated to fit section budget.",
+        )
+        if note:
+            notes.append(note)
+            excerpt_lines = excerpt_lines + [
+                (
+                    "[note: excerpt truncated to "
+                    f"{len(excerpt_lines)} of {len(failure.excerpt_lines)} lines]"
+                ),
+            ]
         lines.extend(
             [
                 "",
                 "Excerpt:",
-                _indent_block(_sanitize_block("\n".join(failure.excerpt_lines))),
+                _indent_block(_sanitize_block("\n".join(excerpt_lines))),
             ]
         )
-    return "\n".join(lines)
+
+    block = "\n".join(lines)
+    if len(block) <= max_chars:
+        return block, notes
+
+    lines = [line for line in lines if not line.startswith("Matrix: ")]
+    metadata_note = TruncationNote(
+        target=failure.item_id or "workflow-failure",
+        strategy="drop_metadata",
+        message="Dropped less-important metadata to fit section budget.",
+        original_size=len(block),
+        truncated_size=len("\n".join(lines)),
+    )
+    notes.append(metadata_note)
+    block = "\n".join(lines)
+
+    if len(block) <= max_chars:
+        return block, notes
+
+    trimmed, note = truncate_text(
+        block,
+        max_chars=max_chars,
+        target=failure.item_id or "workflow-failure",
+        strategy="section_budget",
+        suffix="\n[note: failure details truncated to fit section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
+
+
+def _render_patch_coverage_section(
+    patch_coverage: PatchCoverageSummary | None,
+    *,
+    force_patch_coverage_section: bool,
+) -> tuple[str, list[TruncationNote]]:
+    if patch_coverage is None:
+        return "", []
+    if not patch_coverage.actionable and not force_patch_coverage_section:
+        return "", []
+    if patch_coverage.is_na:
+        return (
+            f"# {PATCH_COVERAGE_SECTION}\n\n"
+            "There are no changed executable Python lines in the patch."
+        ), []
+    if patch_coverage.actual_percent is None:
+        return (
+            f"# {PATCH_COVERAGE_SECTION}\n\n"
+            "Patch coverage could not be determined from the available coverage artifacts.",
+            [],
+        )
+
+    if patch_coverage.actionable:
+        lines = [
+            f"# {PATCH_COVERAGE_SECTION}",
+            "",
+            (
+                "Codecov shows patch test coverage is "
+                f"{_format_percent(patch_coverage.actual_percent)}; "
+                f"please raise it to {_format_percent(patch_coverage.target_percent)}. "
+                "These are the uncovered code lines:"
+            ),
+        ]
+        for file_gap in patch_coverage.files:
+            if not file_gap.uncovered_changed_executable_lines:
+                continue
+            uncovered_lines = ", ".join(
+                str(line) for line in file_gap.uncovered_changed_executable_lines
+            )
+            lines.append(f"- {file_gap.path}: {uncovered_lines}")
+        block = "\n".join(lines)
+        if len(block) <= DEFAULT_PATCH_SECTION_HARD_LIMIT:
+            return block, []
+        trimmed, note = truncate_text(
+            block,
+            max_chars=DEFAULT_PATCH_SECTION_HARD_LIMIT,
+            target="patch-coverage",
+            strategy="hard_limit",
+            suffix=(
+                "\n[note: patch coverage section truncated only after preserving "
+                "the explicit uncovered line list prefix]"
+            ),
+        )
+        return trimmed, [note] if note else []
+
+    return (
+        f"# {PATCH_COVERAGE_SECTION}\n\n"
+        "Patch coverage is "
+        f"{_format_percent(patch_coverage.actual_percent)}, meeting the target of "
+        f"{_format_percent(patch_coverage.target_percent)}.",
+        [],
+    )
 
 
 def _format_location(path: str | None, line: int | None) -> str:
@@ -133,41 +411,16 @@ def _sanitize_block(text: str) -> str:
     return normalized.replace("```", "~~~")
 
 
-def _render_patch_coverage_section(
-    patch_coverage: PatchCoverageSummary | None,
-    *,
-    force_patch_coverage_section: bool,
-) -> str | None:
-    if patch_coverage is None:
-        return None
-    if not patch_coverage.actionable and not force_patch_coverage_section:
-        return None
-    if patch_coverage.is_na:
-        return "There are no changed executable Python lines in the patch."
-    if patch_coverage.actual_percent is None:
-        return "Patch coverage could not be determined from the available coverage artifacts."
-
-    if patch_coverage.actionable:
-        lines = [
-            "Codecov shows patch test coverage is "
-            f"{_format_percent(patch_coverage.actual_percent)}; please raise it to "
-            f"{_format_percent(patch_coverage.target_percent)}. "
-            "These are the uncovered code lines:",
-        ]
-        for file_gap in patch_coverage.files:
-            if not file_gap.uncovered_changed_executable_lines:
-                continue
-            uncovered_lines = ", ".join(
-                str(line) for line in file_gap.uncovered_changed_executable_lines
-            )
-            lines.append(f"- {file_gap.path}: {uncovered_lines}")
-        return "\n".join(lines)
-
-    return (
-        "Patch coverage is "
-        f"{_format_percent(patch_coverage.actual_percent)}, meeting the target of "
-        f"{_format_percent(patch_coverage.target_percent)}."
-    )
+def _wrap_markdown_code_block(text: str) -> str:
+    fence = "```"
+    if fence in text:
+        alternative = "~~~"
+        if alternative not in text:
+            fence = alternative
+        else:
+            while fence in text:
+                fence += "`"
+    return f"{fence}markdown\n{text}\n{fence}"
 
 
 def _format_percent(value: float) -> str:
