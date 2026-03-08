@@ -1,0 +1,41 @@
+name: Release Tags
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  move-major-tag:
+    name: Move major release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Move major tag to the release commit
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*)
+              major_tag="${RELEASE_TAG%%.*}"
+              ;;
+            *)
+              echo "Unexpected tag format: $RELEASE_TAG" >&2
+              exit 1
+              ;;
+          esac
+
+          git tag -f "$major_tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$major_tag" --force

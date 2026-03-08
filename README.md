@@ -46,6 +46,23 @@ jobs:
       debug_artifacts: true
 ```
 
+Versioning guidance:
+
+- use `@v1` in downstream repositories for the stable major line
+- publish fixed release tags such as `v1.0.0` for exact version pinning
+- this repository includes [`.github/workflows/release-tags.yml`](/Users/shaypalachy/clones/pr-agent-context/.github/workflows/release-tags.yml), which automatically moves `v1` when a `v1.x.y` tag is pushed
+
+Example release flow in this repository:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+After the version tag push completes, the workflow force-updates the matching major tag to the same commit.
+
 The reusable workflow inputs are:
 
 - `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v1"`
