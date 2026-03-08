@@ -21,7 +21,7 @@ query PullRequestReviewThreads(
           endCursor
         }
         nodes {
-          databaseId
+          id
           isResolved
           isOutdated
           path
@@ -79,7 +79,13 @@ def collect_unresolved_review_threads(
         if not page_info["hasNextPage"]:
             break
         cursor = page_info["endCursor"]
-    return sorted(threads, key=lambda thread: thread.thread_id)[:max_threads]
+    return sorted(
+        threads,
+        key=lambda thread: (
+            thread.sort_key if thread.sort_key is not None else float("inf"),
+            str(thread.thread_id),
+        ),
+    )[:max_threads]
 
 
 def parse_review_threads(
@@ -109,7 +115,8 @@ def parse_review_threads(
         root_message = messages[0]
         parsed_threads.append(
             ReviewThread(
-                thread_id=node["databaseId"],
+                thread_id=node["id"],
+                sort_key=root_message.comment_id,
                 classifier="copilot"
                 if copilot_matcher.matches(root_message.author_login)
                 else "review",

@@ -15,7 +15,8 @@ def test_parse_review_threads_filters_and_classifies(review_threads_payload):
         ),
     )
 
-    assert [thread.thread_id for thread in threads] == [101, 202]
+    assert [thread.thread_id for thread in threads] == ["PRRT_example_101", "PRRT_example_202"]
+    assert [thread.sort_key for thread in threads] == [1001, 2001]
     assert threads[0].classifier == "copilot"
     assert threads[0].messages[0].author_login == "copilot-pull-request-reviewer[bot]"
     assert threads[1].classifier == "review"
@@ -25,7 +26,7 @@ def test_parse_review_threads_filters_and_classifies(review_threads_payload):
 def test_parse_review_threads_supports_custom_copilot_matchers():
     nodes = [
         {
-            "databaseId": 1,
+            "id": "PRRT_custom_1",
             "isResolved": False,
             "isOutdated": False,
             "path": "src/example.py",
@@ -53,3 +54,5 @@ def test_parse_review_threads_supports_custom_copilot_matchers():
     )
 
     assert threads[0].classifier == "copilot"
+    assert threads[0].thread_id == "PRRT_custom_1"
+    assert threads[0].sort_key == 99

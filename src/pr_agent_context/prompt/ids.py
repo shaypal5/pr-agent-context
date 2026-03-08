@@ -9,11 +9,17 @@ def assign_item_ids(
 ) -> tuple[list[ReviewThread], list[WorkflowFailure]]:
     copilot_threads = sorted(
         [thread for thread in review_threads if thread.classifier == "copilot"],
-        key=lambda thread: thread.thread_id,
+        key=lambda thread: (
+            thread.sort_key if thread.sort_key is not None else float("inf"),
+            str(thread.thread_id),
+        ),
     )
     review_only_threads = sorted(
         [thread for thread in review_threads if thread.classifier != "copilot"],
-        key=lambda thread: thread.thread_id,
+        key=lambda thread: (
+            thread.sort_key if thread.sort_key is not None else float("inf"),
+            str(thread.thread_id),
+        ),
     )
     failures = sorted(
         workflow_failures,

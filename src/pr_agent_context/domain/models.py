@@ -23,7 +23,8 @@ class ReviewMessage(BaseModel):
 class ReviewThread(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    thread_id: int
+    thread_id: int | str
+    sort_key: int | None = None
     classifier: Literal["copilot", "review"]
     path: str | None = None
     line: int | None = None
