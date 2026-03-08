@@ -119,6 +119,23 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
     assert rendered.should_publish_comment is True
 
 
+def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        workflow_failures=[],
+        patch_coverage=None,
+        include_review_comments=False,
+        include_failing_jobs=True,
+        include_patch_coverage=False,
+    )
+
+    assert "all clear" in rendered.prompt_markdown.lower()
+    assert "only covers the enabled checks for this run" in rendered.prompt_markdown
+    assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
+
+
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
     rendered = render_prompt(
         pull_request_number=17,

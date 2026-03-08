@@ -131,3 +131,26 @@ def test_compute_patch_coverage_is_na_when_only_non_executable_lines_changed(tmp
     assert summary.is_na is True
     assert summary.actual_percent is None
     assert summary.files == []
+
+
+def test_compute_patch_coverage_ignores_changed_python_files_outside_measured_roots(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    measured = repo / "src" / "pkg" / "module.py"
+    test_file = repo / "tests" / "test_module.py"
+    _write_file(measured, "def covered():\n    return 1\n")
+    _write_file(test_file, "def test_case():\n    assert True\n")
+    coverage_file = tmp_path / ".coverage"
+    _build_coverage_data(coverage_file, [(measured, "covered()")])
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={"tests/test_module.py": [1, 2]},
+        coverage=combined,
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert summary.actual_percent is None
+    assert summary.files == []
