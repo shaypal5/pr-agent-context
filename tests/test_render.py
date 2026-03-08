@@ -142,6 +142,30 @@ def test_wrap_markdown_prose_treats_up_to_three_leading_spaces_as_valid_fence():
     ) in wrapped
 
 
+def test_wrap_markdown_prose_returns_original_text_for_non_positive_limit():
+    text = "This is a long line that would otherwise wrap if the limit were positive."
+
+    assert wrap_markdown_prose(text, max_chars=0) == text
+
+
+def test_wrap_markdown_prose_skips_sensitive_long_lines():
+    text = "\n".join(
+        [
+            "      ",
+            "# This is a heading line that should stay intact even though it is quite long indeed",
+            "> This is a blockquote line that should remain unchanged even though it is quite "
+            "long indeed",
+            "1. This is a list item that should remain unchanged even though it is quite long "
+            "indeed",
+            "See https://example.com/very/long/path/that/should/remain/on/one/line/even/when/it/exceeds/the/limit",
+        ]
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=20)
+
+    assert wrapped == text
+
+
 def test_render_prompt_renders_actionable_patch_coverage_section():
     rendered = render_prompt(
         pull_request_number=17,
