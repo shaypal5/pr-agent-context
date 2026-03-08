@@ -15,7 +15,7 @@ from pr_agent_context.constants import (
     DEFAULT_REPLY_BODY_CHARS,
     DEFAULT_ROOT_COMMENT_BODY_CHARS,
     DEFAULT_SECTION_BUDGETS,
-    FAILING_JOBS_SECTION,
+    FAILING_WORKFLOWS_SECTION,
     MANAGED_COMMENT_MARKER,
     PATCH_COVERAGE_SECTION,
     REVIEW_COMMENT_SECTION,
@@ -139,7 +139,7 @@ def _build_opening_instructions(
         label
         for label, enabled in (
             ("review comments", include_review_comments),
-            ("failing jobs", include_failing_jobs),
+            ("failing checks", include_failing_jobs),
             ("patch coverage", include_patch_coverage),
         )
         if not enabled
@@ -303,7 +303,7 @@ def _render_failing_jobs_section(
         rendered, item_notes = _render_workflow_failure(failure, max_chars=item_budget)
         item_blocks.append(rendered)
         notes.extend(item_notes)
-    section_text = f"# {FAILING_JOBS_SECTION}\n\n" + "\n\n".join(item_blocks)
+    section_text = f"# {FAILING_WORKFLOWS_SECTION}\n\n" + "\n\n".join(item_blocks)
     if len(section_text) <= budget:
         return section_text, notes
     trimmed, note = truncate_text(
@@ -326,14 +326,38 @@ def _render_workflow_failure(
     notes: list[TruncationNote] = []
     lines = [
         f"## {failure.item_id}",
-        f"Workflow: {failure.workflow_name}",
-        f"Job: {failure.job_name}",
+        f"Type: {_format_failure_type(failure)}",
     ]
+    if failure.source_type in {"actions_job", "actions_workflow_run"}:
+        lines.append(f"Workflow: {failure.workflow_name}")
+    elif failure.source_type == "external_check_run":
+        lines.append(f"App: {failure.app_name or failure.workflow_name}")
+        lines.append(f"Check: {failure.job_name}")
+    else:
+        lines.append(f"Context: {failure.context_name or failure.job_name}")
+
+    if failure.source_type == "actions_job":
+        lines.append(f"Job: {failure.job_name}")
+    elif failure.source_type == "actions_workflow_run":
+        lines.append(f"Run: {failure.job_name}")
+
     if failure.matrix_label:
         lines.append(f"Matrix: {failure.matrix_label}")
+    if failure.run_number:
+        lines.append(f"Run number: {failure.run_number}")
+    if failure.run_attempt and failure.source_type in {"actions_job", "actions_workflow_run"}:
+        lines.append(f"Run attempt: {failure.run_attempt}")
+    if failure.status and failure.source_type in {"external_check_run", "commit_status"}:
+        lines.append(f"Status: {failure.status}")
+    if failure.conclusion:
+        lines.append(f"Conclusion: {failure.conclusion}")
+    if failure.is_current_run:
+        lines.append("Current run: yes")
     lines.append(f"URL: {failure.url}")
     if failure.failed_steps:
         lines.append(f"Failed steps: {', '.join(failure.failed_steps)}")
+    if failure.summary:
+        lines.extend(["", "Summary:", _indent_block(_sanitize_block(failure.summary))])
     if failure.excerpt_lines:
         excerpt_lines, note = truncate_lines(
             failure.excerpt_lines,
@@ -363,7 +387,11 @@ def _render_workflow_failure(
     if len(block) <= max_chars:
         return block, notes
 
-    lines = [line for line in lines if not line.startswith("Matrix: ")]
+    lines = [
+        line
+        for line in lines
+        if not line.startswith(("Matrix: ", "Run attempt: ", "Current run: "))
+    ]
     metadata_note = TruncationNote(
         target=failure.item_id or "workflow-failure",
         strategy="drop_metadata",
@@ -387,6 +415,16 @@ def _render_workflow_failure(
     if note:
         notes.append(note)
     return trimmed, notes
+
+
+def _format_failure_type(failure: WorkflowFailure) -> str:
+    labels = {
+        "actions_job": "GitHub Actions job",
+        "actions_workflow_run": "GitHub Actions workflow run",
+        "external_check_run": "External check run",
+        "commit_status": "Commit status",
+    }
+    return labels[failure.source_type]
 
 
 def _render_patch_coverage_section(

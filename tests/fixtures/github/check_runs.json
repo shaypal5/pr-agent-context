@@ -1,0 +1,38 @@
+{
+  "check_runs": [
+    {
+      "id": 401,
+      "name": "codecov/patch",
+      "status": "completed",
+      "conclusion": "failure",
+      "details_url": "https://app.codecov.io/gh/shaypal5/example/pull/17?check=patch",
+      "completed_at": "2026-03-08T12:25:00Z",
+      "app": {
+        "slug": "codecov",
+        "name": "Codecov"
+      },
+      "output": {
+        "title": "Patch coverage regression",
+        "summary": "Patch coverage fell below the configured target.",
+        "text": "Coverage is 72.5% on the diff.\nRaise it to 100%."
+      }
+    },
+    {
+      "id": 402,
+      "name": "CI / test (3.12)",
+      "status": "completed",
+      "conclusion": "failure",
+      "details_url": "https://github.com/shaypal5/example/actions/runs/202/job/1001",
+      "completed_at": "2026-03-08T12:15:00Z",
+      "app": {
+        "slug": "github-actions",
+        "name": "GitHub Actions"
+      },
+      "output": {
+        "title": "Actions duplicate",
+        "summary": "This should be ignored because it comes from GitHub Actions.",
+        "text": ""
+      }
+    }
+  ]
+}

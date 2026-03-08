@@ -16,10 +16,22 @@ from pr_agent_context.services.run import run_service
 
 
 class FakeGitHubClient:
-    def __init__(self, *, review_threads_payload, workflow_jobs_payload, issue_comments_payload):
+    def __init__(
+        self,
+        *,
+        review_threads_payload,
+        workflow_jobs_payload,
+        issue_comments_payload,
+        workflow_runs_payload=None,
+        check_runs_payload=None,
+        commit_status_payload=None,
+    ):
         self.review_threads_payload = review_threads_payload
         self.workflow_jobs_payload = workflow_jobs_payload
         self.issue_comments_payload = list(issue_comments_payload)
+        self.workflow_runs_payload = workflow_runs_payload or {"workflow_runs": []}
+        self.check_runs_payload = check_runs_payload or {"check_runs": []}
+        self.commit_status_payload = commit_status_payload or {"statuses": []}
         self.created_bodies: list[str] = []
         self.updated_bodies: list[str] = []
         self.deleted_ids: list[int] = []
@@ -28,8 +40,14 @@ class FakeGitHubClient:
         return self.review_threads_payload["data"]
 
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "GET" and path.endswith("/actions/runs"):
+            return self.workflow_runs_payload
         if method == "GET" and "/actions/runs/" in path and path.endswith("/jobs"):
             return self.workflow_jobs_payload
+        if method == "GET" and path.endswith("/check-runs"):
+            return self.check_runs_payload
+        if method == "GET" and path.endswith("/status"):
+            return self.commit_status_payload
         if method == "GET" and path.endswith("/comments"):
             return self.issue_comments_payload
         if method == "POST" and path.endswith("/comments"):
@@ -71,6 +89,81 @@ class FakeGitHubClient:
         raise AssertionError(f"Unknown job log request: {path}")
 
 
+class CrossRunGitHubClient(FakeGitHubClient):
+    def __init__(self, *, review_threads_payload, issue_comments_payload):
+        super().__init__(
+            review_threads_payload=review_threads_payload,
+            workflow_jobs_payload={"jobs": []},
+            issue_comments_payload=issue_comments_payload,
+            workflow_runs_payload=load_json_fixture("github/workflow_runs.json"),
+            check_runs_payload=load_json_fixture("github/check_runs.json"),
+            commit_status_payload=load_json_fixture("github/commit_status.json"),
+        )
+        self.workflow_jobs_by_run = {
+            (201, 1): {
+                "jobs": [
+                    {
+                        "id": 1101,
+                        "name": "smoke (ubuntu-latest, 3.12)",
+                        "workflow_name": "CI",
+                        "conclusion": "failure",
+                        "html_url": "https://github.com/shaypal5/example/actions/runs/201/job/1101",
+                        "completed_at": "2026-03-08T12:00:00Z",
+                        "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+                    }
+                ]
+            },
+            (202, 2): {
+                "jobs": [
+                    {
+                        "id": 1201,
+                        "name": "smoke (ubuntu-latest, 3.12)",
+                        "workflow_name": "CI",
+                        "conclusion": "success",
+                        "html_url": "https://github.com/shaypal5/example/actions/runs/202/job/1201",
+                        "completed_at": "2026-03-08T12:10:00Z",
+                        "steps": [{"name": "Run pytest", "conclusion": "success"}],
+                    },
+                    {
+                        "id": 1202,
+                        "name": "lint",
+                        "workflow_name": "CI",
+                        "conclusion": "failure",
+                        "html_url": "https://github.com/shaypal5/example/actions/runs/202/job/1202",
+                        "completed_at": "2026-03-08T12:11:00Z",
+                        "steps": [{"name": "Run ruff", "conclusion": "failure"}],
+                    },
+                ]
+            },
+        }
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "GET" and "/actions/runs/" in path and path.endswith("/jobs"):
+            parts = path.split("/")
+            run_id = int(parts[-4])
+            run_attempt = int(parts[-2])
+            if (run_id, run_attempt) == (203, 1):
+                from pr_agent_context.github.api import GitHubApiError
+
+                raise GitHubApiError(404, "Not Found", "")
+            return self.workflow_jobs_by_run[(run_id, run_attempt)]
+        return super().request_json(
+            method,
+            path,
+            params=params,
+            payload=payload,
+            extra_headers=extra_headers,
+        )
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        job_id = int(path.split("/")[-2])
+        if job_id == 1101:
+            return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
+        if job_id == 1202:
+            return _zip_bytes(load_text_fixture("github/logs/pre_commit_failure.log"))
+        return super().request_bytes(method, path, params=params, extra_headers=extra_headers)
+
+
 def _zip_bytes(text: str) -> bytes:
     buffer = BytesIO()
     with ZipFile(buffer, "w") as archive:
@@ -94,6 +187,8 @@ def _build_config(tmp_path):
         workspace=tmp_path,
         prompt_preamble="Repository: foldermix",
         max_review_threads=50,
+        include_cross_run_failures=False,
+        include_external_checks=False,
         max_failed_jobs=20,
         max_log_lines_per_job=6,
         characters_per_line=100,
@@ -257,12 +352,77 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
         "count": 3,
         "enabled": True,
         "event": "workflow_failures",
+        "source_counts": {"actions_job": 3},
         "tool": "pr-agent-context",
+        "warning_count": 0,
     }
     assert events["render"]["event"] == "render"
     assert events["comment_sync"]["action"] == "created"
     assert events["summary"]["unresolved_thread_count"] == 2
     assert events["summary"]["failed_job_count"] == 3
+
+
+def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_payload):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = CrossRunGitHubClient(
+        review_threads_payload=empty_review_threads,
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = RunConfig(
+        github_token="token",
+        tool_ref="v3",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha="abc123",
+            head_sha="def456",
+        ),
+        run_id=202,
+        run_attempt=2,
+        workspace=tmp_path,
+        include_review_comments=False,
+        include_failing_jobs=True,
+        include_cross_run_failures=True,
+        include_external_checks=True,
+        include_patch_coverage=False,
+        debug_artifacts=True,
+        debug_artifacts_dir=tmp_path / "debug",
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    failing_debug = json.loads(
+        (config.debug_artifacts_dir / "failing-check-universe.json").read_text(encoding="utf-8")
+    )
+    prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
+
+    assert outputs["failed_job_count"] == "4"
+    assert failing_debug["deduped_source_counts"] == {
+        "actions_job": 1,
+        "actions_workflow_run": 1,
+        "commit_status": 1,
+        "external_check_run": 1,
+    }
+    assert "# Failing Workflows" in prompt_text
+    assert "Type: External check run" in prompt_text
+    assert "Type: Commit status" in prompt_text
+    assert "Type: GitHub Actions workflow run" in prompt_text
 
 
 def test_run_service_updates_existing_managed_comment_without_reordering(
@@ -459,7 +619,9 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
 
     assert summary["tool_ref"] == "v3"
     assert summary["unresolved_thread_count"] == 2
+    assert summary["failing_check_source_counts"] == {}
     assert "template_diagnostics" in summary
     assert collected["pull_request"]["number"] == 17
+    assert (config.debug_artifacts_dir / "failing-check-universe.json").exists()
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith("<!-- pr-agent-context:managed-comment -->")

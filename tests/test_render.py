@@ -216,7 +216,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     )
 
     assert "# Codecov/patch" in rendered.prompt_markdown
-    assert "head commit deadbeef" in rendered.prompt_markdown
+    assert "head commit\ndeadbeef" in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
     assert rendered.has_actionable_items is True
@@ -258,7 +258,7 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
     assert "head commit feedface" in rendered.prompt_markdown
     assert "all clear" in rendered.prompt_markdown.lower()
     assert "# Copilot Comments" not in rendered.prompt_markdown
-    assert "# Failing Jobs" not in rendered.prompt_markdown
+    assert "# Failing Workflows" not in rendered.prompt_markdown
     assert rendered.has_actionable_items is False
     assert rendered.should_publish_comment is True
 
@@ -347,7 +347,7 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
     assert rendered.has_actionable_items is False
     assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "Skipped checks: review comments," in rendered.prompt_markdown
-    assert "failing jobs, patch coverage." in rendered.prompt_markdown
+    assert "failing checks, patch coverage." in rendered.prompt_markdown
 
 
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
@@ -741,7 +741,7 @@ def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
 
     rendered, notes = _render_failing_jobs_section([failure])
 
-    assert rendered.startswith("# Failing Jobs")
+    assert rendered.startswith("# Failing Workflows")
     assert "[note: excerpt truncated" in rendered
     assert any(note.strategy == "trim_log_excerpt" for note in notes)
     assert "line 199" not in rendered
@@ -749,6 +749,63 @@ def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
     tiny_rendered, tiny_notes = _render_workflow_failure(failure, max_chars=220)
     assert "FAIL-1" in tiny_rendered
     assert any(note.strategy == "drop_metadata" for note in tiny_notes)
+
+
+def test_render_failing_jobs_section_supports_mixed_failure_sources():
+    failures = [
+        WorkflowFailure.model_validate(
+            {
+                "source_type": "actions_job",
+                "workflow_name": "CI",
+                "job_name": "lint",
+                "run_number": 32,
+                "run_attempt": 2,
+                "conclusion": "failure",
+                "url": "https://example.invalid/actions/lint",
+                "failed_steps": ["Run ruff"],
+                "excerpt_lines": ["::error::ruff failed"],
+                "is_current_run": True,
+                "item_id": "FAIL-1",
+            }
+        ),
+        WorkflowFailure.model_validate(
+            {
+                "source_type": "external_check_run",
+                "workflow_name": "codecov",
+                "job_name": "codecov/patch",
+                "app_name": "codecov",
+                "status": "completed",
+                "conclusion": "failure",
+                "summary": "Patch coverage fell below the threshold.",
+                "url": "https://example.invalid/codecov",
+                "item_id": "FAIL-2",
+            }
+        ),
+        WorkflowFailure.model_validate(
+            {
+                "source_type": "commit_status",
+                "workflow_name": "Commit status",
+                "job_name": "security/scan",
+                "context_name": "security/scan",
+                "status": "failure",
+                "summary": "Dependency scan failed",
+                "url": "https://example.invalid/security",
+                "item_id": "FAIL-3",
+            }
+        ),
+    ]
+
+    rendered, notes = _render_failing_jobs_section(failures)
+
+    assert not notes
+    assert rendered.startswith("# Failing Workflows")
+    assert "Type: GitHub Actions job" in rendered
+    assert "Current run: yes" in rendered
+    assert "Type: External check run" in rendered
+    assert "App: codecov" in rendered
+    assert "Check: codecov/patch" in rendered
+    assert "Type: Commit status" in rendered
+    assert "Context: security/scan" in rendered
 
 
 def test_render_review_section_hard_caps_total_budget():
@@ -866,7 +923,7 @@ def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
             "item_id": "FAIL-2",
         }
     )
-    rendered, notes = _render_workflow_failure(with_excerpt, max_chars=120)
+    rendered, notes = _render_workflow_failure(with_excerpt, max_chars=150)
     assert "Matrix:" not in rendered
     assert "[note: failure details truncated to fit section budget]" not in rendered
     assert any(note.strategy == "drop_metadata" for note in notes)

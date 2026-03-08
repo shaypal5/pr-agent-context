@@ -47,15 +47,54 @@ def review_thread_sort_key(thread: ReviewThread) -> tuple[float | int, int, int,
 class WorkflowFailure(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    job_id: int
-    workflow_name: str
-    job_name: str
+    source_type: Literal[
+        "actions_job",
+        "actions_workflow_run",
+        "external_check_run",
+        "commit_status",
+    ] = "actions_job"
+    job_id: int | None = None
+    workflow_name: str = "Workflow"
+    job_name: str = "Job"
     matrix_label: str | None = None
+    app_name: str | None = None
+    context_name: str | None = None
+    summary: str | None = None
+    status: str | None = None
     conclusion: str | None = None
     url: str
     failed_steps: list[str] = Field(default_factory=list)
     excerpt_lines: list[str] = Field(default_factory=list)
+    head_sha: str | None = None
+    is_current_run: bool = False
+    logs_available: bool = False
+    details_available: bool = False
+    dedupe_key: str | None = None
+    observed_at: datetime | None = None
+    run_id: int | None = None
+    run_attempt: int | None = None
+    run_number: int | None = None
     item_id: str | None = None
+
+
+def workflow_failure_sort_key(
+    failure: WorkflowFailure,
+) -> tuple[int, int, str, str, str, int, str]:
+    source_order = {
+        "actions_job": 0,
+        "actions_workflow_run": 1,
+        "external_check_run": 2,
+        "commit_status": 3,
+    }
+    return (
+        source_order[failure.source_type],
+        0 if failure.is_current_run else 1,
+        failure.workflow_name,
+        failure.job_name,
+        failure.matrix_label or failure.app_name or failure.context_name or "",
+        0 - (failure.run_number or 0),
+        failure.url,
+    )
 
 
 class TruncationNote(BaseModel):
@@ -98,6 +137,7 @@ class CollectedContext(BaseModel):
     review_threads: list[ReviewThread] = Field(default_factory=list)
     workflow_failures: list[WorkflowFailure] = Field(default_factory=list)
     patch_coverage: PatchCoverageSummary | None = None
+    failing_check_debug: dict | None = None
 
 
 class ManagedComment(BaseModel):
@@ -151,6 +191,7 @@ class DebugSummary(BaseModel):
     tool_ref: str
     unresolved_thread_count: int
     failed_job_count: int
+    failing_check_source_counts: dict[str, int] = Field(default_factory=dict)
     patch_coverage_percent: float | None = None
     has_actionable_items: bool
     should_publish_comment: bool

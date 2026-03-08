@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from pr_agent_context.domain.models import ReviewThread, WorkflowFailure, review_thread_sort_key
+from pr_agent_context.domain.models import (
+    ReviewThread,
+    WorkflowFailure,
+    review_thread_sort_key,
+    workflow_failure_sort_key,
+)
 
 
 def assign_item_ids(
@@ -17,12 +22,7 @@ def assign_item_ids(
     )
     failures = sorted(
         workflow_failures,
-        key=lambda failure: (
-            failure.workflow_name,
-            failure.job_name,
-            failure.matrix_label or "",
-            failure.job_id,
-        ),
+        key=workflow_failure_sort_key,
     )
 
     numbered_copilot = [
