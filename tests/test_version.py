@@ -8,7 +8,7 @@ def test_version_falls_back_to_pyproject_when_package_metadata_is_unavailable(mo
 
     monkeypatch.setattr(
         "importlib.metadata.version",
-        lambda _name: (_ for _ in ()).throw(importlib.metadata.PackageNotFoundError()),
+        lambda _name: (_ for _ in ()).throw(importlib.metadata.PackageNotFoundError(_name)),
     )
 
     reloaded = importlib.reload(package)
@@ -81,3 +81,11 @@ def test_github_api_client_respects_explicit_user_agent_override():
     client = GitHubApiClient(token="token", user_agent="custom-agent/1.2.3")
 
     assert client._user_agent == "custom-agent/1.2.3"
+
+
+def test_github_api_client_preserves_explicit_empty_user_agent():
+    from pr_agent_context.github.api import GitHubApiClient
+
+    client = GitHubApiClient(token="token", user_agent="")
+
+    assert client._user_agent == ""

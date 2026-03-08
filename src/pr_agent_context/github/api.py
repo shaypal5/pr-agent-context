@@ -30,7 +30,7 @@ class GitHubApiClient:
     ) -> None:
         self._token = token
         self._api_url = api_url.rstrip("/")
-        self._user_agent = user_agent or f"pr-agent-context/{__version__}"
+        self._user_agent = f"pr-agent-context/{__version__}" if user_agent is None else user_agent
 
     def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         payload = {"query": query, "variables": variables}
