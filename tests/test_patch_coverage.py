@@ -58,6 +58,30 @@ def test_build_combined_coverage_merges_multiple_data_files(tmp_path):
     assert missing == [4, 9]
 
 
+def test_build_combined_coverage_skips_malformed_data_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        module_path,
+        "def alpha(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+
+    valid_coverage = tmp_path / ".coverage.valid"
+    malformed_coverage = tmp_path / ".coverage.malformed"
+    _build_coverage_data(valid_coverage, [(module_path, "alpha(True)")])
+    malformed_coverage.write_bytes(b"this is not a sqlite coverage database")
+
+    combined = build_combined_coverage(
+        workspace=repo,
+        coverage_files=[valid_coverage, malformed_coverage],
+    )
+    _filename, statements, _excluded, missing, _formatted = combined.analysis2(str(module_path))
+
+    assert statements == [1, 2, 3, 4]
+    assert missing == [4]
+
+
 def test_compute_patch_coverage_reports_explicit_uncovered_lines(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
