@@ -96,6 +96,52 @@ def test_render_prompt_respects_custom_characters_per_line_limit():
     assert len(first_line) <= 50
 
 
+def test_wrap_markdown_prose_does_not_treat_indented_fence_as_real_fence():
+    text = (
+        "    ~~~\n"
+        "This is a deliberately long prose sentence that should still be wrapped because the "
+        "preceding indented fence-like line is only a snippet.\n"
+        "Another long prose sentence that should also wrap because fenced-block state must not "
+        "leak from indented content."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "    ~~~" in wrapped
+    assert (
+        "This is a deliberately long prose sentence that should still\n"
+        "be wrapped because the preceding indented fence-like line is\n"
+        "only a snippet."
+    ) in wrapped
+    assert (
+        "Another long prose sentence that should also wrap because\n"
+        "fenced-block state must not leak from indented content."
+    ) in wrapped
+
+
+def test_wrap_markdown_prose_treats_up_to_three_leading_spaces_as_valid_fence():
+    text = (
+        "   ```python\n"
+        "very_long_code_line = 'this should remain untouched inside a valid fenced block even "
+        "when it exceeds the width'\n"
+        "   ```\n"
+        "This is a deliberately long prose sentence after the fence and it should wrap "
+        "normally once the fenced block closes."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "   ```python" in wrapped
+    assert (
+        "very_long_code_line = 'this should remain untouched inside a valid fenced block even "
+        "when it exceeds the width'"
+    ) in wrapped
+    assert (
+        "This is a deliberately long prose sentence after the fence\n"
+        "and it should wrap normally once the fenced block closes."
+    ) in wrapped
+
+
 def test_render_prompt_renders_actionable_patch_coverage_section():
     rendered = render_prompt(
         pull_request_number=17,

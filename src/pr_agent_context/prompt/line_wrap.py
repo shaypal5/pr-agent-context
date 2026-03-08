@@ -23,8 +23,7 @@ def wrap_markdown_prose(text: str, *, max_chars: int) -> str:
     in_fenced_block = False
 
     for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
+        if _is_markdown_fence(line):
             in_fenced_block = not in_fenced_block
             wrapped_lines.append(line)
             continue
@@ -43,6 +42,14 @@ def wrap_markdown_prose(text: str, *, max_chars: int) -> str:
         )
 
     return "\n".join(wrapped_lines)
+
+
+def _is_markdown_fence(line: str) -> bool:
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return False
+    stripped = line.strip()
+    return stripped.startswith("```") or stripped.startswith("~~~")
 
 
 def _is_wrappable_prose_line(line: str, *, max_chars: int) -> bool:
