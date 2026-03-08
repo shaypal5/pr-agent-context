@@ -8,6 +8,7 @@ import pytest
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.domain.models import PatchCoverageSummary, ReviewThread, WorkflowFailure
 from pr_agent_context.prompt import render as render_module
+from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
     _format_location,
     _indent_block,
@@ -43,6 +44,56 @@ def test_render_prompt_matches_expected_snapshots():
     assert rendered.comment_body == load_text_fixture("prompts/expected_comment.md").strip()
     assert len(rendered.prompt_sha256) == 64
     assert rendered.template_diagnostics.template_source == "built_in"
+
+
+def test_wrap_markdown_prose_wraps_plain_text_only():
+    text = (
+        "This is a deliberately long prose sentence that should be wrapped by the renderer "
+        "because it is plain narrative text and exceeds the configured width.\n"
+        "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long\n"
+        "- src/example.py: 1, 2, 3, 4, 5, 6, 7, 8\n"
+        "    indented code line that should stay exactly as-is even when it is very very "
+        "very long\n"
+        "```python\n"
+        "very_long_code_line = 'this should not wrap even when it is significantly longer "
+        "than the limit'\n"
+        "```"
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert (
+        "This is a deliberately long prose sentence that should be\n"
+        "wrapped by the renderer because it is plain narrative text\n"
+        "and exceeds the configured width."
+    ) in wrapped
+    assert "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long" in wrapped
+    assert "- src/example.py: 1, 2, 3, 4, 5, 6, 7, 8" in wrapped
+    assert (
+        "    indented code line that should stay exactly as-is even when it is very very very long"
+        in wrapped
+    )
+    assert (
+        "very_long_code_line = 'this should not wrap even when it is significantly longer "
+        "than the limit'" in wrapped
+    )
+
+
+def test_render_prompt_respects_custom_characters_per_line_limit():
+    rendered = render_prompt(
+        pull_request_number=11,
+        head_sha="abc123",
+        review_threads=[],
+        workflow_failures=[],
+        prompt_preamble=(
+            "This is a deliberately long prose preamble sentence that should be wrapped tightly "
+            "for readability in the rendered prompt output."
+        ),
+        characters_per_line=50,
+    )
+
+    first_line = rendered.prompt_markdown.splitlines()[0]
+    assert len(first_line) <= 50
 
 
 def test_render_prompt_renders_actionable_patch_coverage_section():
@@ -133,7 +184,8 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
 
     assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
-    assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
+    assert "Skipped checks: review comments," in rendered.prompt_markdown
+    assert "patch coverage." in rendered.prompt_markdown
 
 
 def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
@@ -201,9 +253,8 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
 
     assert rendered.has_actionable_items is False
     assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
-    assert (
-        "Skipped checks: review comments, failing jobs, patch coverage." in rendered.prompt_markdown
-    )
+    assert "Skipped checks: review comments," in rendered.prompt_markdown
+    assert "failing jobs, patch coverage." in rendered.prompt_markdown
 
 
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():

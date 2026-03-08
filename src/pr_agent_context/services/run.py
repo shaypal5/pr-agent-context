@@ -44,6 +44,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         prompt_template_file=(
             str(config.prompt_template_file) if config.prompt_template_file else ""
         ),
+        characters_per_line=config.characters_per_line,
     )
     api_client = client or GitHubApiClient(
         token=config.github_token,
@@ -144,6 +145,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         prompt_preamble=config.prompt_preamble,
         force_patch_coverage_section=config.force_patch_coverage_section,
         prompt_template_file=config.prompt_template_file,
+        characters_per_line=config.characters_per_line,
     )
     _log(
         "render",

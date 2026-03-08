@@ -48,6 +48,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_MAX_REVIEW_THREADS": "12",
             "PR_AGENT_CONTEXT_MAX_FAILED_JOBS": "7",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
+            "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
             "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
             "PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE": "true",
             "PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX": "custom-prefix",
@@ -77,6 +78,7 @@ def test_run_config_from_env(tmp_path):
     assert config.max_review_threads == 12
     assert config.max_failed_jobs == 7
     assert config.max_log_lines_per_job == 33
+    assert config.characters_per_line == 88
     assert config.target_patch_coverage == 92.5
     assert config.include_patch_coverage is True
     assert config.coverage_artifact_prefix == "custom-prefix"

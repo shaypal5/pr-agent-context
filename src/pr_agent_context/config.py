@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from pr_agent_context.constants import (
+    DEFAULT_CHARACTERS_PER_LINE,
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
@@ -77,6 +78,7 @@ class RunConfig(BaseModel):
     max_review_threads: int = DEFAULT_MAX_REVIEW_THREADS
     max_failed_jobs: int = DEFAULT_MAX_FAILED_JOBS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
+    characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
     delete_comment_when_empty: bool = True
@@ -160,6 +162,12 @@ class RunConfig(BaseModel):
                 env_map.get(
                     "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB",
                     str(DEFAULT_MAX_LOG_LINES_PER_JOB),
+                )
+            ),
+            characters_per_line=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE",
+                    str(DEFAULT_CHARACTERS_PER_LINE),
                 )
             ),
             target_patch_coverage=float(

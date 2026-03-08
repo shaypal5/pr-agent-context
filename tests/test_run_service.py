@@ -96,6 +96,7 @@ def _build_config(tmp_path):
         max_review_threads=50,
         max_failed_jobs=20,
         max_log_lines_per_job=6,
+        characters_per_line=100,
         include_patch_coverage=False,
         debug_artifacts=True,
         debug_artifacts_dir=tmp_path / "debug",
