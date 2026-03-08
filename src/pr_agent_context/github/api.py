@@ -7,6 +7,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from pr_agent_context import __version__
+
 
 @dataclass(slots=True)
 class GitHubApiError(RuntimeError):
@@ -24,11 +26,11 @@ class GitHubApiClient:
         *,
         token: str,
         api_url: str = "https://api.github.com",
-        user_agent: str = "pr-agent-context/0.1.1",
+        user_agent: str | None = None,
     ) -> None:
         self._token = token
         self._api_url = api_url.rstrip("/")
-        self._user_agent = user_agent
+        self._user_agent = user_agent or f"pr-agent-context/{__version__}"
 
     def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         payload = {"query": query, "variables": variables}
