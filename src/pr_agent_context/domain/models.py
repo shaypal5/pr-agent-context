@@ -112,6 +112,18 @@ class ManagedComment(BaseModel):
     updated_at: datetime | None = None
 
 
+PublicationAction = Literal[
+    "none",
+    "deleted",
+    "noop_no_comment",
+    "preserved_empty",
+    "created",
+    "updated",
+    "unchanged",
+    "skipped_forbidden",
+]
+
+
 class TemplateDiagnostics(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -155,3 +167,9 @@ class PublicationResult(BaseModel):
     comment_id: int | None = None
     comment_url: str | None = None
     comment_written: bool = False
+    action: PublicationAction = "none"
+    existing_managed_comment_count: int = 0
+    duplicate_managed_comment_count: int = 0
+    body_changed: bool = False
+    skipped_reason: str | None = None
+    error_status_code: int | None = None

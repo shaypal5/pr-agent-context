@@ -110,6 +110,14 @@ def _read_outputs(path):
     return dict(line.split("=", maxsplit=1) for line in lines)
 
 
+def _structured_log_lines(output: str) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in output.splitlines()
+        if line.startswith("{") and '"tool": "pr-agent-context"' in line
+    ]
+
+
 def _run_git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -215,7 +223,45 @@ def test_run_service_does_not_print_empty_prompt(
     with redirect_stdout(stdout):
         assert run_service(config, client=client) == 0
 
-    assert stdout.getvalue() == ""
+    output = stdout.getvalue()
+    assert "No actionable items were found" not in output
+    events = _structured_log_lines(output)
+    assert any(event["event"] == "start" for event in events)
+    assert any(event["event"] == "comment_sync" for event in events)
+
+
+def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload=load_json_fixture("github/workflow_jobs.json"),
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path)
+    stdout = io.StringIO()
+
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
+    assert events["start"]["version"]
+    assert events["start"]["pull_request_number"] == 17
+    assert events["start"]["head_sha"] == "def456"
+    assert events["review_threads"] == {
+        "count": 2,
+        "enabled": True,
+        "event": "review_threads",
+        "tool": "pr-agent-context",
+    }
+    assert events["workflow_failures"] == {
+        "count": 3,
+        "enabled": True,
+        "event": "workflow_failures",
+        "tool": "pr-agent-context",
+    }
+    assert events["render"]["event"] == "render"
+    assert events["comment_sync"]["action"] == "created"
+    assert events["summary"]["unresolved_thread_count"] == 2
+    assert events["summary"]["failed_job_count"] == 3
 
 
 def test_run_service_updates_existing_managed_comment_without_reordering(
@@ -387,7 +433,10 @@ def test_run_service_can_force_na_patch_coverage_section(
     assert outputs["patch_coverage_percent"] == ""
     assert client.created_bodies
     assert "no changed executable Python lines" in client.created_bodies[0]
-    assert stdout.getvalue() == ""
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
+    assert events["patch_result"]["event"] == "patch_result"
+    assert events["comment_sync"]["action"] == "created"
+    assert "No actionable items were found" not in stdout.getvalue()
 
 
 def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
