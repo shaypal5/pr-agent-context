@@ -8,6 +8,7 @@ import pytest
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.domain.models import PatchCoverageSummary, ReviewThread, WorkflowFailure
 from pr_agent_context.prompt import render as render_module
+from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
     _format_location,
     _indent_block,
@@ -43,6 +44,149 @@ def test_render_prompt_matches_expected_snapshots():
     assert rendered.comment_body == load_text_fixture("prompts/expected_comment.md").strip()
     assert len(rendered.prompt_sha256) == 64
     assert rendered.template_diagnostics.template_source == "built_in"
+
+
+def test_wrap_markdown_prose_wraps_plain_text_only():
+    text = (
+        "This is a deliberately long prose sentence that should be wrapped by the renderer "
+        "because it is plain narrative text and exceeds the configured width.\n"
+        "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long\n"
+        "- src/example.py: 1, 2, 3, 4, 5, 6, 7, 8\n"
+        "    indented code line that should stay exactly as-is even when it is very very "
+        "very long\n"
+        "```python\n"
+        "very_long_code_line = 'this should not wrap even when it is significantly longer "
+        "than the limit'\n"
+        "```"
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert (
+        "This is a deliberately long prose sentence that should be\n"
+        "wrapped by the renderer because it is plain narrative text\n"
+        "and exceeds the configured width."
+    ) in wrapped
+    assert "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long" in wrapped
+    assert "- src/example.py: 1, 2, 3, 4, 5, 6, 7, 8" in wrapped
+    assert (
+        "    indented code line that should stay exactly as-is even when it is very very very long"
+        in wrapped
+    )
+    assert (
+        "very_long_code_line = 'this should not wrap even when it is significantly longer "
+        "than the limit'" in wrapped
+    )
+
+
+def test_render_prompt_respects_custom_characters_per_line_limit():
+    rendered = render_prompt(
+        pull_request_number=11,
+        head_sha="abc123",
+        review_threads=[],
+        workflow_failures=[],
+        prompt_preamble=(
+            "This is a deliberately long prose preamble sentence that should be wrapped tightly "
+            "for readability in the rendered prompt output."
+        ),
+        characters_per_line=50,
+    )
+
+    first_line = rendered.prompt_markdown.splitlines()[0]
+    assert len(first_line) <= 50
+
+
+def test_wrap_markdown_prose_does_not_treat_indented_fence_as_real_fence():
+    text = (
+        "    ~~~\n"
+        "This is a deliberately long prose sentence that should still be wrapped because the "
+        "preceding indented fence-like line is only a snippet.\n"
+        "Another long prose sentence that should also wrap because fenced-block state must not "
+        "leak from indented content."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "    ~~~" in wrapped
+    assert (
+        "This is a deliberately long prose sentence that should still\n"
+        "be wrapped because the preceding indented fence-like line is\n"
+        "only a snippet."
+    ) in wrapped
+    assert (
+        "Another long prose sentence that should also wrap because\n"
+        "fenced-block state must not leak from indented content."
+    ) in wrapped
+
+
+def test_wrap_markdown_prose_treats_up_to_three_leading_spaces_as_valid_fence():
+    text = (
+        "   ```python\n"
+        "very_long_code_line = 'this should remain untouched inside a valid fenced block even "
+        "when it exceeds the width'\n"
+        "   ```\n"
+        "This is a deliberately long prose sentence after the fence and it should wrap "
+        "normally once the fenced block closes."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "   ```python" in wrapped
+    assert (
+        "very_long_code_line = 'this should remain untouched inside a valid fenced block even "
+        "when it exceeds the width'"
+    ) in wrapped
+    assert (
+        "This is a deliberately long prose sentence after the fence\n"
+        "and it should wrap normally once the fenced block closes."
+    ) in wrapped
+
+
+def test_wrap_markdown_prose_does_not_treat_tab_indented_fence_as_real_fence():
+    text = (
+        "\t~~~\n"
+        "This is a deliberately long prose sentence that should still be wrapped because the "
+        "preceding tab-indented fence-like line is only a snippet.\n"
+        "Another long prose sentence that should also wrap because fenced-block state must not "
+        "leak from tab-indented content."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "\t~~~" in wrapped
+    assert (
+        "This is a deliberately long prose sentence that should still\n"
+        "be wrapped because the preceding tab-indented fence-like\n"
+        "line is only a snippet."
+    ) in wrapped
+    assert (
+        "Another long prose sentence that should also wrap because\n"
+        "fenced-block state must not leak from tab-indented content."
+    ) in wrapped
+
+
+def test_wrap_markdown_prose_returns_original_text_for_non_positive_limit():
+    text = "This is a long line that would otherwise wrap if the limit were positive."
+
+    assert wrap_markdown_prose(text, max_chars=0) == text
+
+
+def test_wrap_markdown_prose_skips_sensitive_long_lines():
+    text = "\n".join(
+        [
+            "      ",
+            "# This is a heading line that should stay intact even though it is quite long indeed",
+            "> This is a blockquote line that should remain unchanged even though it is quite "
+            "long indeed",
+            "1. This is a list item that should remain unchanged even though it is quite long "
+            "indeed",
+            "See https://example.com/very/long/path/that/should/remain/on/one/line/even/when/it/exceeds/the/limit",
+        ]
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=20)
+
+    assert wrapped == text
 
 
 def test_render_prompt_renders_actionable_patch_coverage_section():
@@ -133,7 +277,8 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
 
     assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
-    assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
+    assert "Skipped checks: review comments," in rendered.prompt_markdown
+    assert "patch coverage." in rendered.prompt_markdown
 
 
 def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
@@ -201,9 +346,8 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
 
     assert rendered.has_actionable_items is False
     assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
-    assert (
-        "Skipped checks: review comments, failing jobs, patch coverage." in rendered.prompt_markdown
-    )
+    assert "Skipped checks: review comments," in rendered.prompt_markdown
+    assert "failing jobs, patch coverage." in rendered.prompt_markdown
 
 
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():

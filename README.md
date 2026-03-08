@@ -80,6 +80,7 @@ The reusable workflow inputs are:
 - `max_review_threads`: cap unresolved review threads, default `50`
 - `max_failed_jobs`: cap same-run failed jobs, default `20`
 - `max_log_lines_per_job`: cap collected failed-job excerpt lines before rendering, default `80`
+- `characters_per_line`: wrap plain prose lines in rendered output to this width, default `100`
 
 ## Prompt Templating
 
@@ -116,6 +117,16 @@ Example custom template file:
 
 `prompt_preamble`, when non-empty, is always inserted near the top in a deterministic way,
 even if a custom template omits the explicit placeholder.
+
+Rendered output also applies a configurable prose-wrapping pass. By default, plain prose lines
+are wrapped to 100 characters, while semantically sensitive lines are left untouched:
+
+- fenced code blocks
+- indented/code excerpt lines
+- headings
+- list items
+- metadata lines such as `Location:` and `URL:`
+- lines containing URLs
 
 ## Coverage Artifact Contract
 

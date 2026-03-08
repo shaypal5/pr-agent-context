@@ -6,6 +6,7 @@ from pathlib import Path
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
     DEFAULT_ALL_CLEAR_PROMPT,
+    DEFAULT_CHARACTERS_PER_LINE,
     DEFAULT_FAILURE_EXCERPT_CHARS,
     DEFAULT_FAILURE_EXCERPT_MAX_LINES,
     DEFAULT_ITEM_BUDGET_FLOOR,
@@ -27,6 +28,7 @@ from pr_agent_context.domain.models import (
     TruncationNote,
     WorkflowFailure,
 )
+from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
 from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
@@ -44,6 +46,7 @@ def render_prompt(
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
     prompt_template_file: Path | None = None,
+    characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE,
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
     has_review_items = include_review_comments and bool(review_threads)
@@ -99,6 +102,10 @@ def render_prompt(
             "failing_jobs_section": failing_section,
             "patch_coverage_section": patch_section,
         },
+    )
+    prompt_markdown = wrap_markdown_prose(
+        prompt_markdown,
+        max_chars=characters_per_line,
     )
     prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
     comment_body = f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(prompt_markdown)}"
