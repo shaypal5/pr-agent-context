@@ -4,11 +4,11 @@ MANAGED_COMMENT_MARKER = "<!-- pr-agent-context:managed-comment -->"
 
 DEFAULT_PROMPT_OPENING = (
     "Below are the details of unresolved review comments and failing GitHub Actions jobs "
-    "on PR #{pr_number} for head commit {head_sha}. For each unresolved comment, recommend "
+    "on PR #{pr_number} for head commit {head_sha}.\n For each unresolved comment, recommend "
     "one of: resolve as "
     "irrelevant, accept and implement the recommended solution, open a separate issue and "
     "resolve as out-of-scope for this PR, accept and implement a different solution, or "
-    "resolve as already treated by the code. After I reply with my decision per item, "
+    "resolve as already treated by the code. \n After I reply with my decision per item, "
     "implement the accepted actions, resolve the corresponding PR comments, fix each failing "
     "job below, and push all of these changes in a single commit."
 )
