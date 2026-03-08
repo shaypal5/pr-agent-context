@@ -23,7 +23,8 @@ class ReviewMessage(BaseModel):
 class ReviewThread(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    thread_id: int
+    thread_id: int | str
+    sort_key: int | None = None
     classifier: Literal["copilot", "review"]
     path: str | None = None
     line: int | None = None
@@ -34,6 +35,13 @@ class ReviewThread(BaseModel):
     url: str
     messages: list[ReviewMessage] = Field(default_factory=list)
     item_id: str | None = None
+
+
+def review_thread_sort_key(thread: ReviewThread) -> tuple[float | int, int, int, str]:
+    sort_key = thread.sort_key if thread.sort_key is not None else float("inf")
+    if isinstance(thread.thread_id, int):
+        return (sort_key, 0, thread.thread_id, "")
+    return (sort_key, 1, 0, thread.thread_id)
 
 
 class WorkflowFailure(BaseModel):

@@ -7,9 +7,9 @@
             "hasNextPage": false,
             "endCursor": null
           },
-          "nodes": [
+            "nodes": [
             {
-              "databaseId": 101,
+              "id": "PRRT_example_101",
               "isResolved": false,
               "isOutdated": false,
               "path": "src/example.py",
@@ -44,7 +44,7 @@
               }
             },
             {
-              "databaseId": 150,
+              "id": "PRRT_example_150",
               "isResolved": true,
               "isOutdated": false,
               "path": "src/ignored.py",
@@ -68,7 +68,7 @@
               }
             },
             {
-              "databaseId": 202,
+              "id": "PRRT_example_202",
               "isResolved": false,
               "isOutdated": false,
               "path": "tests/test_example.py",
@@ -92,7 +92,7 @@
               }
             },
             {
-              "databaseId": 250,
+              "id": "PRRT_example_250",
               "isResolved": false,
               "isOutdated": true,
               "path": "src/outdated.py",

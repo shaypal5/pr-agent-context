@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pr_agent_context.domain.models import ReviewThread, WorkflowFailure
+from pr_agent_context.domain.models import ReviewThread, WorkflowFailure, review_thread_sort_key
 
 
 def assign_item_ids(
@@ -9,11 +9,11 @@ def assign_item_ids(
 ) -> tuple[list[ReviewThread], list[WorkflowFailure]]:
     copilot_threads = sorted(
         [thread for thread in review_threads if thread.classifier == "copilot"],
-        key=lambda thread: thread.thread_id,
+        key=review_thread_sort_key,
     )
     review_only_threads = sorted(
         [thread for thread in review_threads if thread.classifier != "copilot"],
-        key=lambda thread: thread.thread_id,
+        key=review_thread_sort_key,
     )
     failures = sorted(
         workflow_failures,
