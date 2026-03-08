@@ -136,6 +136,76 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
     assert "Skipped checks: review comments, patch coverage." in rendered.prompt_markdown
 
 
+def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[
+            ReviewThread.model_validate(
+                {
+                    "thread_id": 1,
+                    "classifier": "review",
+                    "path": "src/example.py",
+                    "line": 5,
+                    "original_line": 5,
+                    "is_resolved": False,
+                    "is_outdated": False,
+                    "url": "https://example.invalid/thread",
+                    "item_id": "REVIEW-1",
+                    "messages": [
+                        {
+                            "comment_id": 1,
+                            "author_login": "octocat",
+                            "body": "body",
+                            "url": "https://example.invalid/comment",
+                        }
+                    ],
+                }
+            )
+        ],
+        workflow_failures=[
+            WorkflowFailure.model_validate(
+                {
+                    "job_id": 1,
+                    "workflow_name": "CI",
+                    "job_name": "smoke",
+                    "url": "https://example.invalid/job",
+                    "failed_steps": ["pytest"],
+                    "excerpt_lines": ["failure"],
+                    "item_id": "FAIL-1",
+                }
+            )
+        ],
+        patch_coverage=PatchCoverageSummary(
+            target_percent=100,
+            actual_percent=0,
+            total_changed_executable_lines=4,
+            covered_changed_executable_lines=0,
+            files=[
+                {
+                    "path": "src/pkg/example.py",
+                    "changed_added_lines": [1, 2, 3, 4],
+                    "changed_executable_lines": [1, 2, 3, 4],
+                    "covered_changed_executable_lines": [],
+                    "uncovered_changed_executable_lines": [1, 2, 3, 4],
+                    "has_measured_data": True,
+                }
+            ],
+            actionable=True,
+            is_na=False,
+        ),
+        include_review_comments=False,
+        include_failing_jobs=False,
+        include_patch_coverage=False,
+    )
+
+    assert rendered.has_actionable_items is False
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
+    assert (
+        "Skipped checks: review comments, failing jobs, patch coverage." in rendered.prompt_markdown
+    )
+
+
 def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
     rendered = render_prompt(
         pull_request_number=17,

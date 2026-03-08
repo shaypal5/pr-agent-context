@@ -46,8 +46,13 @@ def render_prompt(
     prompt_template_file: Path | None = None,
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
+    has_review_items = include_review_comments and bool(review_threads)
+    has_failing_job_items = include_failing_jobs and bool(workflow_failures)
+    has_patch_coverage_items = include_patch_coverage and bool(
+        patch_coverage and patch_coverage.actionable
+    )
     has_actionable_items = bool(
-        review_threads or workflow_failures or (patch_coverage and patch_coverage.actionable)
+        has_review_items or has_failing_job_items or has_patch_coverage_items
     )
 
     copilot_threads = [thread for thread in review_threads if thread.classifier == "copilot"]
