@@ -142,6 +142,29 @@ def test_wrap_markdown_prose_treats_up_to_three_leading_spaces_as_valid_fence():
     ) in wrapped
 
 
+def test_wrap_markdown_prose_does_not_treat_tab_indented_fence_as_real_fence():
+    text = (
+        "\t~~~\n"
+        "This is a deliberately long prose sentence that should still be wrapped because the "
+        "preceding tab-indented fence-like line is only a snippet.\n"
+        "Another long prose sentence that should also wrap because fenced-block state must not "
+        "leak from tab-indented content."
+    )
+
+    wrapped = wrap_markdown_prose(text, max_chars=60)
+
+    assert "\t~~~" in wrapped
+    assert (
+        "This is a deliberately long prose sentence that should still\n"
+        "be wrapped because the preceding tab-indented fence-like\n"
+        "line is only a snippet."
+    ) in wrapped
+    assert (
+        "Another long prose sentence that should also wrap because\n"
+        "fenced-block state must not leak from tab-indented content."
+    ) in wrapped
+
+
 def test_wrap_markdown_prose_returns_original_text_for_non_positive_limit():
     text = "This is a long line that would otherwise wrap if the limit were positive."
 

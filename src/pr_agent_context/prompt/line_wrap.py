@@ -45,6 +45,8 @@ def wrap_markdown_prose(text: str, *, max_chars: int) -> str:
 
 
 def _is_markdown_fence(line: str) -> bool:
+    if line.startswith("\t"):
+        return False
     leading_spaces = len(line) - len(line.lstrip(" "))
     if leading_spaces > 3:
         return False
