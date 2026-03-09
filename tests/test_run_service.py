@@ -12,7 +12,7 @@ from coverage import Coverage
 
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.config import PullRequestRef, RunConfig
-from pr_agent_context.services.run import run_service
+from pr_agent_context.services.run import _write_outputs, run_service
 
 
 class FakeGitHubClient:
@@ -212,6 +212,24 @@ def _structured_log_lines(output: str) -> list[dict[str, object]]:
         for line in output.splitlines()
         if line.startswith("{") and '"tool": "pr-agent-context"' in line
     ]
+
+
+def test_write_outputs_returns_early_when_no_output_path(tmp_path):
+    output_path = tmp_path / "github-output.txt"
+
+    _write_outputs(
+        None,
+        unresolved_thread_count=1,
+        failing_check_count=2,
+        has_actionable_items=True,
+        patch_coverage_percent=95.5,
+        comment_written=True,
+        comment_id=123,
+        comment_url="https://example.invalid/comment/123",
+        prompt_sha256="abc",
+    )
+
+    assert output_path.exists() is False
 
 
 def _run_git(repo: Path, *args: str) -> str:

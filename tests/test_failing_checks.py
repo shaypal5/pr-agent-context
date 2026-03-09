@@ -370,6 +370,54 @@ class FakeNeverSettledChecksClient:
         raise AssertionError(f"Unexpected request_bytes call: {path}")
 
 
+class FakeSettlementWarningClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            raise GitHubApiError(403, "Forbidden", "no actions")
+        if path.endswith("/check-runs"):
+            raise GitHubApiError(403, "Forbidden", "no checks")
+        if path.endswith("/status"):
+            return {"statuses": [{"context": "codecov/patch", "state": "pending"}]}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
+class FakeSettlementPaginationClient:
+    def __init__(self) -> None:
+        self.check_run_pages: list[int] = []
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        page = int((params or {}).get("page", 1))
+        if path.endswith("/check-runs"):
+            self.check_run_pages.append(page)
+            if page == 1:
+                return {
+                    "check_runs": [
+                        {
+                            "name": f"external-{index}",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "details_url": f"https://example.invalid/check/{index}",
+                            "app": {"slug": "custom-app"},
+                        }
+                        for index in range(100)
+                    ]
+                }
+            return {"check_runs": []}
+        if path.endswith("/status"):
+            raise GitHubApiError(403, "Forbidden", "no statuses")
+        if path.endswith("/actions/runs"):
+            return {"workflow_runs": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 def test_collect_failing_checks_aggregates_head_sha_failures():
     failures, debug = collect_failing_checks(
         FakeFailingChecksClient(),
@@ -590,6 +638,111 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
     assert debug["settlement"]["timed_out"] is True
     assert debug["settlement"]["pending_count"] == 1
     assert client.check_run_poll_count >= 3
+
+
+def test_wait_for_check_settlement_deduplicates_repeated_warnings(monkeypatch):
+    client = FakeSettlementWarningClient()
+    monotonic_values = iter([0.0, 0.1, 1.0, 1.1, 2.0, 2.1, 3.1, 3.2])
+
+    monkeypatch.setattr(failing_checks_module, "_sleep", lambda _: None)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_minimum_check_settle_wait_seconds",
+        lambda **_: 1,
+    )
+
+    settlement, warnings = failing_checks_module._wait_for_check_settlement(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=True,
+        include_external_checks=True,
+        max_actions_runs=10,
+        max_external_checks=10,
+        timeout_seconds=3,
+        poll_interval_seconds=1,
+    )
+
+    assert settlement["timed_out"] is True
+    assert settlement["pending_source_counts"] == {"commit_statuses": 1}
+    assert (
+        warnings.count(
+            "Unable to fetch workflow runs for head SHA def456: GitHub API error 403: Forbidden"
+        )
+        == 1
+    )
+    assert warnings.count("Unable to poll check runs: GitHub API error 403: Forbidden") == 1
+
+
+def test_collect_check_settlement_snapshot_counts_pending_commit_statuses():
+    snapshot, warnings = failing_checks_module._collect_check_settlement_snapshot(
+        FakeSettlementWarningClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=False,
+        include_external_checks=True,
+        max_actions_runs=10,
+        max_external_checks=10,
+    )
+
+    assert snapshot["pending_count"] == 1
+    assert snapshot["pending_source_counts"] == {"commit_statuses": 1}
+    assert warnings == ["Unable to poll check runs: GitHub API error 403: Forbidden"]
+
+
+def test_minimum_check_settle_wait_seconds_handles_zero_timeout():
+    assert (
+        failing_checks_module._minimum_check_settle_wait_seconds(
+            timeout_seconds=0,
+            poll_interval_seconds=5,
+        )
+        == 0
+    )
+
+
+def test_fetch_external_check_run_snapshots_handles_empty_payload():
+    snapshots = failing_checks_module._fetch_external_check_run_snapshots(
+        FakeForbiddenChecksClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_external_checks=10,
+        warnings=[],
+    )
+
+    assert snapshots == []
+
+
+def test_fetch_external_check_run_snapshots_handles_pagination():
+    client = FakeSettlementPaginationClient()
+
+    snapshots = failing_checks_module._fetch_external_check_run_snapshots(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_external_checks=150,
+        warnings=[],
+    )
+
+    assert client.check_run_pages == [1, 2]
+    assert len(snapshots) == 100
+
+
+def test_fetch_commit_status_snapshots_handles_missing_payload():
+    snapshots = failing_checks_module._fetch_commit_status_snapshots(
+        FakeForbiddenStatusesClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_external_checks=10,
+        warnings=[],
+    )
+
+    assert snapshots == []
 
 
 def test_collect_external_check_runs_handles_pagination():

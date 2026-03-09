@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pr_agent_context.cli import main
 from pr_agent_context.domain.models import PublicationResult
 
@@ -196,3 +198,62 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=777" in outputs
+
+
+def test_cli_main_rejects_unsupported_command(monkeypatch):
+    monkeypatch.setattr(
+        "pr_agent_context.cli.build_parser",
+        lambda: type(
+            "FakeParser",
+            (),
+            {
+                "parse_args": lambda self, argv=None: type("Args", (), {"command": "bad"})(),
+                "error": lambda self, message: (_ for _ in ()).throw(SystemExit(2)),
+            },
+        )(),
+    )
+
+    with pytest.raises(SystemExit) as error:
+        main(["bad"])
+
+    assert error.value.code == 2
+
+
+def test_cli_main_returns_two_if_parser_error_returns_normally(monkeypatch):
+    monkeypatch.setattr(
+        "pr_agent_context.cli.build_parser",
+        lambda: type(
+            "FakeParser",
+            (),
+            {
+                "parse_args": lambda self, argv=None: type("Args", (), {"command": "bad"})(),
+                "error": lambda self, message: None,
+            },
+        )(),
+    )
+
+    assert main(["bad"]) == 2
+
+
+def test_resolve_failure_context_returns_none_without_required_env(monkeypatch):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    assert _resolve_failure_context(config=None, env={}) is None
+
+
+def test_resolve_failure_context_returns_none_for_invalid_event_payload(tmp_path):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({"pull_request": {"base": {}, "head": {}}}), encoding="utf-8")
+
+    context = _resolve_failure_context(
+        config=None,
+        env={
+            "GITHUB_REPOSITORY": "shaypal5/pr-agent-context",
+            "GITHUB_TOKEN": "token",
+            "GITHUB_EVENT_PATH": str(event_path),
+        },
+    )
+
+    assert context is None
