@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from coverage import Coverage
+from coverage.exceptions import DataError
 
+from pr_agent_context.coverage import combine as combine_module
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import compute_patch_coverage
 
@@ -80,6 +82,43 @@ def test_build_combined_coverage_skips_malformed_data_files(tmp_path):
 
     assert statements == [1, 2, 3, 4]
     assert missing == [4]
+
+
+def test_build_combined_coverage_skips_files_that_fail_during_combine(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        module_path,
+        "def alpha(flag):\n"
+        "    if flag:\n"
+        "        return 1\n"
+        "    return 2\n\n"
+        "def beta(flag):\n"
+        "    if flag:\n"
+        "        return 3\n"
+        "    return 4\n",
+    )
+
+    first = tmp_path / ".coverage.first"
+    second = tmp_path / ".coverage.second"
+    _build_coverage_data(first, [(module_path, "alpha(True)")])
+    _build_coverage_data(second, [(module_path, "beta(True)")])
+
+    real_combine = combine_module.Coverage.combine
+
+    def flaky_combine(self, data_paths=None, strict=False, keep=False):
+        if data_paths == [str(second)]:
+            raise DataError("database disk image is malformed")
+        return real_combine(self, data_paths=data_paths, strict=strict, keep=keep)
+
+    monkeypatch.setattr(combine_module.Coverage, "combine", flaky_combine)
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[first, second])
+    _filename, statements, _excluded, missing, _formatted = combined.analysis2(str(module_path))
+
+    assert statements == [1, 2, 3, 4, 6, 7, 8, 9]
+    assert missing == [4, 7, 8, 9]
 
 
 def test_compute_patch_coverage_reports_explicit_uncovered_lines(tmp_path):
