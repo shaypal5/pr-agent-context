@@ -1,24 +1,35 @@
 from __future__ import annotations
 
-MANAGED_COMMENT_MARKER = "<!-- pr-agent-context:managed-comment -->"
+MANAGED_COMMENT_MARKER_PREFIX = "<!-- pr-agent-context:managed-comment"
+MANAGED_COMMENT_SCHEMA_VERSION = "v3"
 
 DEFAULT_PROMPT_OPENING = (
+    "Run metadata:\n"
+    "- Tool ref: {tool_ref}\n"
+    "- Tool version: {tool_version}\n"
+    "- Workflow run: {run_id} attempt {run_attempt}\n"
+    "- PR head commit: {head_sha}\n\n"
     "Below are the details of possibly unresolved review comments and/or "
-    "(possibly) failing checks on PR "
-    "#{pr_number} for head commit {head_sha}.\n\nFor each unresolved comment "
-    "(if any), recommend one of: resolve as irrelevant, accept and "
-    "implement the recommended solution, open a separate issue and resolve "
-    "as out-of-scope for this PR, accept and implement a different "
-    "solution, or resolve as already treated by the code.\n\nAfter I reply "
-    "with my decision per item, implement the accepted actions, resolve "
-    "the corresponding PR comments, fix each failing check below (if any), "
-    "and push all of these changes in a single commit."
+    "(possibly) failing checks on PR #{pr_number}.\n\n"
+    "For each unresolved comment (if any), recommend one of: resolve as "
+    "irrelevant, accept and implement the recommended solution, open a "
+    "separate issue and resolve as out-of-scope for this PR, accept and "
+    "implement a different solution, or resolve as already treated by the "
+    "code.\n\nAfter I reply with my decision per item, implement the "
+    "accepted actions, resolve the corresponding PR comments, fix each "
+    "failing check below (if any), and push all of these changes in a "
+    "single commit."
 )
 
 DEFAULT_ALL_CLEAR_PROMPT = (
+    "Run metadata:\n"
+    "- Tool ref: {tool_ref}\n"
+    "- Tool version: {tool_version}\n"
+    "- Workflow run: {run_id} attempt {run_attempt}\n"
+    "- PR head commit: {head_sha}\n\n"
     "No unresolved review comments, failing checks, or actionable patch "
-    "coverage gaps were found on PR #{pr_number} for head commit {head_sha}. Treat this "
-    "PR as all clear unless new signals appear."
+    "coverage gaps were found on PR #{pr_number}. Treat this PR as all clear "
+    "unless new signals appear."
 )
 
 COPILOT_COMMENT_SECTION = "Copilot Comments"

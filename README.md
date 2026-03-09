@@ -1,7 +1,7 @@
 # pr-agent-context
 
-`pr-agent-context` is a reusable GitHub Actions tool that assembles a single managed
-PR handoff comment for coding agents.
+`pr-agent-context` is a reusable GitHub Actions tool that assembles managed
+PR handoff comments for coding agents.
 
 Current behavior includes:
 
@@ -14,12 +14,15 @@ Current behavior includes:
 - configurable prompt templating from the caller repository
 - structured debug artifacts for inspection and downstream automation
 - deterministic prompt rendering with stable item IDs
-- single managed PR comment upsert/delete using a hidden HTML marker
+- append-only managed PR comments scoped to the producing workflow run
+
+Each run writes its own managed comment. The tool updates only the comment for the exact same
+`(run_id, run_attempt)` identity and preserves older run comments for auditability.
 
 The managed comment body shape is:
 
 ````markdown
-<!-- pr-agent-context:managed-comment -->
+<!-- pr-agent-context:managed-comment; schema=v3; pr=<PR>; run_id=<RUN_ID>; run_attempt=<ATTEMPT>; head_sha=<HEAD_SHA>; tool_ref=<TOOL_REF> -->
 ```markdown
 <rendered prompt>
 ```
@@ -189,6 +192,7 @@ When `debug_artifacts` is enabled, the reusable workflow uploads a debug bundle 
 - `failing-check-universe.json`: raw failing-check universe, deduped failing-check set, source counts, and collector warnings
 - `prompt.md`: rendered prompt markdown before the managed-comment wrapper
 - `comment-body.md`: final managed PR comment body
+- `comment-sync.json`: parsed managed comments, current run identity, selected sync target, and publication action
 - `summary.json`: a compact machine-readable summary with counts, booleans, prompt SHA, template diagnostics, and truncation notes
 
 These artifacts are intended for maintainers and downstream automation. They are deterministic

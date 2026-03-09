@@ -1,7 +1,13 @@
 Repository: foldermix
 
+Run metadata:
+- Tool ref: v2
+- Tool version: 2.0.0
+- Workflow run: 0 attempt 1
+- PR head commit: def456
+
 Below are the details of possibly unresolved review comments and/or (possibly) failing checks on PR
-#17 for head commit def456.
+#17.
 
 For each unresolved comment (if any), recommend one of: resolve as irrelevant, accept and implement
 the recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and

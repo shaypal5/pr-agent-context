@@ -53,6 +53,10 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         owner,
         repo,
         pull_request_number,
+        run_id,
+        run_attempt,
+        head_sha,
+        tool_ref,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -61,6 +65,10 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["owner"] = owner
         captured["repo"] = repo
         captured["pull_request_number"] = pull_request_number
+        captured["run_id"] = run_id
+        captured["run_attempt"] = run_attempt
+        captured["head_sha"] = head_sha
+        captured["tool_ref"] = tool_ref
         return PublicationResult(
             comment_id=500,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/15#issuecomment-500",
@@ -83,6 +91,9 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
     assert "Head commit: deadbeef" in captured["body"]
     assert "Version:" in captured["body"]
+    assert "run_attempt=2" in captured["body"].splitlines()[0]
+    assert captured["run_id"] == 123
+    assert captured["run_attempt"] == 2
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=500" in outputs
@@ -165,6 +176,10 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         owner,
         repo,
         pull_request_number,
+        run_id,
+        run_attempt,
+        head_sha,
+        tool_ref,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -174,6 +189,10 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["pull_request_number"] = pull_request_number
         captured["skip_comment_on_readonly_token"] = skip_comment_on_readonly_token
         captured["body"] = body
+        captured["run_id"] = run_id
+        captured["run_attempt"] = run_attempt
+        captured["head_sha"] = head_sha
+        captured["tool_ref"] = tool_ref
         return PublicationResult(
             comment_id=777,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",
@@ -195,6 +214,8 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert captured["repo"] == "pr-agent-context"
     assert captured["pull_request_number"] == 17
     assert captured["skip_comment_on_readonly_token"] is False
+    assert captured["run_id"] == 321
+    assert captured["run_attempt"] == 4
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=777" in outputs

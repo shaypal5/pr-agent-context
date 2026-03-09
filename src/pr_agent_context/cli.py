@@ -70,12 +70,23 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 token=context["github_token"],
                 api_url=context["github_api_url"],
             )
-            body = build_managed_comment_body(_build_failure_markdown(context=context, error=error))
+            body = build_managed_comment_body(
+                _build_failure_markdown(context=context, error=error),
+                pull_request_number=int(context["pull_request_number"]),
+                run_id=int(context["run_id"]),
+                run_attempt=int(context["run_attempt"]),
+                head_sha=str(context["head_sha"]),
+                tool_ref=str(context.get("tool_ref") or "unknown"),
+            )
             publication = sync_managed_comment(
                 client,
                 owner=context["owner"],
                 repo=context["repo"],
                 pull_request_number=context["pull_request_number"],
+                run_id=context["run_id"],
+                run_attempt=context["run_attempt"],
+                head_sha=context["head_sha"],
+                tool_ref=context.get("tool_ref") or "unknown",
                 body=body,
                 delete_comment_when_empty=False,
                 skip_comment_on_readonly_token=context["skip_comment_on_readonly_token"],

@@ -183,8 +183,8 @@ def _build_config(tmp_path):
             base_sha="abc123",
             head_sha="def456",
         ),
-        run_id=1,
-        run_attempt=1,
+        run_id=100,
+        run_attempt=2,
         workspace=tmp_path,
         prompt_preamble="Repository: foldermix",
         max_review_threads=50,
@@ -313,7 +313,7 @@ def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
     assert run_service(config, client=client) == 0
 
     outputs = _read_outputs(config.github_output_path)
-    assert client.deleted_ids == [2]
+    assert client.deleted_ids == []
     assert client.updated_bodies
     assert "No actionable items were found in the enabled checks" in client.updated_bodies[0]
     assert outputs["has_actionable_items"] == "false"
@@ -453,7 +453,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_
     assert "Type: GitHub Actions workflow run" in prompt_text
 
 
-def test_run_service_updates_existing_managed_comment_without_reordering(
+def test_run_service_updates_existing_same_run_comment_without_reordering(
     tmp_path,
     issue_comments_payload,
 ):
@@ -466,11 +466,27 @@ def test_run_service_updates_existing_managed_comment_without_reordering(
 
     assert run_service(config, client=client) == 0
 
-    assert client.deleted_ids == [2]
+    assert client.deleted_ids == []
     assert len(client.updated_bodies) == 1
     updated_body = client.updated_bodies[0]
     assert updated_body.index("## COPILOT-1") < updated_body.index("## REVIEW-1")
     assert updated_body.index("## FAIL-1") < updated_body.index("## FAIL-2")
+
+
+def test_run_service_creates_new_comment_for_new_run_attempt(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload=load_json_fixture("github/workflow_jobs.json"),
+        issue_comments_payload=issue_comments_payload,
+    )
+    config = _build_config(tmp_path).model_copy(update={"run_attempt": 3})
+
+    assert run_service(config, client=client) == 0
+
+    assert client.updated_bodies == []
+    assert len(client.created_bodies) == 1
+    created_body = client.created_bodies[0]
+    assert "run_attempt=3" in created_body.splitlines()[0]
 
 
 def test_run_service_renders_actionable_patch_coverage_from_artifacts(
@@ -642,6 +658,9 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     collected = json.loads(
         (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
     )
+    comment_sync = json.loads(
+        (config.debug_artifacts_dir / "comment-sync.json").read_text(encoding="utf-8")
+    )
     prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
     comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
 
@@ -651,5 +670,8 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert "template_diagnostics" in summary
     assert collected["pull_request"]["number"] == 17
     assert (config.debug_artifacts_dir / "failing-check-universe.json").exists()
+    assert comment_sync["sync_debug"]["current_identity"]["run_id"] == 100
+    assert comment_sync["sync_debug"]["matched_existing_comment"] is False
     assert prompt_text.startswith("Repository: foldermix")
-    assert comment_body.startswith("<!-- pr-agent-context:managed-comment -->")
+    assert comment_body.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
+    assert (config.debug_artifacts_dir / "comment-sync.json").exists()

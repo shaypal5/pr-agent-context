@@ -172,6 +172,10 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     rendered = render_prompt(
         pull_request_number=config.pull_request.number,
         head_sha=config.pull_request.head_sha,
+        run_id=config.run_id,
+        run_attempt=config.run_attempt,
+        tool_ref=config.tool_ref,
+        tool_version=__version__,
         review_threads=numbered_threads,
         failing_checks=numbered_failures,
         patch_coverage=patch_coverage,
@@ -197,6 +201,10 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         owner=config.pull_request.owner,
         repo=config.pull_request.repo,
         pull_request_number=config.pull_request.number,
+        run_id=config.run_id,
+        run_attempt=config.run_attempt,
+        head_sha=config.pull_request.head_sha,
+        tool_ref=config.tool_ref,
         body=rendered.comment_body if rendered.should_publish_comment else None,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
@@ -207,9 +215,11 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         comment_written=publication.comment_written,
         comment_id=publication.comment_id or "",
         comment_url=publication.comment_url or "",
-        existing_managed_comments=publication.existing_managed_comment_count,
-        duplicate_managed_comments=publication.duplicate_managed_comment_count,
+        managed_comments=publication.managed_comment_count,
         body_changed=publication.body_changed,
+        matched_existing_comment=publication.matched_existing_comment,
+        matched_comment_run_id=publication.matched_comment_run_id or "",
+        matched_comment_run_attempt=publication.matched_comment_run_attempt or "",
         skipped_reason=publication.skipped_reason or "",
         error_status_code=publication.error_status_code or "",
     )
@@ -248,6 +258,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             collected_context=collected_context,
             rendered=rendered,
             summary=summary,
+            publication=publication,
             failing_check_debug=failing_check_debug,
         )
     _write_outputs(
@@ -304,6 +315,7 @@ def _write_debug_artifacts(
     collected_context: CollectedContext,
     rendered,
     summary: DebugSummary,
+    publication,
     failing_check_debug: dict | None,
 ) -> None:
     if debug_dir is None:
@@ -324,6 +336,7 @@ def _write_debug_artifacts(
     )
     if failing_check_debug is not None:
         _write_json(debug_dir / "failing-check-universe.json", failing_check_debug)
+    _write_json(debug_dir / "comment-sync.json", publication.model_dump(mode="json"))
 
 
 def _write_json(path: Path, payload: dict) -> None:

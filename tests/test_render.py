@@ -19,6 +19,7 @@ from pr_agent_context.prompt.render import (
     _render_review_threads_section,
     _sanitize_block,
     _wrap_markdown_code_block,
+    build_managed_comment_body,
     render_prompt,
 )
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
@@ -214,7 +215,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     )
 
     assert "# Codecov/patch" in rendered.prompt_markdown
-    assert "head commit deadbeef" in rendered.prompt_markdown
+    assert "PR head commit: deadbeef" in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
     assert rendered.has_actionable_items is True
@@ -239,7 +240,7 @@ def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
     )
 
     assert "# Codecov/patch" not in rendered.prompt_markdown
-    assert "head commit abc1234" in rendered.prompt_markdown
+    assert "PR head commit: abc1234" in rendered.prompt_markdown
     assert "all clear" in rendered.prompt_markdown.lower()
     assert rendered.should_publish_comment is True
 
@@ -253,7 +254,7 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
         patch_coverage=None,
     )
 
-    assert "head commit feedface" in rendered.prompt_markdown
+    assert "PR head commit: feedface" in rendered.prompt_markdown
     assert "all clear" in rendered.prompt_markdown.lower()
     assert "# Copilot Comments" not in rendered.prompt_markdown
     assert "# Failing Workflows" not in rendered.prompt_markdown
@@ -581,10 +582,26 @@ def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tm
         prompt_template_file=template,
     )
 
-    assert rendered.comment_body.startswith(
-        "<!-- pr-agent-context:managed-comment -->\n~~~markdown"
-    )
+    assert rendered.comment_body.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
+    assert "\n~~~markdown" in rendered.comment_body
     assert rendered.comment_body.endswith("\n~~~")
+
+
+def test_build_managed_comment_body_includes_run_scoped_marker():
+    body = build_managed_comment_body(
+        "hello",
+        pull_request_number=17,
+        run_id=123,
+        run_attempt=4,
+        head_sha="deadbeef",
+        tool_ref="v3",
+    )
+
+    assert (
+        body.splitlines()[0]
+        == "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=123; "
+        "run_attempt=4; head_sha=deadbeef; tool_ref=v3 -->"
+    )
 
 
 def test_wrap_markdown_code_block_chooses_unique_fence():
