@@ -677,6 +677,33 @@ def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
     assert debug["settlement"]["skipped_reason"] == "timeout_non_positive"
 
 
+def test_collect_failing_checks_skips_settlement_when_poll_interval_non_positive():
+    failures, debug = collect_failing_checks(
+        FakeNoPollClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=False,
+        include_external_checks=False,
+        wait_for_checks_to_settle=True,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=30,
+        check_settle_poll_interval_seconds=0,
+    )
+
+    assert failures == []
+    assert debug["settlement"]["enabled"] is True
+    assert debug["settlement"]["settled"] is False
+    assert debug["settlement"]["timed_out"] is False
+    assert debug["settlement"]["skipped_reason"] == "poll_interval_non_positive"
+
+
 def test_wait_for_check_settlement_caps_sleep_to_remaining_time(monkeypatch):
     client = FakeNeverSettledChecksClient()
     monotonic_values = iter([0.0, 2.5, 3.0])

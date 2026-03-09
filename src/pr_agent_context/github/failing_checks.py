@@ -64,6 +64,12 @@ def collect_failing_checks(
             "enabled": True,
             "skipped_reason": "timeout_non_positive",
         }
+    elif wait_for_checks_to_settle and check_settle_poll_interval_seconds <= 0:
+        settlement = {
+            **settlement,
+            "enabled": True,
+            "skipped_reason": "poll_interval_non_positive",
+        }
     elif wait_for_checks_to_settle and (include_cross_run_failures or include_external_checks):
         settlement, settlement_warnings = _wait_for_check_settlement(
             client,

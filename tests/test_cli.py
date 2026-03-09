@@ -200,6 +200,54 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert "comment_id=777" in outputs
 
 
+def test_cli_run_ignores_output_write_failure_in_fallback_path(monkeypatch, tmp_path, capsys):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "pr_agent_context.cli.RunConfig.from_env",
+        lambda: (_ for _ in ()).throw(ValueError("bad config")),
+    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
+    monkeypatch.setenv("GITHUB_REPOSITORY", "shaypal5/pr-agent-context")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_RUN_ID", "321")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "4")
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "github-output.txt"))
+
+    def fail_write_text(self, data, encoding="utf-8"):  # noqa: ARG001
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.write_text", fail_write_text)
+    monkeypatch.setattr(
+        "pr_agent_context.cli.sync_managed_comment",
+        lambda *args, **kwargs: PublicationResult(
+            comment_id=777,
+            comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",
+            comment_written=True,
+            action="created",
+        ),
+    )
+
+    assert main(["run"]) == 0
+
+    stdout = capsys.readouterr().out
+    events = [json.loads(line) for line in stdout.splitlines() if line.startswith("{")]
+    assert any(event["event"] == "fatal_error_output_write_failed" for event in events)
+
+
 def test_cli_main_rejects_unsupported_command(monkeypatch):
     monkeypatch.setattr(
         "pr_agent_context.cli.build_parser",

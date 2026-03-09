@@ -208,7 +208,21 @@ def _write_failure_outputs(
         "prompt_sha256=",
         f"comment_written={'true' if publication and publication.comment_written else 'false'}",
     ]
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception as error:  # pragma: no cover - exercised via fallback tests
+        print(
+            json.dumps(
+                {
+                    "tool": "pr-agent-context",
+                    "event": "fatal_error_output_write_failed",
+                    "error_type": type(error).__name__,
+                    "error_message": str(error),
+                    "output_path": str(output_path),
+                },
+                sort_keys=True,
+            )
+        )
 
 
 def _filtered_log_payload(payload: dict[str, object]) -> dict[str, object]:

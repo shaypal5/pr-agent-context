@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
 from coverage import Coverage
 
 from conftest import load_json_fixture, load_text_fixture
@@ -215,21 +216,30 @@ def _structured_log_lines(output: str) -> list[dict[str, object]]:
 
 
 def test_write_outputs_returns_early_when_no_output_path(tmp_path):
-    output_path = tmp_path / "github-output.txt"
+    calls: list[tuple[str, str]] = []
 
-    _write_outputs(
-        None,
-        unresolved_thread_count=1,
-        failing_check_count=2,
-        has_actionable_items=True,
-        patch_coverage_percent=95.5,
-        comment_written=True,
-        comment_id=123,
-        comment_url="https://example.invalid/comment/123",
-        prompt_sha256="abc",
-    )
+    def fail_if_called(self, data, encoding="utf-8"):  # noqa: ARG001
+        calls.append((str(self), data))
+        raise AssertionError("write_text should not be called")
 
-    assert output_path.exists() is False
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("pathlib.Path.write_text", fail_if_called)
+    try:
+        _write_outputs(
+            None,
+            unresolved_thread_count=1,
+            failing_check_count=2,
+            has_actionable_items=True,
+            patch_coverage_percent=95.5,
+            comment_written=True,
+            comment_id=123,
+            comment_url="https://example.invalid/comment/123",
+            prompt_sha256="abc",
+        )
+    finally:
+        monkeypatch.undo()
+
+    assert calls == []
 
 
 def _run_git(repo: Path, *args: str) -> str:

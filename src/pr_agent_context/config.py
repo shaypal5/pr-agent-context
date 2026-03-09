@@ -107,7 +107,7 @@ class RunConfig(BaseModel):
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RunConfig:
         env_map = dict(os.environ if env is None else env)
-        owner, repo, pull_request = load_pull_request_context_from_env(env_map)
+        _, _, pull_request = load_pull_request_context_from_env(env_map)
         workspace = Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd()))
         debug_artifacts = _parse_bool(
             env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS"),
