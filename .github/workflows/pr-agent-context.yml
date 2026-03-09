@@ -6,7 +6,7 @@ on:
       tool_ref:
         description: Ref of shaypal5/pr-agent-context to check out.
         required: false
-        default: v3
+        default: v2
         type: string
       include_review_comments:
         description: Include unresolved PR review threads.
