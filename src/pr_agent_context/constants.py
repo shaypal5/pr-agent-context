@@ -3,13 +3,16 @@ from __future__ import annotations
 MANAGED_COMMENT_MARKER = "<!-- pr-agent-context:managed-comment -->"
 
 DEFAULT_PROMPT_OPENING = (
-    "Below are the details of unresolved review comments and failing checks on PR "
-    "#{pr_number} for head commit {head_sha}.\n\nFor each unresolved comment, recommend one "
-    "of: resolve as irrelevant, accept and implement the recommended solution, open a separate "
-    "issue and resolve as out-of-scope for this PR, accept and implement a different solution, "
-    "or resolve as already treated by the code.\n\nAfter I reply with my decision per item, "
-    "implement the accepted actions, resolve the corresponding PR comments, fix each failing "
-    "check below, and push all of these changes in a single commit."
+    "Below are the details of possibly unresolved review comments and/or "
+    "(possibly) failing checks on PR "
+    "#{pr_number} for head commit {head_sha}.\n\nFor each unresolved comment "
+    "(if any), recommend one of: resolve as irrelevant, accept and "
+    "implement the recommended solution, open a separate issue and resolve "
+    "as out-of-scope for this PR, accept and implement a different "
+    "solution, or resolve as already treated by the code.\n\nAfter I reply "
+    "with my decision per item, implement the accepted actions, resolve "
+    "the corresponding PR comments, fix each failing check below (if any), "
+    "and push all of these changes in a single commit."
 )
 
 DEFAULT_ALL_CLEAR_PROMPT = (
@@ -78,6 +81,8 @@ DEFAULT_MAX_FAILED_RUNS = 20
 DEFAULT_MAX_EXTERNAL_CHECKS = 20
 DEFAULT_MAX_FAILING_ITEMS = 25
 DEFAULT_MAX_LOG_LINES_PER_JOB = 80
+DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS = 45
+DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS = 5
 DEFAULT_CHARACTERS_PER_LINE = 100
 DEFAULT_TARGET_PATCH_COVERAGE = 100.0
 DEFAULT_COVERAGE_ARTIFACT_PREFIX = "pr-agent-context-coverage"

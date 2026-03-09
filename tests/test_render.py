@@ -214,7 +214,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     )
 
     assert "# Codecov/patch" in rendered.prompt_markdown
-    assert "head commit\ndeadbeef" in rendered.prompt_markdown
+    assert "head commit deadbeef" in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
     assert rendered.has_actionable_items is True

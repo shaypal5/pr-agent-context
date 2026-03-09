@@ -9,6 +9,8 @@ from pr_agent_context.config import (
     _extract_pull_request_number,
     _extract_pull_request_shas,
     _parse_bool,
+    load_pull_request_context_from_env,
+    parse_bool_env,
 )
 
 
@@ -45,6 +47,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS": "true",
             "PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES": "false",
             "PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS": "false",
+            "PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE": "false",
             "PR_AGENT_CONTEXT_PROMPT_PREAMBLE": "Repository: example",
             "PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE": str(template_path),
             "PR_AGENT_CONTEXT_MAX_REVIEW_THREADS": "12",
@@ -53,6 +56,8 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS": "5",
             "PR_AGENT_CONTEXT_MAX_FAILING_CHECKS": "11",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
+            "PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS": "22",
+            "PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS": "3",
             "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
             "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
             "PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE": "true",
@@ -80,6 +85,7 @@ def test_run_config_from_env(tmp_path):
     assert config.include_failing_checks is True
     assert config.include_cross_run_failures is False
     assert config.include_external_checks is False
+    assert config.wait_for_checks_to_settle is False
     assert config.prompt_preamble == "Repository: example"
     assert config.prompt_template_file == template_path.resolve()
     assert config.max_review_threads == 12
@@ -88,6 +94,8 @@ def test_run_config_from_env(tmp_path):
     assert config.max_external_checks == 5
     assert config.max_failing_checks == 11
     assert config.max_log_lines_per_job == 33
+    assert config.check_settle_timeout_seconds == 22
+    assert config.check_settle_poll_interval_seconds == 3
     assert config.characters_per_line == 88
     assert config.target_patch_coverage == 92.5
     assert config.include_patch_coverage is True
@@ -222,6 +230,7 @@ def test_run_config_treats_blank_debug_artifacts_dir_as_unset(tmp_path):
 
 def test_config_private_helpers_cover_bool_and_event_fallbacks():
     assert _parse_bool(True, default=False) is True
+    assert parse_bool_env("yes", default=False) is True
     assert _extract_pull_request_number({"number": 42}) == 42
 
     with pytest.raises(ValueError, match="Unable to determine pull request number"):
@@ -237,3 +246,32 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         _extract_pull_request_shas(
             {"pull_request": {"base": {"sha": ""}, "head": {"sha": "head123"}}}
         )
+
+
+def test_load_pull_request_context_from_env(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 42,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner, repo, pull_request = load_pull_request_context_from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+        }
+    )
+
+    assert owner == "shaypal5"
+    assert repo == "example"
+    assert pull_request.number == 42
+    assert pull_request.base_sha == "abc123"
+    assert pull_request.head_sha == "def456"

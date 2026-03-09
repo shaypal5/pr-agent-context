@@ -28,6 +28,11 @@ on:
         required: false
         default: true
         type: boolean
+      wait_for_checks_to_settle:
+        description: Briefly poll the PR head SHA check universe so late-arriving checks can appear before collection.
+        required: false
+        default: true
+        type: boolean
       prompt_preamble:
         description: Optional text inserted before the default prompt preamble.
         required: false
@@ -67,6 +72,16 @@ on:
         description: Maximum log excerpt lines per failed job.
         required: false
         default: 80
+        type: number
+      check_settle_timeout_seconds:
+        description: Maximum seconds to wait for the PR head SHA check universe to settle before collecting failures.
+        required: false
+        default: 45
+        type: number
+      check_settle_poll_interval_seconds:
+        description: Poll interval in seconds while waiting for the PR head SHA check universe to settle.
+        required: false
+        default: 5
         type: number
       characters_per_line:
         description: Maximum display width for wrapped prose lines in rendered output.
@@ -201,6 +216,7 @@ jobs:
           PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS: ${{ inputs.include_failing_checks }}
           PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES: ${{ inputs.include_cross_run_failures }}
           PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS: ${{ inputs.include_external_checks }}
+          PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE: ${{ inputs.wait_for_checks_to_settle }}
           PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
           PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE: ${{ inputs.prompt_template_file }}
           PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}
@@ -209,6 +225,8 @@ jobs:
           PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS: ${{ inputs.max_external_checks }}
           PR_AGENT_CONTEXT_MAX_FAILING_CHECKS: ${{ inputs.max_failing_checks }}
           PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB: ${{ inputs.max_log_lines_per_job }}
+          PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS: ${{ inputs.check_settle_timeout_seconds }}
+          PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS: ${{ inputs.check_settle_poll_interval_seconds }}
           PR_AGENT_CONTEXT_CHARACTERS_PER_LINE: ${{ inputs.characters_per_line }}
           PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE: ${{ inputs.target_patch_coverage }}
           PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE: ${{ inputs.include_patch_coverage }}

@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pr_agent_context.constants import (
     DEFAULT_CHARACTERS_PER_LINE,
+    DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS,
+    DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS,
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
@@ -31,6 +33,10 @@ def _parse_bool(value: str | bool | None, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_bool_env(value: str | bool | None, *, default: bool) -> bool:
+    return _parse_bool(value, default=default)
 
 
 class PullRequestRef(BaseModel):
@@ -71,6 +77,7 @@ class RunConfig(BaseModel):
     include_failing_checks: bool = True
     include_cross_run_failures: bool = True
     include_external_checks: bool = True
+    wait_for_checks_to_settle: bool = True
     include_patch_coverage: bool = True
     force_patch_coverage_section: bool = False
     prompt_preamble: str = ""
@@ -86,6 +93,8 @@ class RunConfig(BaseModel):
     max_external_checks: int = DEFAULT_MAX_EXTERNAL_CHECKS
     max_failing_checks: int = DEFAULT_MAX_FAILING_ITEMS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
+    check_settle_timeout_seconds: int = DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS
+    check_settle_poll_interval_seconds: int = DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
@@ -98,11 +107,7 @@ class RunConfig(BaseModel):
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RunConfig:
         env_map = dict(os.environ if env is None else env)
-        repository = env_map["GITHUB_REPOSITORY"]
-        owner, repo = repository.split("/", maxsplit=1)
-        event = _load_event_payload(env_map["GITHUB_EVENT_PATH"])
-        pull_request_number = _extract_pull_request_number(event)
-        base_sha, head_sha = _extract_pull_request_shas(event)
+        _, _, pull_request = load_pull_request_context_from_env(env_map)
         workspace = Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd()))
         debug_artifacts = _parse_bool(
             env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS"),
@@ -114,13 +119,7 @@ class RunConfig(BaseModel):
             github_token=env_map["GITHUB_TOKEN"],
             tool_ref=env_map.get("PR_AGENT_CONTEXT_TOOL_REF", DEFAULT_TOOL_REF).strip()
             or DEFAULT_TOOL_REF,
-            pull_request=PullRequestRef(
-                owner=owner,
-                repo=repo,
-                number=pull_request_number,
-                base_sha=base_sha,
-                head_sha=head_sha,
-            ),
+            pull_request=pull_request,
             run_id=int(env_map["GITHUB_RUN_ID"]),
             run_attempt=int(env_map.get("GITHUB_RUN_ATTEMPT", "1")),
             workspace=workspace,
@@ -138,6 +137,10 @@ class RunConfig(BaseModel):
             ),
             include_external_checks=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS"),
+                default=True,
+            ),
+            wait_for_checks_to_settle=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE"),
                 default=True,
             ),
             include_patch_coverage=_parse_bool(
@@ -198,6 +201,18 @@ class RunConfig(BaseModel):
                     str(DEFAULT_MAX_LOG_LINES_PER_JOB),
                 )
             ),
+            check_settle_timeout_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS",
+                    str(DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS),
+                )
+            ),
+            check_settle_poll_interval_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS",
+                    str(DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS),
+                )
+            ),
             characters_per_line=int(
                 env_map.get(
                     "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE",
@@ -243,6 +258,27 @@ class RunConfig(BaseModel):
 def _load_event_payload(path: str) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_pull_request_context_from_env(
+    env: Mapping[str, str],
+) -> tuple[str, str, PullRequestRef]:
+    repository = env["GITHUB_REPOSITORY"]
+    owner, repo = repository.split("/", maxsplit=1)
+    event = _load_event_payload(env["GITHUB_EVENT_PATH"])
+    pull_request_number = _extract_pull_request_number(event)
+    base_sha, head_sha = _extract_pull_request_shas(event)
+    return (
+        owner,
+        repo,
+        PullRequestRef(
+            owner=owner,
+            repo=repo,
+            number=pull_request_number,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+    )
 
 
 def _extract_pull_request_number(event: Mapping[str, Any]) -> int:

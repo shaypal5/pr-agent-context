@@ -40,12 +40,15 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         include_failing_checks=config.include_failing_checks,
         include_cross_run_failures=config.include_cross_run_failures,
         include_external_checks=config.include_external_checks,
+        wait_for_checks_to_settle=config.wait_for_checks_to_settle,
         include_patch_coverage=config.include_patch_coverage,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
         prompt_template_file=(
             str(config.prompt_template_file) if config.prompt_template_file else ""
         ),
+        check_settle_timeout_seconds=config.check_settle_timeout_seconds,
+        check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
         characters_per_line=config.characters_per_line,
         max_actions_runs=config.max_actions_runs,
         max_external_checks=config.max_external_checks,
@@ -80,12 +83,26 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             current_run_attempt=config.run_attempt,
             include_cross_run_failures=config.include_cross_run_failures,
             include_external_checks=config.include_external_checks,
+            wait_for_checks_to_settle=config.wait_for_checks_to_settle,
             max_actions_runs=config.max_actions_runs,
             max_actions_jobs=config.max_actions_jobs,
             max_external_checks=config.max_external_checks,
             max_failing_checks=config.max_failing_checks,
             max_log_lines_per_job=config.max_log_lines_per_job,
+            check_settle_timeout_seconds=config.check_settle_timeout_seconds,
+            check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
         )
+    _log(
+        "check_settlement",
+        enabled=(failing_check_debug or {}).get("settlement", {}).get("enabled", False),
+        settled=(failing_check_debug or {}).get("settlement", {}).get("settled", False),
+        timed_out=(failing_check_debug or {}).get("settlement", {}).get("timed_out", False),
+        poll_count=(failing_check_debug or {}).get("settlement", {}).get("poll_count", 0),
+        elapsed_seconds=(failing_check_debug or {}).get("settlement", {}).get("elapsed_seconds", 0),
+        pending_count=(failing_check_debug or {}).get("settlement", {}).get("pending_count", 0),
+        skipped_reason=(failing_check_debug or {}).get("settlement", {}).get("skipped_reason", ""),
+        warning_count=len((failing_check_debug or {}).get("settlement", {}).get("warnings", [])),
+    )
     _log(
         "failing_checks",
         enabled=config.include_failing_checks,
