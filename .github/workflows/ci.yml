@@ -55,7 +55,7 @@ jobs:
       tool_ref: v2
       target_patch_coverage: "100"
       include_review_comments: true
-      include_failing_jobs: true
+      include_failing_checks: true
       include_patch_coverage: true
       coverage_artifact_prefix: pr-agent-context-coverage
       debug_artifacts: true
