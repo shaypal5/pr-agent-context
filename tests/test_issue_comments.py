@@ -207,6 +207,28 @@ def test_sync_managed_comment_preserves_only_same_run_when_body_missing(issue_co
     assert result.matched_existing_comment is True
 
 
+def test_sync_managed_comment_noops_without_comment_when_body_missing(issue_comments_payload):
+    client = FakeIssueCommentClient([issue_comments_payload[0]])
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="def456",
+        tool_ref="v3",
+        body=None,
+        delete_comment_when_empty=False,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "noop_no_comment"
+    assert result.comment_written is False
+    assert result.matched_existing_comment is False
+
+
 def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
     client = ForbiddenIssueCommentClient([issue_comments_payload[0]], fail_method="POST")
 
