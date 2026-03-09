@@ -266,7 +266,13 @@ def _find_matching_run_comment(
     identity: ManagedCommentIdentity,
 ) -> ManagedComment | None:
     for comment in comments:
-        if comment.marker == identity:
+        if comment.marker is None:
+            continue
+        if (
+            comment.marker.pull_request_number == identity.pull_request_number
+            and comment.marker.run_id == identity.run_id
+            and comment.marker.run_attempt == identity.run_attempt
+        ):
             return comment
     return None
 

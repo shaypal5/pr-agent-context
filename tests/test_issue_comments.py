@@ -104,6 +104,35 @@ def test_sync_managed_comment_updates_only_exact_same_run(issue_comments_payload
     assert result.matched_comment_run_attempt == 2
 
 
+def test_sync_managed_comment_updates_same_run_even_if_head_sha_and_tool_ref_differ(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="newsha999",
+        tool_ref="v4",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=2; head_sha=newsha999; tool_ref=v4 -->\n```markdown\nupdated body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert client.updated_comment_id == 4
+    assert result.action == "updated_same_run"
+    assert result.matched_existing_comment is True
+    assert result.matched_comment_run_id == 100
+    assert result.matched_comment_run_attempt == 2
+
+
 def test_sync_managed_comment_creates_new_comment_for_different_run_attempt(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 
