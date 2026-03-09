@@ -3,13 +3,13 @@ from __future__ import annotations
 MANAGED_COMMENT_MARKER = "<!-- pr-agent-context:managed-comment -->"
 
 DEFAULT_PROMPT_OPENING = (
-    "Below are the details of unresolved review comments and failing checks on PR "
-    "#{pr_number} for head commit {head_sha}.\n\nFor each unresolved comment, recommend one "
+    "Below are the details of possibly unresolved review comments and/or (possibly) failing checks on PR "
+    "#{pr_number} for head commit {head_sha}.\n\nFor each unresolved comment (if any), recommend one "
     "of: resolve as irrelevant, accept and implement the recommended solution, open a separate "
     "issue and resolve as out-of-scope for this PR, accept and implement a different solution, "
     "or resolve as already treated by the code.\n\nAfter I reply with my decision per item, "
     "implement the accepted actions, resolve the corresponding PR comments, fix each failing "
-    "check below, and push all of these changes in a single commit."
+    "check below (if any), and push all of these changes in a single commit."
 )
 
 DEFAULT_ALL_CLEAR_PROMPT = (
