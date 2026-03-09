@@ -133,6 +133,32 @@ def test_sync_managed_comment_updates_same_run_even_if_head_sha_and_tool_ref_dif
     assert result.matched_comment_run_attempt == 2
 
 
+def test_sync_managed_comment_updates_newest_duplicate_for_same_run(issue_comments_payload):
+    duplicate = {
+        **issue_comments_payload[3],
+        "id": 14,
+        "body": (
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=2; head_sha=oldermeta; tool_ref=v0 -->\n```markdown\nnewer body\n```"
+        ),
+        "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-14",
+    }
+    client = FakeIssueCommentClient([*issue_comments_payload, duplicate])
+
+    result = _sync(
+        client,
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=2; head_sha=def456; tool_ref=v3 -->\n```markdown\nupdated body\n```"
+        ),
+    )
+
+    assert client.updated_comment_id == 14
+    assert result.action == "updated_same_run"
+    assert result.sync_debug["matching_comment_ids"] == [4, 14]
+    assert result.sync_debug["duplicate_match_count"] == 1
+
+
 def test_sync_managed_comment_creates_new_comment_for_different_run_attempt(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 

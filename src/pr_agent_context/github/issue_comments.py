@@ -75,7 +75,8 @@ def sync_managed_comment(
     managed_comments = sorted(
         managed_comments_only(comments), key=lambda comment: comment.comment_id
     )
-    primary_comment = _find_matching_run_comment(managed_comments, current_identity)
+    matching_run_comments = _matching_run_comments(managed_comments, current_identity)
+    primary_comment = matching_run_comments[-1] if matching_run_comments else None
     managed_comment_count = len(managed_comments)
     sync_debug = {
         "current_identity": current_identity.model_dump(mode="json"),
@@ -87,6 +88,8 @@ def sync_managed_comment(
             }
             for comment in managed_comments
         ],
+        "matching_comment_ids": [comment.comment_id for comment in matching_run_comments],
+        "duplicate_match_count": max(len(matching_run_comments) - 1, 0),
         "matched_comment_id": primary_comment.comment_id if primary_comment else None,
         "matched_existing_comment": primary_comment is not None,
     }
@@ -261,10 +264,11 @@ def is_managed_comment(comment: ManagedComment) -> bool:
     return comment.marker is not None and _is_bot_author(comment.author_login, comment.author_type)
 
 
-def _find_matching_run_comment(
+def _matching_run_comments(
     comments: Iterable[ManagedComment],
     identity: ManagedCommentIdentity,
-) -> ManagedComment | None:
+) -> list[ManagedComment]:
+    matches: list[ManagedComment] = []
     for comment in comments:
         if comment.marker is None:
             continue
@@ -273,8 +277,8 @@ def _find_matching_run_comment(
             and comment.marker.run_id == identity.run_id
             and comment.marker.run_attempt == identity.run_attempt
         ):
-            return comment
-    return None
+            matches.append(comment)
+    return matches
 
 
 def _is_bot_author(author_login: str, author_type: str | None) -> bool:
