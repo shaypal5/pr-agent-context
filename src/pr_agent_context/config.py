@@ -35,6 +35,10 @@ def _parse_bool(value: str | bool | None, *, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def parse_bool_env(value: str | bool | None, *, default: bool) -> bool:
+    return _parse_bool(value, default=default)
+
+
 class PullRequestRef(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -103,11 +107,7 @@ class RunConfig(BaseModel):
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RunConfig:
         env_map = dict(os.environ if env is None else env)
-        repository = env_map["GITHUB_REPOSITORY"]
-        owner, repo = repository.split("/", maxsplit=1)
-        event = _load_event_payload(env_map["GITHUB_EVENT_PATH"])
-        pull_request_number = _extract_pull_request_number(event)
-        base_sha, head_sha = _extract_pull_request_shas(event)
+        owner, repo, pull_request = load_pull_request_context_from_env(env_map)
         workspace = Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd()))
         debug_artifacts = _parse_bool(
             env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS"),
@@ -119,13 +119,7 @@ class RunConfig(BaseModel):
             github_token=env_map["GITHUB_TOKEN"],
             tool_ref=env_map.get("PR_AGENT_CONTEXT_TOOL_REF", DEFAULT_TOOL_REF).strip()
             or DEFAULT_TOOL_REF,
-            pull_request=PullRequestRef(
-                owner=owner,
-                repo=repo,
-                number=pull_request_number,
-                base_sha=base_sha,
-                head_sha=head_sha,
-            ),
+            pull_request=pull_request,
             run_id=int(env_map["GITHUB_RUN_ID"]),
             run_attempt=int(env_map.get("GITHUB_RUN_ATTEMPT", "1")),
             workspace=workspace,
@@ -264,6 +258,27 @@ class RunConfig(BaseModel):
 def _load_event_payload(path: str) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_pull_request_context_from_env(
+    env: Mapping[str, str],
+) -> tuple[str, str, PullRequestRef]:
+    repository = env["GITHUB_REPOSITORY"]
+    owner, repo = repository.split("/", maxsplit=1)
+    event = _load_event_payload(env["GITHUB_EVENT_PATH"])
+    pull_request_number = _extract_pull_request_number(event)
+    base_sha, head_sha = _extract_pull_request_shas(event)
+    return (
+        owner,
+        repo,
+        PullRequestRef(
+            owner=owner,
+            repo=repo,
+            number=pull_request_number,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+    )
 
 
 def _extract_pull_request_number(event: Mapping[str, Any]) -> int:

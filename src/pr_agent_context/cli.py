@@ -10,10 +10,8 @@ from pathlib import Path
 from pr_agent_context import __version__
 from pr_agent_context.config import (
     RunConfig,
-    _extract_pull_request_number,
-    _extract_pull_request_shas,
-    _load_event_payload,
-    _parse_bool,
+    load_pull_request_context_from_env,
+    parse_bool_env,
 )
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.issue_comments import sync_managed_comment
@@ -141,24 +139,21 @@ def _resolve_failure_context(
     if not repository or not github_token or not event_path:
         return None
     try:
-        owner, repo = repository.split("/", maxsplit=1)
-        event = _load_event_payload(event_path)
-        pull_request_number = _extract_pull_request_number(event)
-        _base_sha, head_sha = _extract_pull_request_shas(event)
+        owner, repo, pull_request = load_pull_request_context_from_env(env)
     except Exception:
         return None
     return {
         "owner": owner,
         "repo": repo,
         "repository": repository,
-        "pull_request_number": pull_request_number,
-        "head_sha": head_sha,
+        "pull_request_number": pull_request.number,
+        "head_sha": pull_request.head_sha,
         "run_id": int(env.get("GITHUB_RUN_ID", "0") or "0"),
         "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
         "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
         "github_token": github_token,
         "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
-        "skip_comment_on_readonly_token": _parse_bool(
+        "skip_comment_on_readonly_token": parse_bool_env(
             env.get("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN"),
             default=True,
         ),

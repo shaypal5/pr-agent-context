@@ -58,7 +58,13 @@ def collect_failing_checks(
         "warnings": [],
     }
 
-    if wait_for_checks_to_settle and (include_cross_run_failures or include_external_checks):
+    if wait_for_checks_to_settle and check_settle_timeout_seconds <= 0:
+        settlement = {
+            **settlement,
+            "enabled": True,
+            "skipped_reason": "timeout_non_positive",
+        }
+    elif wait_for_checks_to_settle and (include_cross_run_failures or include_external_checks):
         settlement, settlement_warnings = _wait_for_check_settlement(
             client,
             owner=owner,
@@ -199,7 +205,7 @@ def _wait_for_check_settlement(
             and elapsed_seconds >= min_wait_seconds
             and stable_snapshots >= 1
         )
-        timed_out = elapsed_seconds >= timeout_seconds if timeout_seconds > 0 else True
+        timed_out = timeout_seconds > 0 and elapsed_seconds >= timeout_seconds
         if settled or timed_out:
             return (
                 {
@@ -216,13 +222,16 @@ def _wait_for_check_settlement(
                     "commit_status_count": snapshot["commit_status_count"],
                     "pending_source_counts": snapshot["pending_source_counts"],
                     "skipped_reason": "",
-                    "warnings": snapshot_warnings,
+                    "warnings": warnings,
                 },
                 warnings,
             )
 
         if poll_interval_seconds > 0:
-            _sleep(poll_interval_seconds)
+            remaining = max(timeout_seconds - elapsed_seconds, 0.0) if timeout_seconds > 0 else 0.0
+            sleep_seconds = min(poll_interval_seconds, remaining) if timeout_seconds > 0 else 0.0
+            if sleep_seconds > 0:
+                _sleep(sleep_seconds)
 
 
 def _collect_check_settlement_snapshot(

@@ -9,6 +9,8 @@ from pr_agent_context.config import (
     _extract_pull_request_number,
     _extract_pull_request_shas,
     _parse_bool,
+    load_pull_request_context_from_env,
+    parse_bool_env,
 )
 
 
@@ -228,6 +230,7 @@ def test_run_config_treats_blank_debug_artifacts_dir_as_unset(tmp_path):
 
 def test_config_private_helpers_cover_bool_and_event_fallbacks():
     assert _parse_bool(True, default=False) is True
+    assert parse_bool_env("yes", default=False) is True
     assert _extract_pull_request_number({"number": 42}) == 42
 
     with pytest.raises(ValueError, match="Unable to determine pull request number"):
@@ -243,3 +246,32 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         _extract_pull_request_shas(
             {"pull_request": {"base": {"sha": ""}, "head": {"sha": "head123"}}}
         )
+
+
+def test_load_pull_request_context_from_env(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 42,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner, repo, pull_request = load_pull_request_context_from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+        }
+    )
+
+    assert owner == "shaypal5"
+    assert repo == "example"
+    assert pull_request.number == 42
+    assert pull_request.base_sha == "abc123"
+    assert pull_request.head_sha == "def456"

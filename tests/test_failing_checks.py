@@ -418,6 +418,16 @@ class FakeSettlementPaginationClient:
         raise AssertionError(f"Unexpected request_bytes call: {path}")
 
 
+class FakeNoPollClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if path.endswith("/jobs"):
+            return {"jobs": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 def test_collect_failing_checks_aggregates_head_sha_failures():
     failures, debug = collect_failing_checks(
         FakeFailingChecksClient(),
@@ -640,6 +650,63 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
     assert client.check_run_poll_count >= 3
 
 
+def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
+    failures, debug = collect_failing_checks(
+        FakeNoPollClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=False,
+        include_external_checks=False,
+        wait_for_checks_to_settle=True,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=0,
+        check_settle_poll_interval_seconds=5,
+    )
+
+    assert failures == []
+    assert debug["settlement"]["enabled"] is True
+    assert debug["settlement"]["settled"] is False
+    assert debug["settlement"]["timed_out"] is False
+    assert debug["settlement"]["skipped_reason"] == "timeout_non_positive"
+
+
+def test_wait_for_check_settlement_caps_sleep_to_remaining_time(monkeypatch):
+    client = FakeNeverSettledChecksClient()
+    monotonic_values = iter([0.0, 2.5, 3.0])
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(failing_checks_module, "_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(failing_checks_module, "_sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_minimum_check_settle_wait_seconds",
+        lambda **_: 1,
+    )
+
+    settlement, _ = failing_checks_module._wait_for_check_settlement(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=False,
+        include_external_checks=True,
+        max_actions_runs=10,
+        max_external_checks=10,
+        timeout_seconds=3,
+        poll_interval_seconds=5,
+    )
+
+    assert settlement["timed_out"] is True
+    assert sleeps == [0.5]
+
+
 def test_wait_for_check_settlement_deduplicates_repeated_warnings(monkeypatch):
     client = FakeSettlementWarningClient()
     monotonic_values = iter([0.0, 0.1, 1.0, 1.1, 2.0, 2.1, 3.1, 3.2])
@@ -667,6 +734,7 @@ def test_wait_for_check_settlement_deduplicates_repeated_warnings(monkeypatch):
 
     assert settlement["timed_out"] is True
     assert settlement["pending_source_counts"] == {"commit_statuses": 1}
+    assert settlement["warnings"] == warnings
     assert (
         warnings.count(
             "Unable to fetch workflow runs for head SHA def456: GitHub API error 403: Forbidden"

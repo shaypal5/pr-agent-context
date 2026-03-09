@@ -1,14 +1,15 @@
 Repository: foldermix
 
-Below are the details of unresolved review comments and failing checks on PR #17 for head commit
-def456.
+Below are the details of possibly unresolved review comments and/or (possibly) failing checks on PR
+#17 for head commit def456.
 
-For each unresolved comment, recommend one of: resolve as irrelevant, accept and implement the
-recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and
+For each unresolved comment (if any), recommend one of: resolve as irrelevant, accept and implement
+the recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and
 implement a different solution, or resolve as already treated by the code.
 
 After I reply with my decision per item, implement the accepted actions, resolve the corresponding
-PR comments, fix each failing check below, and push all of these changes in a single commit.
+PR comments, fix each failing check below (if any), and push all of these changes in a single
+commit.
 
 # Copilot Comments
 
