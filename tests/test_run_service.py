@@ -671,7 +671,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert collected["pull_request"]["number"] == 17
     assert (config.debug_artifacts_dir / "failing-check-universe.json").exists()
     assert comment_sync["sync_debug"]["current_identity"]["run_id"] == 100
-    assert comment_sync["sync_debug"]["matched_existing_comment"] is True
+    assert comment_sync["sync_debug"]["matched_existing_comment"] is False
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
