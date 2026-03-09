@@ -21,12 +21,12 @@ from pr_agent_context.constants import (
     REVIEW_COMMENT_SECTION,
 )
 from pr_agent_context.domain.models import (
+    FailingCheck,
     PatchCoverageSummary,
     RenderedPrompt,
     ReviewMessage,
     ReviewThread,
     TruncationNote,
-    WorkflowFailure,
 )
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
@@ -38,10 +38,10 @@ def render_prompt(
     pull_request_number: int,
     head_sha: str | None = None,
     review_threads: list[ReviewThread],
-    workflow_failures: list[WorkflowFailure],
+    failing_checks: list[FailingCheck],
     patch_coverage: PatchCoverageSummary | None = None,
     include_review_comments: bool = True,
-    include_failing_jobs: bool = True,
+    include_failing_checks: bool = True,
     include_patch_coverage: bool = True,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
@@ -50,12 +50,12 @@ def render_prompt(
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
     has_review_items = include_review_comments and bool(review_threads)
-    has_failing_job_items = include_failing_jobs and bool(workflow_failures)
+    has_failing_check_items = include_failing_checks and bool(failing_checks)
     has_patch_coverage_items = include_patch_coverage and bool(
         patch_coverage and patch_coverage.actionable
     )
     has_actionable_items = bool(
-        has_review_items or has_failing_job_items or has_patch_coverage_items
+        has_review_items or has_failing_check_items or has_patch_coverage_items
     )
 
     copilot_threads = [thread for thread in review_threads if thread.classifier == "copilot"]
@@ -73,7 +73,7 @@ def render_prompt(
         section_key="review_comments_section",
     )
     truncation_notes.extend(notes)
-    failing_section, notes = _render_failing_jobs_section(workflow_failures)
+    failing_section, notes = _render_failing_checks_section(failing_checks)
     truncation_notes.extend(notes)
     patch_section, notes = _render_patch_coverage_section(
         patch_coverage,
@@ -94,12 +94,12 @@ def render_prompt(
                 head_sha=head_sha,
                 has_actionable_items=has_actionable_items,
                 include_review_comments=include_review_comments,
-                include_failing_jobs=include_failing_jobs,
+                include_failing_checks=include_failing_checks,
                 include_patch_coverage=include_patch_coverage,
             ),
             "copilot_comments_section": copilot_section,
             "review_comments_section": review_section,
-            "failing_jobs_section": failing_section,
+            "failing_checks_section": failing_section,
             "patch_coverage_section": patch_section,
         },
     )
@@ -126,7 +126,7 @@ def _build_opening_instructions(
     head_sha: str | None,
     has_actionable_items: bool,
     include_review_comments: bool,
-    include_failing_jobs: bool,
+    include_failing_checks: bool,
     include_patch_coverage: bool,
 ) -> str:
     if has_actionable_items:
@@ -139,7 +139,7 @@ def _build_opening_instructions(
         label
         for label, enabled in (
             ("review comments", include_review_comments),
-            ("failing checks", include_failing_jobs),
+            ("failing checks", include_failing_checks),
             ("patch coverage", include_patch_coverage),
         )
         if not enabled
@@ -284,13 +284,13 @@ def _render_reply(
     return [f"- {reply.author_login}", _indent_block(body, indent="  ")], notes
 
 
-def _render_failing_jobs_section(
-    failures: list[WorkflowFailure],
+def _render_failing_checks_section(
+    failures: list[FailingCheck],
 ) -> tuple[str, list[TruncationNote]]:
     if not failures:
         return "", []
 
-    budget = DEFAULT_SECTION_BUDGETS["failing_jobs_section"]
+    budget = DEFAULT_SECTION_BUDGETS["failing_checks_section"]
     item_blocks: list[str] = []
     notes: list[TruncationNote] = []
     for index, failure in enumerate(failures, start=1):
@@ -300,7 +300,7 @@ def _render_failing_jobs_section(
         if remaining_budget <= 0:
             break
         item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
-        rendered, item_notes = _render_workflow_failure(failure, max_chars=item_budget)
+        rendered, item_notes = _render_failing_check(failure, max_chars=item_budget)
         item_blocks.append(rendered)
         notes.extend(item_notes)
     section_text = f"# {FAILING_WORKFLOWS_SECTION}\n\n" + "\n\n".join(item_blocks)
@@ -309,7 +309,7 @@ def _render_failing_jobs_section(
     trimmed, note = truncate_text(
         section_text,
         max_chars=budget,
-        target="failing_jobs_section",
+        target="failing_checks_section",
         strategy="section_budget_cap",
         suffix="\n[note: section truncated to fit overall section budget]",
     )
@@ -318,8 +318,8 @@ def _render_failing_jobs_section(
     return trimmed, notes
 
 
-def _render_workflow_failure(
-    failure: WorkflowFailure,
+def _render_failing_check(
+    failure: FailingCheck,
     *,
     max_chars: int,
 ) -> tuple[str, list[TruncationNote]]:
@@ -417,7 +417,7 @@ def _render_workflow_failure(
     return trimmed, notes
 
 
-def _format_failure_type(failure: WorkflowFailure) -> str:
+def _format_failure_type(failure: FailingCheck) -> str:
     labels = {
         "actions_job": "GitHub Actions job",
         "actions_workflow_run": "GitHub Actions workflow run",

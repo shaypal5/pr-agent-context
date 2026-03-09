@@ -119,10 +119,10 @@ def test_collect_failing_checks_aggregates_head_sha_failures():
         current_run_attempt=2,
         include_cross_run_failures=True,
         include_external_checks=True,
-        max_failed_runs=10,
-        max_failed_jobs=10,
+        max_actions_runs=10,
+        max_actions_jobs=10,
         max_external_checks=10,
-        max_failing_items=10,
+        max_failing_checks=10,
         max_log_lines_per_job=6,
     )
 
@@ -157,10 +157,10 @@ def test_collect_failing_checks_can_stay_current_run_only():
         current_run_attempt=1,
         include_cross_run_failures=False,
         include_external_checks=False,
-        max_failed_runs=10,
-        max_failed_jobs=10,
+        max_actions_runs=10,
+        max_actions_jobs=10,
         max_external_checks=10,
-        max_failing_items=10,
+        max_failing_checks=10,
         max_log_lines_per_job=6,
     )
 

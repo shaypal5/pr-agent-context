@@ -44,7 +44,7 @@ def review_thread_sort_key(thread: ReviewThread) -> tuple[float | int, int, int,
     return (sort_key, 1, 0, thread.thread_id)
 
 
-class WorkflowFailure(BaseModel):
+class FailingCheck(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     source_type: Literal[
@@ -77,8 +77,8 @@ class WorkflowFailure(BaseModel):
     item_id: str | None = None
 
 
-def workflow_failure_sort_key(
-    failure: WorkflowFailure,
+def failing_check_sort_key(
+    failure: FailingCheck,
 ) -> tuple[int, int, str, str, str, int, str]:
     source_order = {
         "actions_job": 0,
@@ -135,7 +135,7 @@ class CollectedContext(BaseModel):
 
     pull_request: PullRequestRef
     review_threads: list[ReviewThread] = Field(default_factory=list)
-    workflow_failures: list[WorkflowFailure] = Field(default_factory=list)
+    failing_checks: list[FailingCheck] = Field(default_factory=list)
     patch_coverage: PatchCoverageSummary | None = None
     failing_check_debug: dict | None = None
 
@@ -190,7 +190,7 @@ class DebugSummary(BaseModel):
 
     tool_ref: str
     unresolved_thread_count: int
-    failed_job_count: int
+    failing_check_count: int
     failing_check_source_counts: dict[str, int] = Field(default_factory=dict)
     patch_coverage_percent: float | None = None
     has_actionable_items: bool

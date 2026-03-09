@@ -189,7 +189,7 @@ def _build_config(tmp_path):
         max_review_threads=50,
         include_cross_run_failures=False,
         include_external_checks=False,
-        max_failed_jobs=20,
+        max_actions_jobs=20,
         max_log_lines_per_job=6,
         characters_per_line=100,
         include_patch_coverage=False,
@@ -253,7 +253,7 @@ def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
     outputs = _read_outputs(config.github_output_path)
     assert client.created_bodies
     assert outputs["unresolved_thread_count"] == "2"
-    assert outputs["failed_job_count"] == "3"
+    assert outputs["failing_check_count"] == "3"
     assert outputs["comment_written"] == "true"
     assert len(outputs["prompt_sha256"]) == 64
 
@@ -348,10 +348,10 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
         "event": "review_threads",
         "tool": "pr-agent-context",
     }
-    assert events["workflow_failures"] == {
+    assert events["failing_checks"] == {
         "count": 3,
         "enabled": True,
-        "event": "workflow_failures",
+        "event": "failing_checks",
         "source_counts": {"actions_job": 3},
         "tool": "pr-agent-context",
         "warning_count": 0,
@@ -359,7 +359,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
     assert events["render"]["event"] == "render"
     assert events["comment_sync"]["action"] == "created"
     assert events["summary"]["unresolved_thread_count"] == 2
-    assert events["summary"]["failed_job_count"] == 3
+    assert events["summary"]["failing_check_count"] == 3
 
 
 def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_payload):
@@ -393,7 +393,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_
         run_attempt=2,
         workspace=tmp_path,
         include_review_comments=False,
-        include_failing_jobs=True,
+        include_failing_checks=True,
         include_cross_run_failures=True,
         include_external_checks=True,
         include_patch_coverage=False,
@@ -412,7 +412,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_
     )
     prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
 
-    assert outputs["failed_job_count"] == "4"
+    assert outputs["failing_check_count"] == "4"
     assert failing_debug["deduped_source_counts"] == {
         "actions_job": 1,
         "actions_workflow_run": 1,

@@ -58,7 +58,7 @@
       ]
     }
   ],
-  "workflow_failures": [
+  "failing_checks": [
     {
       "job_id": 1002,
       "workflow_name": "CI",

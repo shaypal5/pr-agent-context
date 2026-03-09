@@ -42,16 +42,16 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_TOOL_REF": "v3",
             "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
             "PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS": "false",
-            "PR_AGENT_CONTEXT_INCLUDE_FAILING_JOBS": "true",
+            "PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS": "true",
             "PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES": "false",
             "PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS": "false",
             "PR_AGENT_CONTEXT_PROMPT_PREAMBLE": "Repository: example",
             "PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE": str(template_path),
             "PR_AGENT_CONTEXT_MAX_REVIEW_THREADS": "12",
-            "PR_AGENT_CONTEXT_MAX_FAILED_RUNS": "9",
-            "PR_AGENT_CONTEXT_MAX_FAILED_JOBS": "7",
+            "PR_AGENT_CONTEXT_MAX_ACTIONS_RUNS": "9",
+            "PR_AGENT_CONTEXT_MAX_ACTIONS_JOBS": "7",
             "PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS": "5",
-            "PR_AGENT_CONTEXT_MAX_FAILING_ITEMS": "11",
+            "PR_AGENT_CONTEXT_MAX_FAILING_CHECKS": "11",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
             "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
             "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
@@ -77,16 +77,16 @@ def test_run_config_from_env(tmp_path):
     assert config.run_attempt == 4
     assert config.workspace == tmp_path
     assert config.include_review_comments is False
-    assert config.include_failing_jobs is True
+    assert config.include_failing_checks is True
     assert config.include_cross_run_failures is False
     assert config.include_external_checks is False
     assert config.prompt_preamble == "Repository: example"
     assert config.prompt_template_file == template_path.resolve()
     assert config.max_review_threads == 12
-    assert config.max_failed_runs == 9
-    assert config.max_failed_jobs == 7
+    assert config.max_actions_runs == 9
+    assert config.max_actions_jobs == 7
     assert config.max_external_checks == 5
-    assert config.max_failing_items == 11
+    assert config.max_failing_checks == 11
     assert config.max_log_lines_per_job == 33
     assert config.characters_per_line == 88
     assert config.target_patch_coverage == 92.5

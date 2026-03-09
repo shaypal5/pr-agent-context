@@ -32,7 +32,7 @@ DEFAULT_PROMPT_TEMPLATE = """
 
 {{ review_comments_section }}
 
-{{ failing_jobs_section }}
+{{ failing_checks_section }}
 
 {{ patch_coverage_section }}
 """
@@ -43,7 +43,7 @@ SUPPORTED_TEMPLATE_PLACEHOLDERS = (
     "opening_instructions",
     "copilot_comments_section",
     "review_comments_section",
-    "failing_jobs_section",
+    "failing_checks_section",
     "patch_coverage_section",
 )
 
@@ -82,7 +82,7 @@ DEFAULT_DEBUG_ARTIFACT_PREFIX = "pr-agent-context-debug"
 DEFAULT_SECTION_BUDGETS = {
     "copilot_comments_section": 12000,
     "review_comments_section": 12000,
-    "failing_jobs_section": 16000,
+    "failing_checks_section": 16000,
     "patch_coverage_section": 12000,
 }
 

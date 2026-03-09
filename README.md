@@ -69,7 +69,7 @@ The reusable workflow inputs are:
 
 - `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v1"`
 - `include_review_comments`: include unresolved PR review threads, default `true`
-- `include_failing_jobs`: include failing checks in the rendered prompt, default `true`
+- `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
 - `target_patch_coverage`: required patch coverage percentage, default `"100"`
@@ -82,10 +82,10 @@ The reusable workflow inputs are:
 - `debug_artifacts`: upload JSON/markdown debug artifacts, default `true`
 - `debug_artifact_prefix`: artifact name prefix for uploaded debug bundles, default `pr-agent-context-debug`
 - `max_review_threads`: cap unresolved review threads, default `50`
-- `max_failed_runs`: cap failed workflow runs inspected for the PR head SHA, default `20`
-- `max_failed_jobs`: cap failed Actions jobs included after aggregation and dedupe, default `20`
+- `max_actions_runs`: cap failed workflow runs inspected for the PR head SHA, default `20`
+- `max_actions_jobs`: cap failed Actions jobs included after aggregation and dedupe, default `20`
 - `max_external_checks`: cap failed external check/status items included after normalization, default `20`
-- `max_failing_items`: cap the total rendered failing-check items after dedupe, default `25`
+- `max_failing_checks`: cap the total rendered failing-check items after dedupe, default `25`
 - `max_log_lines_per_job`: cap collected failed-job excerpt lines before rendering, default `80`
 - `characters_per_line`: wrap plain prose lines in rendered output to this width, default `100`
 
@@ -102,7 +102,7 @@ Supported placeholders:
 - `{{ opening_instructions }}`
 - `{{ copilot_comments_section }}`
 - `{{ review_comments_section }}`
-- `{{ failing_jobs_section }}`
+- `{{ failing_checks_section }}`
 - `{{ patch_coverage_section }}`
 
 Unknown placeholders and malformed template braces fail fast with a clear validation error.
@@ -118,7 +118,7 @@ Example custom template file:
 
 {{ copilot_comments_section }}
 {{ review_comments_section }}
-{{ failing_jobs_section }}
+{{ failing_checks_section }}
 {{ patch_coverage_section }}
 ```
 
@@ -266,8 +266,7 @@ The reusable workflow exposes these outputs for downstream observability and aut
 - `comment_url`
 - `prompt_sha256`
 - `unresolved_thread_count`
-- `failed_job_count`
-  This remains the output name for backward compatibility; it now counts rendered failing-check items, not only Actions jobs.
+- `failing_check_count`
 - `patch_coverage_percent`
 - `has_actionable_items`
 

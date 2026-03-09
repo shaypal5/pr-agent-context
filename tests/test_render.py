@@ -6,17 +6,17 @@ from pathlib import Path
 import pytest
 
 from conftest import load_json_fixture, load_text_fixture
-from pr_agent_context.domain.models import PatchCoverageSummary, ReviewThread, WorkflowFailure
+from pr_agent_context.domain.models import FailingCheck, PatchCoverageSummary, ReviewThread
 from pr_agent_context.prompt import render as render_module
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
     _format_location,
     _indent_block,
-    _render_failing_jobs_section,
+    _render_failing_check,
+    _render_failing_checks_section,
     _render_patch_coverage_section,
     _render_review_thread,
     _render_review_threads_section,
-    _render_workflow_failure,
     _sanitize_block,
     _wrap_markdown_code_block,
     render_prompt,
@@ -28,15 +28,13 @@ from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 def test_render_prompt_matches_expected_snapshots():
     payload = load_json_fixture("prompts/collected_context.json")
     review_threads = [ReviewThread.model_validate(item) for item in payload["review_threads"]]
-    workflow_failures = [
-        WorkflowFailure.model_validate(item) for item in payload["workflow_failures"]
-    ]
+    failing_checks = [FailingCheck.model_validate(item) for item in payload["failing_checks"]]
 
     rendered = render_prompt(
         pull_request_number=payload["pull_request_number"],
         head_sha="def456",
         review_threads=review_threads,
-        workflow_failures=workflow_failures,
+        failing_checks=failing_checks,
         prompt_preamble=payload["prompt_preamble"],
     )
 
@@ -84,7 +82,7 @@ def test_render_prompt_respects_custom_characters_per_line_limit():
         pull_request_number=11,
         head_sha="abc123",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         prompt_preamble=(
             "This is a deliberately long prose preamble sentence that should be wrapped tightly "
             "for readability in the rendered prompt output."
@@ -194,7 +192,7 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
         pull_request_number=17,
         head_sha="deadbeef",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=PatchCoverageSummary(
             target_percent=100,
             actual_percent=50,
@@ -227,7 +225,7 @@ def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
         pull_request_number=17,
         head_sha="abc1234",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=PatchCoverageSummary(
             target_percent=100,
             actual_percent=None,
@@ -251,7 +249,7 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
         pull_request_number=17,
         head_sha="feedface",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=None,
     )
 
@@ -268,10 +266,10 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
         pull_request_number=17,
         head_sha="feedface",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=None,
         include_review_comments=False,
-        include_failing_jobs=True,
+        include_failing_checks=True,
         include_patch_coverage=False,
     )
 
@@ -308,8 +306,8 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
                 }
             )
         ],
-        workflow_failures=[
-            WorkflowFailure.model_validate(
+        failing_checks=[
+            FailingCheck.model_validate(
                 {
                     "job_id": 1,
                     "workflow_name": "CI",
@@ -340,7 +338,7 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
             is_na=False,
         ),
         include_review_comments=False,
-        include_failing_jobs=False,
+        include_failing_checks=False,
         include_patch_coverage=False,
     )
 
@@ -355,7 +353,7 @@ def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
         pull_request_number=17,
         head_sha="c0ffee",
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=PatchCoverageSummary(
             target_percent=100,
             actual_percent=None,
@@ -406,7 +404,7 @@ def test_render_prompt_supports_custom_template_file(tmp_path):
                 }
             )
         ],
-        workflow_failures=[],
+        failing_checks=[],
         prompt_preamble="Repository: example",
         prompt_template_file=template,
     )
@@ -426,7 +424,7 @@ def test_render_prompt_rejects_unknown_template_placeholders(tmp_path):
         render_prompt(
             pull_request_number=17,
             review_threads=[],
-            workflow_failures=[],
+            failing_checks=[],
             prompt_template_file=template,
         )
     except ValueError as exc:
@@ -443,7 +441,7 @@ def test_render_prompt_rejects_unsupported_placeholder_syntax_variants(tmp_path)
         render_prompt(
             pull_request_number=17,
             review_threads=[],
-            workflow_failures=[],
+            failing_checks=[],
             prompt_template_file=template,
         )
 
@@ -482,8 +480,8 @@ def test_render_prompt_truncates_replies_and_logs_deterministically():
                 }
             )
         ],
-        workflow_failures=[
-            WorkflowFailure.model_validate(
+        failing_checks=[
+            FailingCheck.model_validate(
                 {
                     "job_id": 1,
                     "workflow_name": "CI",
@@ -529,7 +527,7 @@ def test_render_prompt_template_rejects_unmatched_braces():
                 "opening_instructions": "open",
                 "copilot_comments_section": "",
                 "review_comments_section": "",
-                "failing_jobs_section": "",
+                "failing_checks_section": "",
                 "patch_coverage_section": "",
             },
         )
@@ -546,7 +544,7 @@ def test_render_prompt_template_allows_literal_braces_in_rendered_values():
             "opening_instructions": "Investigate literal braces {{ like this }} safely.",
             "copilot_comments_section": "",
             "review_comments_section": "",
-            "failing_jobs_section": "",
+            "failing_checks_section": "",
             "patch_coverage_section": "",
         },
     )
@@ -566,7 +564,7 @@ def test_render_prompt_template_rejects_missing_values():
                 "prompt_preamble": "",
                 "copilot_comments_section": "",
                 "review_comments_section": "",
-                "failing_jobs_section": "",
+                "failing_checks_section": "",
                 "patch_coverage_section": "",
             },
         )
@@ -579,7 +577,7 @@ def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tm
     rendered = render_prompt(
         pull_request_number=17,
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         prompt_template_file=template,
     )
 
@@ -607,7 +605,7 @@ def test_render_prompt_template_inserts_preamble_when_placeholder_missing():
             "opening_instructions": "Open instructions",
             "copilot_comments_section": "",
             "review_comments_section": "",
-            "failing_jobs_section": "",
+            "failing_checks_section": "",
             "patch_coverage_section": "",
         },
     )
@@ -725,8 +723,8 @@ def test_render_review_thread_root_truncation_and_metadata_only_fallback():
     assert any(note.strategy == "drop_metadata" for note in notes)
 
 
-def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
-    failure = WorkflowFailure.model_validate(
+def test_render_failing_checks_section_applies_metadata_drop_and_truncation():
+    failure = FailingCheck.model_validate(
         {
             "job_id": 1,
             "workflow_name": "CI",
@@ -739,21 +737,21 @@ def test_render_failing_jobs_section_applies_metadata_drop_and_truncation():
         }
     )
 
-    rendered, notes = _render_failing_jobs_section([failure])
+    rendered, notes = _render_failing_checks_section([failure])
 
     assert rendered.startswith("# Failing Workflows")
     assert "[note: excerpt truncated" in rendered
     assert any(note.strategy == "trim_log_excerpt" for note in notes)
     assert "line 199" not in rendered
 
-    tiny_rendered, tiny_notes = _render_workflow_failure(failure, max_chars=220)
+    tiny_rendered, tiny_notes = _render_failing_check(failure, max_chars=220)
     assert "FAIL-1" in tiny_rendered
     assert any(note.strategy == "drop_metadata" for note in tiny_notes)
 
 
-def test_render_failing_jobs_section_supports_mixed_failure_sources():
+def test_render_failing_checks_section_supports_mixed_failure_sources():
     failures = [
-        WorkflowFailure.model_validate(
+        FailingCheck.model_validate(
             {
                 "source_type": "actions_job",
                 "workflow_name": "CI",
@@ -768,7 +766,7 @@ def test_render_failing_jobs_section_supports_mixed_failure_sources():
                 "item_id": "FAIL-1",
             }
         ),
-        WorkflowFailure.model_validate(
+        FailingCheck.model_validate(
             {
                 "source_type": "external_check_run",
                 "workflow_name": "codecov",
@@ -781,7 +779,7 @@ def test_render_failing_jobs_section_supports_mixed_failure_sources():
                 "item_id": "FAIL-2",
             }
         ),
-        WorkflowFailure.model_validate(
+        FailingCheck.model_validate(
             {
                 "source_type": "commit_status",
                 "workflow_name": "Commit status",
@@ -795,7 +793,7 @@ def test_render_failing_jobs_section_supports_mixed_failure_sources():
         ),
     ]
 
-    rendered, notes = _render_failing_jobs_section(failures)
+    rendered, notes = _render_failing_checks_section(failures)
 
     assert not notes
     assert rendered.startswith("# Failing Workflows")
@@ -837,7 +835,7 @@ def test_render_review_section_hard_caps_total_budget():
     rendered = render_prompt(
         pull_request_number=17,
         review_threads=threads,
-        workflow_failures=[],
+        failing_checks=[],
     )
 
     assert len(rendered.prompt_markdown) < 20000
@@ -886,9 +884,9 @@ def test_render_review_threads_section_breaks_when_budget_is_exhausted(monkeypat
     assert any(note.strategy == "section_budget_cap" for note in notes)
 
 
-def test_render_failing_jobs_section_breaks_when_budget_is_exhausted(monkeypatch):
+def test_render_failing_checks_section_breaks_when_budget_is_exhausted(monkeypatch):
     failures = [
-        WorkflowFailure.model_validate(
+        FailingCheck.model_validate(
             {
                 "job_id": index,
                 "workflow_name": "CI",
@@ -902,16 +900,16 @@ def test_render_failing_jobs_section_breaks_when_budget_is_exhausted(monkeypatch
         )
         for index in range(1, 4)
     ]
-    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_jobs_section", 1)
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 1)
 
-    rendered, notes = _render_failing_jobs_section(failures)
+    rendered, notes = _render_failing_checks_section(failures)
 
     assert rendered
     assert any(note.strategy == "section_budget_cap" for note in notes)
 
 
-def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
-    with_excerpt = WorkflowFailure.model_validate(
+def test_render_failing_check_metadata_only_fallback_and_no_excerpt_branch():
+    with_excerpt = FailingCheck.model_validate(
         {
             "job_id": 2,
             "workflow_name": "CI",
@@ -923,12 +921,12 @@ def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
             "item_id": "FAIL-2",
         }
     )
-    rendered, notes = _render_workflow_failure(with_excerpt, max_chars=150)
+    rendered, notes = _render_failing_check(with_excerpt, max_chars=150)
     assert "Matrix:" not in rendered
     assert "[note: failure details truncated to fit section budget]" not in rendered
     assert any(note.strategy == "drop_metadata" for note in notes)
 
-    without_excerpt = WorkflowFailure.model_validate(
+    without_excerpt = FailingCheck.model_validate(
         {
             "job_id": 3,
             "workflow_name": "CI",
@@ -939,7 +937,7 @@ def test_render_workflow_failure_metadata_only_fallback_and_no_excerpt_branch():
             "item_id": "FAIL-3",
         }
     )
-    rendered_no_excerpt, notes_no_excerpt = _render_workflow_failure(
+    rendered_no_excerpt, notes_no_excerpt = _render_failing_check(
         without_excerpt,
         max_chars=500,
     )
@@ -1035,7 +1033,7 @@ def test_render_format_percent_keeps_decimals_for_non_integral_values():
     rendered = render_prompt(
         pull_request_number=17,
         review_threads=[],
-        workflow_failures=[],
+        failing_checks=[],
         patch_coverage=PatchCoverageSummary(
             target_percent=99.25,
             actual_percent=83.27,

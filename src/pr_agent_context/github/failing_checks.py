@@ -10,7 +10,7 @@ from pr_agent_context.constants import (
     FAILED_JOB_CONCLUSIONS,
     FAILED_STATUS_STATES,
 )
-from pr_agent_context.domain.models import WorkflowFailure, workflow_failure_sort_key
+from pr_agent_context.domain.models import FailingCheck, failing_check_sort_key
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
 from pr_agent_context.github.workflow_jobs import (
     FAILED_STEP_CONCLUSIONS,
@@ -30,14 +30,14 @@ def collect_failing_checks(
     current_run_attempt: int,
     include_cross_run_failures: bool,
     include_external_checks: bool,
-    max_failed_runs: int,
-    max_failed_jobs: int,
+    max_actions_runs: int,
+    max_actions_jobs: int,
     max_external_checks: int,
-    max_failing_items: int,
+    max_failing_checks: int,
     max_log_lines_per_job: int,
-) -> tuple[list[WorkflowFailure], dict[str, object]]:
+) -> tuple[list[FailingCheck], dict[str, object]]:
     warnings: list[str] = []
-    raw_failures: list[WorkflowFailure] = []
+    raw_failures: list[FailingCheck] = []
 
     if include_cross_run_failures:
         actions_failures, action_warnings = _collect_actions_failures_for_head_sha(
@@ -47,8 +47,8 @@ def collect_failing_checks(
             head_sha=head_sha,
             current_run_id=current_run_id,
             current_run_attempt=current_run_attempt,
-            max_failed_runs=max_failed_runs,
-            max_failed_jobs=max_failed_jobs,
+            max_actions_runs=max_actions_runs,
+            max_actions_jobs=max_actions_jobs,
             max_log_lines_per_job=max_log_lines_per_job,
         )
         raw_failures.extend(actions_failures)
@@ -61,13 +61,13 @@ def collect_failing_checks(
             head_sha=head_sha,
             current_run_id=current_run_id,
             current_run_attempt=current_run_attempt,
-            max_failed_jobs=max_failed_jobs,
+            max_actions_jobs=max_actions_jobs,
             max_log_lines_per_job=max_log_lines_per_job,
         )
         raw_failures.extend(current_run_failures)
         warnings.extend(action_warnings)
 
-    external_failures: list[WorkflowFailure] = []
+    external_failures: list[FailingCheck] = []
     if include_external_checks:
         check_runs, check_warnings = _collect_external_check_runs(
             client,
@@ -91,7 +91,7 @@ def collect_failing_checks(
         warnings.extend(status_warnings)
 
     raw_failures.extend(external_failures)
-    deduped_failures = dedupe_failing_checks(raw_failures, max_items=max_failing_items)
+    deduped_failures = dedupe_failing_checks(raw_failures, max_items=max_failing_checks)
     source_counts = _count_by_source(deduped_failures)
 
     debug = {
@@ -105,11 +105,11 @@ def collect_failing_checks(
 
 
 def dedupe_failing_checks(
-    failures: Iterable[WorkflowFailure],
+    failures: Iterable[FailingCheck],
     *,
     max_items: int,
-) -> list[WorkflowFailure]:
-    grouped: dict[str, list[WorkflowFailure]] = defaultdict(list)
+) -> list[FailingCheck]:
+    grouped: dict[str, list[FailingCheck]] = defaultdict(list)
     for failure in failures:
         grouped[failure.dedupe_key or _fallback_dedupe_key(failure)].append(failure)
 
@@ -117,7 +117,7 @@ def dedupe_failing_checks(
         _select_best_failure(group)
         for _, group in sorted(grouped.items(), key=lambda item: item[0])
     ]
-    return sorted(selected, key=workflow_failure_sort_key)[:max_items]
+    return sorted(selected, key=failing_check_sort_key)[:max_items]
 
 
 def _collect_current_run_actions_failures(
@@ -128,9 +128,9 @@ def _collect_current_run_actions_failures(
     head_sha: str,
     current_run_id: int,
     current_run_attempt: int,
-    max_failed_jobs: int,
+    max_actions_jobs: int,
     max_log_lines_per_job: int,
-) -> tuple[list[WorkflowFailure], list[str]]:
+) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     jobs_payloads = _fetch_run_jobs(
         client,
@@ -163,7 +163,7 @@ def _collect_current_run_actions_failures(
         for raw_job in jobs_payloads
         if str(raw_job.get("conclusion") or "") in FAILED_JOB_CONCLUSIONS
     ]
-    return sorted(failures, key=workflow_failure_sort_key)[:max_failed_jobs], warnings
+    return sorted(failures, key=failing_check_sort_key)[:max_actions_jobs], warnings
 
 
 def _collect_actions_failures_for_head_sha(
@@ -174,20 +174,20 @@ def _collect_actions_failures_for_head_sha(
     head_sha: str,
     current_run_id: int,
     current_run_attempt: int,
-    max_failed_runs: int,
-    max_failed_jobs: int,
+    max_actions_runs: int,
+    max_actions_jobs: int,
     max_log_lines_per_job: int,
-) -> tuple[list[WorkflowFailure], list[str]]:
+) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     runs = _fetch_workflow_runs_for_head_sha(
         client,
         owner=owner,
         repo=repo,
         head_sha=head_sha,
-        max_runs=max_failed_runs,
+        max_runs=max_actions_runs,
     )
-    job_observations: list[WorkflowFailure] = []
-    run_level_failures: list[WorkflowFailure] = []
+    job_observations: list[FailingCheck] = []
+    run_level_failures: list[FailingCheck] = []
 
     for run in runs:
         run_id = int(run["id"])
@@ -240,7 +240,7 @@ def _collect_actions_failures_for_head_sha(
             candidates = [failure for failure in job_observations if failure.dedupe_key == key]
             selected_jobs.append(_select_best_failure(candidates))
 
-    selected_jobs = sorted(selected_jobs, key=workflow_failure_sort_key)[:max_failed_jobs]
+    selected_jobs = sorted(selected_jobs, key=failing_check_sort_key)[:max_actions_jobs]
     selected_run_ids = {failure.run_id for failure in selected_jobs if failure.run_id is not None}
     selected_runs = [
         failure for failure in run_level_failures if failure.run_id not in selected_run_ids
@@ -255,9 +255,9 @@ def _collect_external_check_runs(
     repo: str,
     head_sha: str,
     max_external_checks: int,
-) -> tuple[list[WorkflowFailure], list[str]]:
+) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
-    check_runs: list[WorkflowFailure] = []
+    check_runs: list[FailingCheck] = []
     page = 1
     while len(check_runs) < max_external_checks:
         payload = _safe_request_json(
@@ -285,7 +285,7 @@ def _collect_external_check_runs(
     failures = [
         failure for failure in latest.values() if failure.conclusion in FAILED_CHECK_CONCLUSIONS
     ]
-    return sorted(failures, key=workflow_failure_sort_key)[:max_external_checks], warnings
+    return sorted(failures, key=failing_check_sort_key)[:max_external_checks], warnings
 
 
 def _collect_commit_status_failures(
@@ -296,7 +296,7 @@ def _collect_commit_status_failures(
     head_sha: str,
     max_external_checks: int,
     existing_names: set[str],
-) -> tuple[list[WorkflowFailure], list[str]]:
+) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     payload = _safe_request_json(
         client,
@@ -315,7 +315,7 @@ def _collect_commit_status_failures(
     ]
     latest = _latest_by_key(statuses)
     failures = [failure for failure in latest.values() if failure.status in FAILED_STATUS_STATES]
-    return sorted(failures, key=workflow_failure_sort_key)[:max_external_checks], warnings
+    return sorted(failures, key=failing_check_sort_key)[:max_external_checks], warnings
 
 
 def _fetch_workflow_runs_for_head_sha(
@@ -367,7 +367,7 @@ def _normalize_actions_job(
     current_run_id: int,
     current_run_attempt: int,
     max_log_lines_per_job: int,
-) -> WorkflowFailure:
+) -> FailingCheck:
     run_id = int(run["id"])
     run_attempt = int(run.get("run_attempt") or 1)
     job_id = int(raw_job["id"])
@@ -391,7 +391,7 @@ def _normalize_actions_job(
 
     job_name, matrix_label = split_job_display_name(str(raw_job.get("name") or f"job-{job_id}"))
     workflow_name = str(run.get("name") or raw_job.get("workflow_name") or "Workflow")
-    return WorkflowFailure(
+    return FailingCheck(
         source_type="actions_job",
         job_id=job_id,
         workflow_name=workflow_name,
@@ -423,9 +423,9 @@ def _normalize_actions_run_failure(
     is_current_run: bool,
     summary: str,
     observed_at: datetime | None,
-) -> WorkflowFailure:
+) -> FailingCheck:
     workflow_name = str(run.get("name") or "Workflow")
-    return WorkflowFailure(
+    return FailingCheck(
         source_type="actions_workflow_run",
         workflow_name=workflow_name,
         job_name=str(run.get("display_title") or workflow_name),
@@ -448,7 +448,7 @@ def _normalize_external_check_run(
     raw: dict[str, object],
     *,
     head_sha: str,
-) -> WorkflowFailure:
+) -> FailingCheck:
     app = raw.get("app") or {}
     output = raw.get("output") or {}
     app_name = str(app.get("slug") or app.get("name") or "external")
@@ -465,7 +465,7 @@ def _normalize_external_check_run(
     text = str(output.get("text") or "").strip()
     if text:
         excerpt_lines = [line for line in text.splitlines() if line.strip()][:8]
-    return WorkflowFailure(
+    return FailingCheck(
         source_type="external_check_run",
         workflow_name=app_name,
         job_name=name,
@@ -486,10 +486,10 @@ def _normalize_commit_status(
     raw: dict[str, object],
     *,
     head_sha: str,
-) -> WorkflowFailure:
+) -> FailingCheck:
     context = str(raw.get("context") or "status")
     description = str(raw.get("description") or "").strip()
-    return WorkflowFailure(
+    return FailingCheck(
         source_type="commit_status",
         workflow_name="Commit status",
         job_name=context,
@@ -504,8 +504,8 @@ def _normalize_commit_status(
     )
 
 
-def _latest_by_key(failures: Iterable[WorkflowFailure]) -> dict[str, WorkflowFailure]:
-    latest: dict[str, WorkflowFailure] = {}
+def _latest_by_key(failures: Iterable[FailingCheck]) -> dict[str, FailingCheck]:
+    latest: dict[str, FailingCheck] = {}
     for failure in failures:
         key = failure.dedupe_key or _fallback_dedupe_key(failure)
         previous = latest.get(key)
@@ -514,11 +514,11 @@ def _latest_by_key(failures: Iterable[WorkflowFailure]) -> dict[str, WorkflowFai
     return latest
 
 
-def _select_best_failure(group: list[WorkflowFailure]) -> WorkflowFailure:
+def _select_best_failure(group: list[FailingCheck]) -> FailingCheck:
     return max(group, key=_selection_score)
 
 
-def _observation_sort_key(failure: WorkflowFailure) -> tuple[int, int, str]:
+def _observation_sort_key(failure: FailingCheck) -> tuple[int, int, str]:
     return (
         int(failure.observed_at.timestamp()) if failure.observed_at else 0,
         failure.run_attempt or 0,
@@ -526,7 +526,7 @@ def _observation_sort_key(failure: WorkflowFailure) -> tuple[int, int, str]:
     )
 
 
-def _selection_score(failure: WorkflowFailure) -> tuple[int, int, int, str]:
+def _selection_score(failure: FailingCheck) -> tuple[int, int, int, str]:
     detail_score = 0
     if failure.logs_available:
         detail_score += 4
@@ -544,7 +544,7 @@ def _selection_score(failure: WorkflowFailure) -> tuple[int, int, int, str]:
     )
 
 
-def _count_by_source(failures: Iterable[WorkflowFailure]) -> dict[str, int]:
+def _count_by_source(failures: Iterable[FailingCheck]) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
     for failure in failures:
         counts[failure.source_type] += 1
@@ -623,7 +623,7 @@ def _parse_timestamp(value: str) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def _fallback_dedupe_key(failure: WorkflowFailure) -> str:
+def _fallback_dedupe_key(failure: FailingCheck) -> str:
     return (
         f"{failure.source_type}::{failure.workflow_name}::{failure.job_name}::"
         f"{failure.matrix_label or ''}::{failure.app_name or ''}"
