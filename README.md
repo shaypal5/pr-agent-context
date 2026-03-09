@@ -301,6 +301,9 @@ source = [
 - When some failing-check APIs are unavailable or partially denied, the tool degrades gracefully:
   it keeps the run alive, records warnings in `failing-check-universe.json`, and renders whatever
   useful failing-check context could still be collected.
+- If `pr-agent-context` itself hits an unexpected internal error, it now degrades gracefully:
+  it logs the traceback, attempts to upsert a managed alert comment with a concise failure summary,
+  and exits successfully so the surrounding CI workflow is not blocked by the reporting step itself.
 
 If a repo uses unusual layout or path rewriting, `pr-agent-context` will still merge the
 available `.coverage*` files locally, but patch coverage quality depends on the caller

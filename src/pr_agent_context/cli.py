@@ -1,9 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import traceback
 from collections.abc import Sequence
+from pathlib import Path
 
-from pr_agent_context.config import RunConfig
+from pr_agent_context import __version__
+from pr_agent_context.config import (
+    RunConfig,
+    _extract_pull_request_number,
+    _extract_pull_request_shas,
+    _load_event_payload,
+)
+from pr_agent_context.github.api import GitHubApiClient
+from pr_agent_context.github.issue_comments import sync_managed_comment
+from pr_agent_context.prompt.render import build_managed_comment_body
 from pr_agent_context.services.run import run_service
 
 
@@ -18,7 +31,180 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "run":
-        config = RunConfig.from_env()
-        return run_service(config)
+        try:
+            config = RunConfig.from_env()
+        except Exception as error:  # pragma: no cover - exercised via fallback tests
+            _handle_run_failure(error, config=None)
+            return 0
+        try:
+            return run_service(config)
+        except Exception as error:  # pragma: no cover - exercised via fallback tests
+            _handle_run_failure(error, config=config)
+            return 0
     parser.error(f"Unsupported command: {args.command}")
     return 2
+
+
+def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
+    traceback.print_exc()
+    env = os.environ
+    context = _resolve_failure_context(config=config, env=env)
+    payload = {
+        "tool": "pr-agent-context",
+        "event": "fatal_error",
+        "version": __version__,
+        "tool_ref": config.tool_ref if config else env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
+        "repository": context["repository"] if context else env.get("GITHUB_REPOSITORY", ""),
+        "pull_request_number": context["pull_request_number"] if context else "",
+        "head_sha": context["head_sha"] if context else "",
+        "run_id": context["run_id"] if context else env.get("GITHUB_RUN_ID", ""),
+        "run_attempt": context["run_attempt"] if context else env.get("GITHUB_RUN_ATTEMPT", ""),
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+    }
+    print(json.dumps(payload, sort_keys=True))
+
+    publication = None
+    if context:
+        try:
+            client = GitHubApiClient(
+                token=context["github_token"],
+                api_url=context["github_api_url"],
+            )
+            body = build_managed_comment_body(_build_failure_markdown(context=context, error=error))
+            publication = sync_managed_comment(
+                client,
+                owner=context["owner"],
+                repo=context["repo"],
+                pull_request_number=context["pull_request_number"],
+                body=body,
+                delete_comment_when_empty=False,
+                skip_comment_on_readonly_token=context["skip_comment_on_readonly_token"],
+            )
+            print(
+                json.dumps(
+                    {
+                        "tool": "pr-agent-context",
+                        "event": "fatal_error_comment_sync",
+                        "action": publication.action,
+                        "comment_written": publication.comment_written,
+                        "comment_id": publication.comment_id or "",
+                        "comment_url": publication.comment_url or "",
+                        "skipped_reason": publication.skipped_reason or "",
+                        "error_status_code": publication.error_status_code or "",
+                    },
+                    sort_keys=True,
+                )
+            )
+        except Exception as sync_error:  # pragma: no cover - exercised via fallback tests
+            print(
+                json.dumps(
+                    {
+                        "tool": "pr-agent-context",
+                        "event": "fatal_error_comment_sync_failed",
+                        "error_type": type(sync_error).__name__,
+                        "error_message": str(sync_error),
+                    },
+                    sort_keys=True,
+                )
+            )
+
+    _write_failure_outputs(config=config, env=env, publication=publication)
+
+
+def _resolve_failure_context(
+    *,
+    config: RunConfig | None,
+    env: dict[str, str],
+) -> dict[str, object] | None:
+    if config is not None:
+        return {
+            "owner": config.pull_request.owner,
+            "repo": config.pull_request.repo,
+            "repository": f"{config.pull_request.owner}/{config.pull_request.repo}",
+            "pull_request_number": config.pull_request.number,
+            "head_sha": config.pull_request.head_sha,
+            "run_id": config.run_id,
+            "run_attempt": config.run_attempt,
+            "tool_ref": config.tool_ref,
+            "github_token": config.github_token,
+            "github_api_url": config.github_api_url,
+            "skip_comment_on_readonly_token": config.skip_comment_on_readonly_token,
+        }
+
+    repository = env.get("GITHUB_REPOSITORY", "")
+    github_token = env.get("GITHUB_TOKEN", "")
+    event_path = env.get("GITHUB_EVENT_PATH", "")
+    if not repository or not github_token or not event_path:
+        return None
+    try:
+        owner, repo = repository.split("/", maxsplit=1)
+        event = _load_event_payload(event_path)
+        pull_request_number = _extract_pull_request_number(event)
+        _base_sha, head_sha = _extract_pull_request_shas(event)
+    except Exception:
+        return None
+    return {
+        "owner": owner,
+        "repo": repo,
+        "repository": repository,
+        "pull_request_number": pull_request_number,
+        "head_sha": head_sha,
+        "run_id": int(env.get("GITHUB_RUN_ID", "0") or "0"),
+        "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
+        "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
+        "github_token": github_token,
+        "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
+        "skip_comment_on_readonly_token": True,
+    }
+
+
+def _build_failure_markdown(*, context: dict[str, object], error: Exception) -> str:
+    run_url = (
+        f"https://github.com/{context['repository']}/actions/runs/{context['run_id']}"
+        if context.get("run_id")
+        else ""
+    )
+    lines = [
+        "🚨 `pr-agent-context` failed while preparing PR context.",
+        "",
+        f"PR: #{context['pull_request_number']}",
+        f"Head commit: {context['head_sha']}",
+        f"Tool ref: {context.get('tool_ref') or 'unknown'}",
+        f"Version: {__version__}",
+        f"Error: {type(error).__name__}: {error}",
+    ]
+    if run_url:
+        lines.append(f"Run: {run_url}")
+    lines.extend(
+        [
+            "",
+            "The workflow continued gracefully so this failure does not block CI.",
+            "Check the job logs for the full traceback.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _write_failure_outputs(
+    *,
+    config: RunConfig | None,
+    env: dict[str, str],
+    publication,
+) -> None:
+    output_path = config.github_output_path if config else None
+    if output_path is None and env.get("GITHUB_OUTPUT"):
+        output_path = Path(env["GITHUB_OUTPUT"])
+    if output_path is None:
+        return
+    lines = [
+        f"comment_id={publication.comment_id if publication and publication.comment_id else ''}",
+        f"comment_url={publication.comment_url if publication and publication.comment_url else ''}",
+        "unresolved_thread_count=",
+        "failing_check_count=",
+        "has_actionable_items=false",
+        "patch_coverage_percent=",
+        "prompt_sha256=",
+        f"comment_written={'true' if publication and publication.comment_written else 'false'}",
+    ]
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -108,7 +108,7 @@ def render_prompt(
         max_chars=characters_per_line,
     )
     prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
-    comment_body = f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(prompt_markdown)}"
+    comment_body = build_managed_comment_body(prompt_markdown)
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
@@ -118,6 +118,10 @@ def render_prompt(
         truncation_notes=truncation_notes,
         template_diagnostics=diagnostics,
     )
+
+
+def build_managed_comment_body(markdown: str) -> str:
+    return f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(markdown)}"
 
 
 def _build_opening_instructions(
