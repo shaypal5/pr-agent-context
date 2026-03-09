@@ -52,7 +52,7 @@ Versioning guidance:
 
 - use `@v2` in downstream repositories for the stable major line
 - publish fixed release tags such as `v2.0.0` for exact version pinning
-- this repository includes [`.github/workflows/release-tags.yml`](/Users/shaypalachy/clones/pr-agent-context/.github/workflows/release-tags.yml), which automatically moves `v2` when a `v2.x.y` tag is pushed
+- this repository includes [`.github/workflows/release-tags.yml`](/.github/workflows/release-tags.yml), which automatically moves `v2` when a `v2.x.y` tag is pushed
 
 Example release flow in this repository:
 
