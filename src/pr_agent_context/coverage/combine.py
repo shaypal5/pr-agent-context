@@ -21,9 +21,12 @@ def build_combined_coverage(*, workspace: Path, coverage_files: list[Path]) -> C
         config_file=str(config_file) if config_file else False,
         data_file=str(combined_output_dir / ".coverage"),
     )
-    valid_coverage_files = _filter_valid_coverage_files(coverage_files)
-    if valid_coverage_files:
-        coverage.combine(data_paths=[str(path) for path in valid_coverage_files], strict=False)
+    normalized_coverage_files = _normalize_coverage_files(
+        coverage_files=coverage_files,
+        config_file=config_file,
+    )
+    if normalized_coverage_files:
+        coverage.combine(data_paths=[str(path) for path in normalized_coverage_files], strict=False)
         coverage.save()
         coverage.load()
     return coverage
@@ -43,6 +46,28 @@ def _filter_valid_coverage_files(coverage_files: list[Path]) -> list[Path]:
         if _is_valid_coverage_file(path):
             valid_files.append(path)
     return valid_files
+
+
+def _normalize_coverage_files(
+    *,
+    coverage_files: list[Path],
+    config_file: Path | None,
+) -> list[Path]:
+    normalized_output_dir = Path(tempfile.mkdtemp(prefix="pr-agent-context-coverage-inputs-"))
+    normalized_files: list[Path] = []
+    for index, path in enumerate(_filter_valid_coverage_files(coverage_files), start=1):
+        normalized_path = normalized_output_dir / f".coverage.normalized.{index}"
+        coverage = Coverage(
+            config_file=str(config_file) if config_file else False,
+            data_file=str(normalized_path),
+        )
+        try:
+            coverage.combine(data_paths=[str(path)], strict=False)
+            coverage.save()
+            normalized_files.append(normalized_path)
+        except DataError:
+            continue
+    return normalized_files
 
 
 def _is_valid_coverage_file(path: Path) -> bool:
