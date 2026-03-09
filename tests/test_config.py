@@ -45,6 +45,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS": "true",
             "PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES": "false",
             "PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS": "false",
+            "PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE": "false",
             "PR_AGENT_CONTEXT_PROMPT_PREAMBLE": "Repository: example",
             "PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE": str(template_path),
             "PR_AGENT_CONTEXT_MAX_REVIEW_THREADS": "12",
@@ -53,6 +54,8 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS": "5",
             "PR_AGENT_CONTEXT_MAX_FAILING_CHECKS": "11",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
+            "PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS": "22",
+            "PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS": "3",
             "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
             "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
             "PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE": "true",
@@ -80,6 +83,7 @@ def test_run_config_from_env(tmp_path):
     assert config.include_failing_checks is True
     assert config.include_cross_run_failures is False
     assert config.include_external_checks is False
+    assert config.wait_for_checks_to_settle is False
     assert config.prompt_preamble == "Repository: example"
     assert config.prompt_template_file == template_path.resolve()
     assert config.max_review_threads == 12
@@ -88,6 +92,8 @@ def test_run_config_from_env(tmp_path):
     assert config.max_external_checks == 5
     assert config.max_failing_checks == 11
     assert config.max_log_lines_per_job == 33
+    assert config.check_settle_timeout_seconds == 22
+    assert config.check_settle_poll_interval_seconds == 3
     assert config.characters_per_line == 88
     assert config.target_patch_coverage == 92.5
     assert config.include_patch_coverage is True

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
@@ -19,6 +20,9 @@ from pr_agent_context.github.workflow_jobs import (
     trim_log_excerpt,
 )
 
+_monotonic = time.monotonic
+_sleep = time.sleep
+
 
 def collect_failing_checks(
     client: GitHubApiClient,
@@ -30,14 +34,50 @@ def collect_failing_checks(
     current_run_attempt: int,
     include_cross_run_failures: bool,
     include_external_checks: bool,
+    wait_for_checks_to_settle: bool,
     max_actions_runs: int,
     max_actions_jobs: int,
     max_external_checks: int,
     max_failing_checks: int,
     max_log_lines_per_job: int,
+    check_settle_timeout_seconds: int,
+    check_settle_poll_interval_seconds: int,
 ) -> tuple[list[FailingCheck], dict[str, object]]:
     warnings: list[str] = []
     raw_failures: list[FailingCheck] = []
+    settlement = {
+        "enabled": False,
+        "settled": False,
+        "timed_out": False,
+        "poll_count": 0,
+        "elapsed_seconds": 0.0,
+        "min_wait_seconds": 0,
+        "pending_count": 0,
+        "snapshot_count": 0,
+        "skipped_reason": "disabled",
+        "warnings": [],
+    }
+
+    if wait_for_checks_to_settle and (include_cross_run_failures or include_external_checks):
+        settlement, settlement_warnings = _wait_for_check_settlement(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            include_cross_run_failures=include_cross_run_failures,
+            include_external_checks=include_external_checks,
+            max_actions_runs=max_actions_runs,
+            max_external_checks=max_external_checks,
+            timeout_seconds=check_settle_timeout_seconds,
+            poll_interval_seconds=check_settle_poll_interval_seconds,
+        )
+        warnings.extend(settlement_warnings)
+    elif wait_for_checks_to_settle:
+        settlement = {
+            **settlement,
+            "enabled": True,
+            "skipped_reason": "no_cross_run_or_external_checks_enabled",
+        }
 
     if include_cross_run_failures:
         actions_failures, action_warnings = _collect_actions_failures_for_head_sha(
@@ -99,9 +139,193 @@ def collect_failing_checks(
         "deduped_failures": [failure.model_dump(mode="json") for failure in deduped_failures],
         "raw_source_counts": _count_by_source(raw_failures),
         "deduped_source_counts": source_counts,
+        "settlement": settlement,
         "warnings": warnings,
     }
     return deduped_failures, debug
+
+
+def _wait_for_check_settlement(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    include_cross_run_failures: bool,
+    include_external_checks: bool,
+    max_actions_runs: int,
+    max_external_checks: int,
+    timeout_seconds: int,
+    poll_interval_seconds: int,
+) -> tuple[dict[str, object], list[str]]:
+    warnings: list[str] = []
+    start = _monotonic()
+    last_fingerprint: tuple[str, ...] | None = None
+    stable_snapshots = 0
+    poll_count = 0
+    timeout_seconds = max(timeout_seconds, 0)
+    poll_interval_seconds = max(poll_interval_seconds, 0)
+    min_wait_seconds = _minimum_check_settle_wait_seconds(
+        timeout_seconds=timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
+
+    while True:
+        poll_count += 1
+        snapshot, snapshot_warnings = _collect_check_settlement_snapshot(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            include_cross_run_failures=include_cross_run_failures,
+            include_external_checks=include_external_checks,
+            max_actions_runs=max_actions_runs,
+            max_external_checks=max_external_checks,
+        )
+        for warning in snapshot_warnings:
+            if warning not in warnings:
+                warnings.append(warning)
+
+        fingerprint = tuple(snapshot["fingerprint"])
+        if last_fingerprint == fingerprint:
+            stable_snapshots += 1
+        else:
+            stable_snapshots = 0
+            last_fingerprint = fingerprint
+
+        elapsed_seconds = max(_monotonic() - start, 0.0)
+        settled = (
+            snapshot["pending_count"] == 0
+            and elapsed_seconds >= min_wait_seconds
+            and stable_snapshots >= 1
+        )
+        timed_out = elapsed_seconds >= timeout_seconds if timeout_seconds > 0 else True
+        if settled or timed_out:
+            return (
+                {
+                    "enabled": True,
+                    "settled": settled,
+                    "timed_out": timed_out and not settled,
+                    "poll_count": poll_count,
+                    "elapsed_seconds": round(elapsed_seconds, 3),
+                    "min_wait_seconds": min_wait_seconds,
+                    "pending_count": snapshot["pending_count"],
+                    "snapshot_count": snapshot["snapshot_count"],
+                    "actions_run_count": snapshot["actions_run_count"],
+                    "external_check_run_count": snapshot["external_check_run_count"],
+                    "commit_status_count": snapshot["commit_status_count"],
+                    "pending_source_counts": snapshot["pending_source_counts"],
+                    "skipped_reason": "",
+                    "warnings": snapshot_warnings,
+                },
+                warnings,
+            )
+
+        if poll_interval_seconds > 0:
+            _sleep(poll_interval_seconds)
+
+
+def _collect_check_settlement_snapshot(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    include_cross_run_failures: bool,
+    include_external_checks: bool,
+    max_actions_runs: int,
+    max_external_checks: int,
+) -> tuple[dict[str, object], list[str]]:
+    warnings: list[str] = []
+    fingerprint: list[str] = []
+    pending_source_counts = {
+        "actions_runs": 0,
+        "external_check_runs": 0,
+        "commit_statuses": 0,
+    }
+    actions_runs: list[dict[str, object]] = []
+    check_runs: list[dict[str, object]] = []
+    statuses: list[dict[str, object]] = []
+
+    if include_cross_run_failures:
+        actions_runs = _fetch_workflow_run_snapshots_for_head_sha(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            max_runs=max_actions_runs,
+            warnings=warnings,
+        )
+        for raw in actions_runs:
+            status = str(raw.get("status") or "")
+            conclusion = str(raw.get("conclusion") or "")
+            fingerprint.append(
+                "actions_run::"
+                f"{raw.get('id') or ''}::{raw.get('name') or ''}::{status}::{conclusion}"
+            )
+            if status != "completed":
+                pending_source_counts["actions_runs"] += 1
+
+    if include_external_checks:
+        check_runs = _fetch_external_check_run_snapshots(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            max_external_checks=max_external_checks,
+            warnings=warnings,
+        )
+        for raw in check_runs:
+            app = raw.get("app") or {}
+            app_name = str(app.get("slug") or app.get("name") or "external")
+            name = str(raw.get("name") or "check-run")
+            status = str(raw.get("status") or "")
+            conclusion = str(raw.get("conclusion") or "")
+            fingerprint.append(f"external_check::{app_name}::{name}::{status}::{conclusion}")
+            if status != "completed":
+                pending_source_counts["external_check_runs"] += 1
+
+        statuses = _fetch_commit_status_snapshots(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            max_external_checks=max_external_checks,
+            warnings=warnings,
+        )
+        for raw in statuses:
+            context = str(raw.get("context") or "status")
+            state = str(raw.get("state") or "")
+            fingerprint.append(f"commit_status::{context}::{state}")
+            if state not in FAILED_STATUS_STATES | {"success"}:
+                pending_source_counts["commit_statuses"] += 1
+
+    fingerprint.sort()
+    snapshot_count = len(actions_runs) + len(check_runs) + len(statuses)
+    return (
+        {
+            "fingerprint": fingerprint,
+            "pending_count": sum(pending_source_counts.values()),
+            "snapshot_count": snapshot_count,
+            "actions_run_count": len(actions_runs),
+            "external_check_run_count": len(check_runs),
+            "commit_status_count": len(statuses),
+            "pending_source_counts": {
+                key: value for key, value in pending_source_counts.items() if value
+            },
+        },
+        warnings,
+    )
+
+
+def _minimum_check_settle_wait_seconds(
+    *,
+    timeout_seconds: int,
+    poll_interval_seconds: int,
+) -> int:
+    if timeout_seconds <= 0:
+        return 0
+    return min(timeout_seconds, max(15, poll_interval_seconds * 3))
 
 
 def dedupe_failing_checks(
@@ -323,7 +547,7 @@ def _collect_commit_status_failures(
     return sorted(failures, key=failing_check_sort_key)[:max_external_checks], warnings
 
 
-def _fetch_workflow_runs_for_head_sha(
+def _fetch_workflow_run_snapshots_for_head_sha(
     client: GitHubApiClient,
     *,
     owner: str,
@@ -341,12 +565,7 @@ def _fetch_workflow_runs_for_head_sha(
             f"/repos/{owner}/{repo}/actions/runs",
             warnings=warnings,
             warning_prefix=f"Unable to fetch workflow runs for head SHA {head_sha}",
-            params={
-                "head_sha": head_sha,
-                "status": "completed",
-                "per_page": 100,
-                "page": page,
-            },
+            params={"head_sha": head_sha, "per_page": 100, "page": page},
         )
         if not payload:
             break
@@ -365,6 +584,90 @@ def _fetch_workflow_runs_for_head_sha(
         ),
         reverse=True,
     )[:max_runs]
+
+
+def _fetch_external_check_run_snapshots(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    max_external_checks: int,
+    warnings: list[str],
+) -> list[dict[str, object]]:
+    collected: list[dict[str, object]] = []
+    page = 1
+    while len(collected) < max_external_checks:
+        payload = _safe_request_json(
+            client,
+            "GET",
+            f"/repos/{owner}/{repo}/commits/{head_sha}/check-runs",
+            warnings=warnings,
+            warning_prefix="Unable to poll check runs",
+            params={"per_page": 100, "page": page},
+        )
+        if not payload:
+            break
+        raw_page = payload.get("check_runs", [])
+        if not raw_page:
+            break
+        collected.extend(raw for raw in raw_page if _is_relevant_settlement_check_run(raw))
+        if len(raw_page) < 100:
+            break
+        page += 1
+    return sorted(
+        collected,
+        key=lambda raw: (
+            str(raw.get("completed_at") or raw.get("started_at") or ""),
+            str(raw.get("name") or ""),
+            int(raw.get("id") or 0),
+        ),
+        reverse=True,
+    )[:max_external_checks]
+
+
+def _fetch_commit_status_snapshots(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    max_external_checks: int,
+    warnings: list[str],
+) -> list[dict[str, object]]:
+    payload = _safe_request_json(
+        client,
+        "GET",
+        f"/repos/{owner}/{repo}/commits/{head_sha}/status",
+        warnings=warnings,
+        warning_prefix="Unable to poll commit statuses",
+    )
+    if not payload:
+        return []
+    return list(payload.get("statuses", []))[:max_external_checks]
+
+
+def _fetch_workflow_runs_for_head_sha(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    head_sha: str,
+    max_runs: int,
+    warnings: list[str],
+) -> list[dict[str, object]]:
+    return [
+        run
+        for run in _fetch_workflow_run_snapshots_for_head_sha(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            max_runs=max_runs,
+            warnings=warnings,
+        )
+        if str(run.get("status") or "completed") == "completed"
+    ][:max_runs]
 
 
 def _normalize_actions_job(
@@ -651,3 +954,11 @@ def _is_relevant_external_check_run(raw: dict[str, object]) -> bool:
     if status != "completed":
         return False
     return conclusion in FAILED_CHECK_CONCLUSIONS
+
+
+def _is_relevant_settlement_check_run(raw: dict[str, object]) -> bool:
+    app = raw.get("app") or {}
+    app_name = str(app.get("slug") or app.get("name") or "")
+    if app_name in ACTIONS_APP_NAMES:
+        return False
+    return True

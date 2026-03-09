@@ -72,6 +72,7 @@ The reusable workflow inputs are:
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
+- `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
 - `target_patch_coverage`: required patch coverage percentage, default `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
 - `coverage_artifact_prefix`: artifact name prefix for raw `.coverage*` uploads, default `pr-agent-context-coverage`
@@ -87,7 +88,14 @@ The reusable workflow inputs are:
 - `max_external_checks`: cap failed external check/status items included after normalization, default `20`
 - `max_failing_checks`: cap the total rendered failing-check items after dedupe, default `25`
 - `max_log_lines_per_job`: cap collected failed-job excerpt lines before rendering, default `80`
+- `check_settle_timeout_seconds`: maximum seconds to wait for the head-SHA check universe to settle, default `45`
+- `check_settle_poll_interval_seconds`: polling interval in seconds while waiting for late checks, default `5`
 - `characters_per_line`: wrap plain prose lines in rendered output to this width, default `100`
+
+When failing-check collection is enabled, `pr-agent-context` now waits briefly for the PR head
+SHA check universe to settle before collecting failures. This helps late-arriving external checks
+such as Codecov appear in the rendered prompt instead of being missed because they posted a few
+seconds after the workflow started.
 
 ## Prompt Templating
 

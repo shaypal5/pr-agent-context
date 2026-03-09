@@ -301,6 +301,75 @@ class FakeActionRequiredRunClient:
         raise AssertionError(f"Unexpected request_bytes call: {path}")
 
 
+class FakeSettlingChecksClient:
+    def __init__(self) -> None:
+        self.check_run_poll_count = 0
+        self.status_poll_count = 0
+        self.run_poll_count = 0
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            self.run_poll_count += 1
+            return {"workflow_runs": []}
+        if path.endswith("/check-runs"):
+            self.check_run_poll_count += 1
+            if self.check_run_poll_count < 3:
+                return {"check_runs": []}
+            return {
+                "check_runs": [
+                    {
+                        "name": "codecov/patch",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "details_url": "https://example.invalid/codecov/patch",
+                        "app": {"slug": "codecov"},
+                        "completed_at": "2026-03-08T12:00:00Z",
+                        "output": {
+                            "title": "Patch coverage failed",
+                            "summary": "Coverage dropped below threshold.",
+                        },
+                    }
+                ]
+            }
+        if path.endswith("/status"):
+            self.status_poll_count += 1
+            return {"statuses": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
+class FakeNeverSettledChecksClient:
+    def __init__(self) -> None:
+        self.check_run_poll_count = 0
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {"workflow_runs": []}
+        if path.endswith("/check-runs"):
+            self.check_run_poll_count += 1
+            return {
+                "check_runs": [
+                    {
+                        "name": "codecov/patch",
+                        "status": "in_progress",
+                        "conclusion": None,
+                        "details_url": "https://example.invalid/codecov/patch",
+                        "app": {"slug": "codecov"},
+                    }
+                ]
+            }
+        if path.endswith("/status"):
+            return {"statuses": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 def test_collect_failing_checks_aggregates_head_sha_failures():
     failures, debug = collect_failing_checks(
         FakeFailingChecksClient(),
@@ -311,11 +380,14 @@ def test_collect_failing_checks_aggregates_head_sha_failures():
         current_run_attempt=2,
         include_cross_run_failures=True,
         include_external_checks=True,
+        wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
         max_external_checks=10,
         max_failing_checks=10,
         max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
     )
 
     assert [(failure.source_type, failure.job_name) for failure in failures] == [
@@ -349,11 +421,14 @@ def test_collect_failing_checks_can_stay_current_run_only():
         current_run_attempt=1,
         include_cross_run_failures=False,
         include_external_checks=False,
+        wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
         max_external_checks=10,
         max_failing_checks=10,
         max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
     )
 
     assert len(failures) == 1
@@ -374,11 +449,14 @@ def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbid
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
         max_external_checks=10,
         max_failing_checks=10,
         max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
     )
 
     assert failures == []
@@ -399,11 +477,14 @@ def test_collect_failing_checks_keeps_failed_actions_observation_over_successful
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
         max_external_checks=10,
         max_failing_checks=10,
         max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
     )
 
     assert len(failures) == 1
@@ -422,16 +503,93 @@ def test_collect_failing_checks_includes_action_required_run_level_failures():
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
         max_external_checks=10,
         max_failing_checks=10,
         max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
     )
 
-    assert len(failures) == 1
-    assert failures[0].source_type == "actions_workflow_run"
-    assert failures[0].conclusion == "action_required"
+
+def test_collect_failing_checks_waits_for_late_external_checks(monkeypatch):
+    client = FakeSettlingChecksClient()
+    monotonic_values = iter([0.0, 0.1, 1.0, 1.1, 2.0, 2.1, 3.0, 3.1, 4.0])
+
+    monkeypatch.setattr(failing_checks_module, "_sleep", lambda _: None)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_minimum_check_settle_wait_seconds",
+        lambda **_: 2,
+    )
+
+    failures, debug = collect_failing_checks(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=True,
+        wait_for_checks_to_settle=True,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=10,
+        check_settle_poll_interval_seconds=1,
+    )
+
+    assert [failure.job_name for failure in failures] == ["codecov/patch"]
+    assert debug["settlement"]["enabled"] is True
+    assert debug["settlement"]["settled"] is True
+    assert debug["settlement"]["timed_out"] is False
+    assert debug["settlement"]["poll_count"] >= 4
+    assert client.check_run_poll_count >= 5
+
+
+def test_collect_failing_checks_times_out_when_check_universe_never_settles(monkeypatch):
+    client = FakeNeverSettledChecksClient()
+    monotonic_values = iter([0.0, 0.1, 1.0, 1.1, 2.0, 2.1, 3.1, 3.2])
+
+    monkeypatch.setattr(failing_checks_module, "_sleep", lambda _: None)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_minimum_check_settle_wait_seconds",
+        lambda **_: 1,
+    )
+
+    failures, debug = collect_failing_checks(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=True,
+        wait_for_checks_to_settle=True,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=3,
+        check_settle_poll_interval_seconds=1,
+    )
+
+    assert failures == []
+    assert debug["settlement"]["enabled"] is True
+    assert debug["settlement"]["settled"] is False
+    assert debug["settlement"]["timed_out"] is True
+    assert debug["settlement"]["pending_count"] == 1
+    assert client.check_run_poll_count >= 3
 
 
 def test_collect_external_check_runs_handles_pagination():

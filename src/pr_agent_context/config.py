@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pr_agent_context.constants import (
     DEFAULT_CHARACTERS_PER_LINE,
+    DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS,
+    DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS,
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
@@ -71,6 +73,7 @@ class RunConfig(BaseModel):
     include_failing_checks: bool = True
     include_cross_run_failures: bool = True
     include_external_checks: bool = True
+    wait_for_checks_to_settle: bool = True
     include_patch_coverage: bool = True
     force_patch_coverage_section: bool = False
     prompt_preamble: str = ""
@@ -86,6 +89,8 @@ class RunConfig(BaseModel):
     max_external_checks: int = DEFAULT_MAX_EXTERNAL_CHECKS
     max_failing_checks: int = DEFAULT_MAX_FAILING_ITEMS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
+    check_settle_timeout_seconds: int = DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS
+    check_settle_poll_interval_seconds: int = DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
@@ -138,6 +143,10 @@ class RunConfig(BaseModel):
             ),
             include_external_checks=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS"),
+                default=True,
+            ),
+            wait_for_checks_to_settle=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE"),
                 default=True,
             ),
             include_patch_coverage=_parse_bool(
@@ -196,6 +205,18 @@ class RunConfig(BaseModel):
                 env_map.get(
                     "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB",
                     str(DEFAULT_MAX_LOG_LINES_PER_JOB),
+                )
+            ),
+            check_settle_timeout_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS",
+                    str(DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS),
+                )
+            ),
+            check_settle_poll_interval_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS",
+                    str(DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS),
                 )
             ),
             characters_per_line=int(
