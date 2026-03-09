@@ -12,9 +12,7 @@ from pr_agent_context.domain.models import PublicationResult
 def test_cli_run_invokes_service(monkeypatch):
     sentinel_config = object()
 
-    monkeypatch.setattr(
-        "pr_agent_context.cli.RunConfig.from_env", lambda: sentinel_config
-    )
+    monkeypatch.setattr("pr_agent_context.cli.RunConfig.from_env", lambda: sentinel_config)
     monkeypatch.setattr(
         "pr_agent_context.cli.run_service",
         lambda config: 7 if config is sentinel_config else 1,
@@ -23,9 +21,7 @@ def test_cli_run_invokes_service(monkeypatch):
     assert main(["run"]) == 7
 
 
-def test_cli_run_publishes_failure_comment_and_returns_zero(
-    monkeypatch, tmp_path, capsys
-):
+def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_path, capsys):
     class FakeConfig:
         tool_ref = "v3"
         github_token = "token"
@@ -49,9 +45,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(
         "pr_agent_context.cli.run_service",
         lambda config: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    monkeypatch.setattr(
-        "pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object()
-    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
 
     def fake_sync_managed_comment(
         client,
@@ -82,9 +76,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(
             action="created",
         )
 
-    monkeypatch.setattr(
-        "pr_agent_context.cli.sync_managed_comment", fake_sync_managed_comment
-    )
+    monkeypatch.setattr("pr_agent_context.cli.sync_managed_comment", fake_sync_managed_comment)
 
     assert main(["run"]) == 0
 
@@ -96,9 +88,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(
     )
     assert "skipped_reason" not in comment_sync_event
     assert "error_status_code" not in comment_sync_event
-    assert (
-        "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
-    )
+    assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
     assert "Head commit: deadbeef" in captured["body"]
     assert "Version:" in captured["body"]
     assert "run_attempt=2" in captured["body"].splitlines()[0]
@@ -131,14 +121,10 @@ def test_cli_run_returns_zero_when_failure_comment_sync_fails(monkeypatch, capsy
         "pr_agent_context.cli.run_service",
         lambda config: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    monkeypatch.setattr(
-        "pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object()
-    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
     monkeypatch.setattr(
         "pr_agent_context.cli.sync_managed_comment",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("comment sync failed")
-        ),
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("comment sync failed")),
     )
 
     assert main(["run"]) == 0
@@ -172,9 +158,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         "pr_agent_context.cli.RunConfig.from_env",
         lambda: (_ for _ in ()).throw(ValueError("bad config")),
     )
-    monkeypatch.setattr(
-        "pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object()
-    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
     monkeypatch.setenv("GITHUB_REPOSITORY", "shaypal5/pr-agent-context")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
     monkeypatch.setenv("GITHUB_RUN_ID", "321")
@@ -216,9 +200,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
             action="created",
         )
 
-    monkeypatch.setattr(
-        "pr_agent_context.cli.sync_managed_comment", fake_sync_managed_comment
-    )
+    monkeypatch.setattr("pr_agent_context.cli.sync_managed_comment", fake_sync_managed_comment)
 
     assert main(["run"]) == 0
 
@@ -239,9 +221,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert "comment_id=777" in outputs
 
 
-def test_cli_run_ignores_output_write_failure_in_fallback_path(
-    monkeypatch, tmp_path, capsys
-):
+def test_cli_run_ignores_output_write_failure_in_fallback_path(monkeypatch, tmp_path, capsys):
     event_path = tmp_path / "event.json"
     event_path.write_text(
         json.dumps(
@@ -260,9 +240,7 @@ def test_cli_run_ignores_output_write_failure_in_fallback_path(
         "pr_agent_context.cli.RunConfig.from_env",
         lambda: (_ for _ in ()).throw(ValueError("bad config")),
     )
-    monkeypatch.setattr(
-        "pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object()
-    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
     monkeypatch.setenv("GITHUB_REPOSITORY", "shaypal5/pr-agent-context")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
     monkeypatch.setenv("GITHUB_RUN_ID", "321")
@@ -298,9 +276,7 @@ def test_cli_main_rejects_unsupported_command(monkeypatch):
             "FakeParser",
             (),
             {
-                "parse_args": lambda self, argv=None: type(
-                    "Args", (), {"command": "bad"}
-                )(),
+                "parse_args": lambda self, argv=None: type("Args", (), {"command": "bad"})(),
                 "error": lambda self, message: (_ for _ in ()).throw(SystemExit(2)),
             },
         )(),
@@ -319,9 +295,7 @@ def test_cli_main_returns_two_if_parser_error_returns_normally(monkeypatch):
             "FakeParser",
             (),
             {
-                "parse_args": lambda self, argv=None: type(
-                    "Args", (), {"command": "bad"}
-                )(),
+                "parse_args": lambda self, argv=None: type("Args", (), {"command": "bad"})(),
                 "error": lambda self, message: None,
             },
         )(),
@@ -340,9 +314,7 @@ def test_resolve_failure_context_returns_none_for_invalid_event_payload(tmp_path
     from pr_agent_context.cli import _resolve_failure_context
 
     event_path = tmp_path / "event.json"
-    event_path.write_text(
-        json.dumps({"pull_request": {"base": {}, "head": {}}}), encoding="utf-8"
-    )
+    event_path.write_text(json.dumps({"pull_request": {"base": {}, "head": {}}}), encoding="utf-8")
 
     context = _resolve_failure_context(
         config=None,
