@@ -54,7 +54,12 @@ DEFAULT_COPILOT_AUTHOR_PATTERNS = (
 )
 
 FAILED_JOB_CONCLUSIONS = {"failure", "timed_out", "startup_failure"}
-FAILED_CHECK_CONCLUSIONS = {"failure", "timed_out", "startup_failure", "action_required"}
+FAILED_CHECK_CONCLUSIONS = {
+    "failure",
+    "timed_out",
+    "startup_failure",
+    "action_required",
+}
 FAILED_STATUS_STATES = {"error", "failure"}
 ACTIONS_APP_NAMES = {"github-actions", "GitHub Actions"}
 ERROR_MARKERS = (
@@ -76,7 +81,7 @@ DEFAULT_MAX_LOG_LINES_PER_JOB = 80
 DEFAULT_CHARACTERS_PER_LINE = 100
 DEFAULT_TARGET_PATCH_COVERAGE = 100.0
 DEFAULT_COVERAGE_ARTIFACT_PREFIX = "pr-agent-context-coverage"
-DEFAULT_TOOL_REF = "v1"
+DEFAULT_TOOL_REF = "v2"
 DEFAULT_DEBUG_ARTIFACT_PREFIX = "pr-agent-context-debug"
 
 DEFAULT_SECTION_BUDGETS = {

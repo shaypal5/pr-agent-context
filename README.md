@@ -39,7 +39,7 @@ jobs:
       contents: read
       actions: read
       pull-requests: write
-    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v1
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v2
     with:
       target_patch_coverage: "100"
       include_patch_coverage: true
@@ -50,24 +50,24 @@ jobs:
 
 Versioning guidance:
 
-- use `@v1` in downstream repositories for the stable major line
-- publish fixed release tags such as `v1.0.0` for exact version pinning
-- this repository includes [`.github/workflows/release-tags.yml`](/Users/shaypalachy/clones/pr-agent-context/.github/workflows/release-tags.yml), which automatically moves `v1` when a `v1.x.y` tag is pushed
+- use `@v2` in downstream repositories for the stable major line
+- publish fixed release tags such as `v2.0.0` for exact version pinning
+- this repository includes [`.github/workflows/release-tags.yml`](/Users/shaypalachy/clones/pr-agent-context/.github/workflows/release-tags.yml), which automatically moves `v2` when a `v2.x.y` tag is pushed
 
 Example release flow in this repository:
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag v1.0.1
-git push origin v1.0.1
+git tag v2.0.1
+git push origin v2.0.1
 ```
 
 After the version tag push completes, the workflow force-updates the matching major tag to the same commit.
 
 The reusable workflow inputs are:
 
-- `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v1"`
+- `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v2"`
 - `include_review_comments`: include unresolved PR review threads, default `true`
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
