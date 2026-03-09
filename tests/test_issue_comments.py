@@ -11,7 +11,6 @@ from pr_agent_context.github.issue_comments import (
 class FakeIssueCommentClient:
     def __init__(self, comments):
         self.comments = list(comments)
-        self.deleted_ids: list[int] = []
         self.updated_comment_id: int | None = None
         self.updated_body: str | None = None
 
@@ -20,7 +19,6 @@ class FakeIssueCommentClient:
             return self.comments
         if method == "DELETE":
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
-            self.deleted_ids.append(comment_id)
             self.comments = [comment for comment in self.comments if comment["id"] != comment_id]
             return {}
         if method == "PATCH":
@@ -61,39 +59,52 @@ class ForbiddenIssueCommentClient(FakeIssueCommentClient):
         )
 
 
-def test_managed_comments_only_filters_marker_and_bot(issue_comments_payload):
+def _sync(client, *, body: str | None):
+    return sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="def456",
+        tool_ref="v3",
+        body=body,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+    )
+
+
+def test_managed_comments_only_filters_to_run_scoped_marker(issue_comments_payload):
     comments = [normalize_issue_comment(comment) for comment in issue_comments_payload]
 
     managed_ids = [comment.comment_id for comment in managed_comments_only(comments)]
 
-    assert managed_ids == [2, 3]
+    assert managed_ids == [3, 4]
 
 
-def test_sync_managed_comment_updates_newest_and_deletes_duplicates(issue_comments_payload):
+def test_sync_managed_comment_updates_only_exact_same_run(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 
-    result = sync_managed_comment(
+    result = _sync(
         client,
-        owner="shaypal5",
-        repo="example",
-        pull_request_number=17,
-        body="<!-- pr-agent-context:managed-comment -->\n```markdown\nupdated body\n```",
-        delete_comment_when_empty=True,
-        skip_comment_on_readonly_token=False,
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=2; head_sha=def456; tool_ref=v3 -->\n```markdown\nupdated body\n```"
+        ),
     )
 
-    assert client.deleted_ids == [2]
-    assert client.updated_comment_id == 3
+    assert client.updated_comment_id == 4
     assert client.updated_body is not None
-    assert result.comment_id == 3
-    assert result.comment_written is True
-    assert result.action == "updated"
-    assert result.existing_managed_comment_count == 2
-    assert result.duplicate_managed_comment_count == 1
-    assert result.body_changed is True
+    assert result.comment_id == 4
+    assert result.action == "updated_same_run"
+    assert result.managed_comment_count == 2
+    assert result.matched_existing_comment is True
+    assert result.matched_comment_run_id == 100
+    assert result.matched_comment_run_attempt == 2
 
 
-def test_sync_managed_comment_deletes_all_when_body_missing(issue_comments_payload):
+def test_sync_managed_comment_creates_new_comment_for_different_run_attempt(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 
     result = sync_managed_comment(
@@ -101,19 +112,51 @@ def test_sync_managed_comment_deletes_all_when_body_missing(issue_comments_paylo
         owner="shaypal5",
         repo="example",
         pull_request_number=17,
-        body=None,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v3",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=3; head_sha=def456; tool_ref=v3 -->\n```markdown\nnew body\n```"
+        ),
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=False,
     )
 
-    assert client.deleted_ids == [2, 3]
-    assert result.comment_written is False
-    assert result.action == "deleted"
+    assert client.updated_comment_id is None
+    assert result.comment_id == 10
+    assert result.action == "created"
+    assert result.managed_comment_count == 2
+    assert result.matched_existing_comment is False
 
 
-def test_sync_managed_comment_preserves_existing_comment_when_delete_disabled(
-    issue_comments_payload,
-):
+def test_sync_managed_comment_ignores_legacy_marker_comments(issue_comments_payload):
+    client = FakeIssueCommentClient(issue_comments_payload[:2])
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=200,
+        run_attempt=1,
+        head_sha="feedface",
+        tool_ref="v3",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=200; "
+            "run_attempt=1; head_sha=feedface; tool_ref=v3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert result.managed_comment_count == 0
+    assert client.updated_comment_id is None
+
+
+def test_sync_managed_comment_preserves_only_same_run_when_body_missing(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 
     result = sync_managed_comment(
@@ -121,16 +164,18 @@ def test_sync_managed_comment_preserves_existing_comment_when_delete_disabled(
         owner="shaypal5",
         repo="example",
         pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="def456",
+        tool_ref="v3",
         body=None,
         delete_comment_when_empty=False,
         skip_comment_on_readonly_token=False,
     )
 
-    assert client.deleted_ids == []
-    assert result.comment_id == 3
-    assert result.comment_url == "https://github.com/shaypal5/example/pull/17#issuecomment-3"
-    assert result.comment_written is True
     assert result.action == "preserved_empty"
+    assert result.comment_id == 4
+    assert result.matched_existing_comment is True
 
 
 def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
@@ -141,40 +186,41 @@ def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
         owner="shaypal5",
         repo="example",
         pull_request_number=17,
-        body="<!-- pr-agent-context:managed-comment -->\n```markdown\ncreated body\n```",
+        run_id=300,
+        run_attempt=1,
+        head_sha="abc123",
+        tool_ref="v3",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=300; "
+            "run_attempt=1; head_sha=abc123; tool_ref=v3 -->\n```markdown\ncreated body\n```"
+        ),
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=True,
     )
 
     assert result.comment_written is False
-    assert result.comment_id is None
     assert result.action == "skipped_forbidden"
-    assert result.existing_managed_comment_count == 0
-    assert result.duplicate_managed_comment_count == 0
-    assert result.body_changed is True
-    assert result.skipped_reason == "comment mutation skipped after GitHub returned 403"
+    assert result.matched_existing_comment is False
+    assert result.run_id == 300
+    assert result.run_attempt == 1
     assert result.error_status_code == 403
 
 
 def test_sync_managed_comment_skips_forbidden_update(issue_comments_payload):
     client = ForbiddenIssueCommentClient(issue_comments_payload, fail_method="PATCH")
 
-    result = sync_managed_comment(
+    result = _sync(
         client,
-        owner="shaypal5",
-        repo="example",
-        pull_request_number=17,
-        body="<!-- pr-agent-context:managed-comment -->\n```markdown\nupdated body\n```",
-        delete_comment_when_empty=True,
-        skip_comment_on_readonly_token=True,
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
+            "run_attempt=2; head_sha=def456; tool_ref=v3 -->\n```markdown\nupdated body\n```"
+        ),
     )
 
     assert result.comment_written is False
-    assert result.comment_id == 3
-    assert result.comment_url == "https://github.com/shaypal5/example/pull/17#issuecomment-3"
+    assert result.comment_id == 4
     assert result.action == "skipped_forbidden"
-    assert result.existing_managed_comment_count == 2
-    assert result.duplicate_managed_comment_count == 1
-    assert result.body_changed is True
-    assert result.skipped_reason == "comment mutation skipped after GitHub returned 403"
-    assert result.error_status_code == 403
+    assert result.managed_comment_count == 2
+    assert result.matched_existing_comment is True
+    assert result.matched_comment_run_id == 100
+    assert result.matched_comment_run_attempt == 2

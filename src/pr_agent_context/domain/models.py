@@ -150,6 +150,18 @@ class ManagedComment(BaseModel):
     url: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    marker: ManagedCommentIdentity | None = None
+
+
+class ManagedCommentIdentity(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: str = "v3"
+    pull_request_number: int
+    run_id: int
+    run_attempt: int
+    head_sha: str
+    tool_ref: str
 
 
 PublicationAction = Literal[
@@ -158,8 +170,8 @@ PublicationAction = Literal[
     "noop_no_comment",
     "preserved_empty",
     "created",
-    "updated",
-    "unchanged",
+    "updated_same_run",
+    "unchanged_same_run",
     "skipped_forbidden",
 ]
 
@@ -209,8 +221,14 @@ class PublicationResult(BaseModel):
     comment_url: str | None = None
     comment_written: bool = False
     action: PublicationAction = "none"
-    existing_managed_comment_count: int = 0
-    duplicate_managed_comment_count: int = 0
+    managed_comment_count: int = 0
     body_changed: bool = False
     skipped_reason: str | None = None
     error_status_code: int | None = None
+    run_id: int | None = None
+    run_attempt: int | None = None
+    head_sha: str | None = None
+    matched_existing_comment: bool = False
+    matched_comment_run_id: int | None = None
+    matched_comment_run_attempt: int | None = None
+    sync_debug: dict[str, object] = Field(default_factory=dict)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from pr_agent_context import __version__
 from pr_agent_context.constants import (
     COPILOT_COMMENT_SECTION,
     DEFAULT_ALL_CLEAR_PROMPT,
@@ -15,19 +16,21 @@ from pr_agent_context.constants import (
     DEFAULT_REPLY_BODY_CHARS,
     DEFAULT_ROOT_COMMENT_BODY_CHARS,
     DEFAULT_SECTION_BUDGETS,
+    DEFAULT_TOOL_REF,
     FAILING_WORKFLOWS_SECTION,
-    MANAGED_COMMENT_MARKER,
     PATCH_COVERAGE_SECTION,
     REVIEW_COMMENT_SECTION,
 )
 from pr_agent_context.domain.models import (
     FailingCheck,
+    ManagedCommentIdentity,
     PatchCoverageSummary,
     RenderedPrompt,
     ReviewMessage,
     ReviewThread,
     TruncationNote,
 )
+from pr_agent_context.github.comment_markers import format_managed_comment_marker
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
 from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
@@ -37,6 +40,10 @@ def render_prompt(
     *,
     pull_request_number: int,
     head_sha: str | None = None,
+    run_id: int = 0,
+    run_attempt: int = 1,
+    tool_ref: str = DEFAULT_TOOL_REF,
+    tool_version: str = __version__,
     review_threads: list[ReviewThread],
     failing_checks: list[FailingCheck],
     patch_coverage: PatchCoverageSummary | None = None,
@@ -92,6 +99,10 @@ def render_prompt(
             "opening_instructions": _build_opening_instructions(
                 pull_request_number=pull_request_number,
                 head_sha=head_sha,
+                run_id=run_id,
+                run_attempt=run_attempt,
+                tool_ref=tool_ref,
+                tool_version=tool_version,
                 has_actionable_items=has_actionable_items,
                 include_review_comments=include_review_comments,
                 include_failing_checks=include_failing_checks,
@@ -108,7 +119,14 @@ def render_prompt(
         max_chars=characters_per_line,
     )
     prompt_sha256 = hashlib.sha256(prompt_markdown.encode("utf-8")).hexdigest()
-    comment_body = build_managed_comment_body(prompt_markdown)
+    comment_body = build_managed_comment_body(
+        prompt_markdown,
+        pull_request_number=pull_request_number,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        head_sha=head_sha or "unknown",
+        tool_ref=tool_ref,
+    )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
@@ -120,14 +138,35 @@ def render_prompt(
     )
 
 
-def build_managed_comment_body(markdown: str) -> str:
-    return f"{MANAGED_COMMENT_MARKER}\n{_wrap_markdown_code_block(markdown)}"
+def build_managed_comment_body(
+    markdown: str,
+    *,
+    pull_request_number: int,
+    run_id: int,
+    run_attempt: int,
+    head_sha: str,
+    tool_ref: str,
+) -> str:
+    marker = format_managed_comment_marker(
+        ManagedCommentIdentity(
+            pull_request_number=pull_request_number,
+            run_id=run_id,
+            run_attempt=run_attempt,
+            head_sha=head_sha,
+            tool_ref=tool_ref,
+        )
+    )
+    return f"{marker}\n{_wrap_markdown_code_block(markdown)}"
 
 
 def _build_opening_instructions(
     *,
     pull_request_number: int,
     head_sha: str | None,
+    run_id: int,
+    run_attempt: int,
+    tool_ref: str,
+    tool_version: str,
     has_actionable_items: bool,
     include_review_comments: bool,
     include_failing_checks: bool,
@@ -137,6 +176,10 @@ def _build_opening_instructions(
         return DEFAULT_PROMPT_OPENING.format(
             pr_number=pull_request_number,
             head_sha=head_sha or "unknown",
+            run_id=run_id,
+            run_attempt=run_attempt,
+            tool_ref=tool_ref,
+            tool_version=tool_version,
         )
 
     disabled_checks = [
@@ -152,6 +195,10 @@ def _build_opening_instructions(
         return DEFAULT_ALL_CLEAR_PROMPT.format(
             pr_number=pull_request_number,
             head_sha=head_sha or "unknown",
+            run_id=run_id,
+            run_attempt=run_attempt,
+            tool_ref=tool_ref,
+            tool_version=tool_version,
         )
     return (
         "No actionable items were found in the enabled checks for PR "
