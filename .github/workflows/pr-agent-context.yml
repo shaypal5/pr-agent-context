@@ -49,7 +49,7 @@ on:
         default: 20
         type: number
       max_actions_runs:
-        description: Maximum failed workflow runs to inspect for the PR head SHA.
+        description: Maximum completed workflow runs to inspect for the PR head SHA.
         required: false
         default: 20
         type: number

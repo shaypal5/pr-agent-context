@@ -185,6 +185,7 @@ def _collect_actions_failures_for_head_sha(
         repo=repo,
         head_sha=head_sha,
         max_runs=max_actions_runs,
+        warnings=warnings,
     )
     job_observations: list[FailingCheck] = []
     run_level_failures: list[FailingCheck] = []
@@ -325,13 +326,17 @@ def _fetch_workflow_runs_for_head_sha(
     repo: str,
     head_sha: str,
     max_runs: int,
+    warnings: list[str],
 ) -> list[dict[str, object]]:
     collected: list[dict[str, object]] = []
     page = 1
     while len(collected) < max_runs:
-        payload = client.request_json(
+        payload = _safe_request_json(
+            client,
             "GET",
             f"/repos/{owner}/{repo}/actions/runs",
+            warnings=warnings,
+            warning_prefix=f"Unable to fetch workflow runs for head SHA {head_sha}",
             params={
                 "head_sha": head_sha,
                 "status": "completed",
@@ -339,6 +344,8 @@ def _fetch_workflow_runs_for_head_sha(
                 "page": page,
             },
         )
+        if not payload:
+            break
         runs = payload.get("workflow_runs", [])
         if not runs:
             break

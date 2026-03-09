@@ -82,7 +82,7 @@ The reusable workflow inputs are:
 - `debug_artifacts`: upload JSON/markdown debug artifacts, default `true`
 - `debug_artifact_prefix`: artifact name prefix for uploaded debug bundles, default `pr-agent-context-debug`
 - `max_review_threads`: cap unresolved review threads, default `50`
-- `max_actions_runs`: cap failed workflow runs inspected for the PR head SHA, default `20`
+- `max_actions_runs`: cap completed workflow runs inspected for the PR head SHA, default `20`
 - `max_actions_jobs`: cap failed Actions jobs included after aggregation and dedupe, default `20`
 - `max_external_checks`: cap failed external check/status items included after normalization, default `20`
 - `max_failing_checks`: cap the total rendered failing-check items after dedupe, default `25`

@@ -109,6 +109,17 @@ class FakeCurrentRunClient:
         return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
 
 
+class FakeForbiddenActionsRunsClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            raise GitHubApiError(403, "Forbidden", "Resource not accessible by integration")
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 def test_collect_failing_checks_aggregates_head_sha_failures():
     failures, debug = collect_failing_checks(
         FakeFailingChecksClient(),
@@ -170,3 +181,28 @@ def test_collect_failing_checks_can_stay_current_run_only():
     assert failure.job_name == "smoke"
     assert failure.is_current_run is True
     assert debug["deduped_source_counts"] == {"actions_job": 1}
+
+
+def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbidden():
+    failures, debug = collect_failing_checks(
+        FakeForbiddenActionsRunsClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=9,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+    )
+
+    assert failures == []
+    assert debug["deduped_source_counts"] == {}
+    assert any(
+        warning.startswith("Unable to fetch workflow runs for head SHA def456:")
+        for warning in debug["warnings"]
+    )

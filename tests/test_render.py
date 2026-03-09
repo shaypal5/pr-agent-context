@@ -806,6 +806,26 @@ def test_render_failing_checks_section_supports_mixed_failure_sources():
     assert "Context: security/scan" in rendered
 
 
+def test_render_failing_check_uses_not_available_placeholder_for_missing_url():
+    failure = FailingCheck.model_validate(
+        {
+            "source_type": "commit_status",
+            "workflow_name": "Commit status",
+            "job_name": "security/scan",
+            "context_name": "security/scan",
+            "status": "failure",
+            "summary": "Dependency scan failed",
+            "url": "",
+            "item_id": "FAIL-1",
+        }
+    )
+
+    rendered, notes = _render_failing_check(failure, max_chars=2000)
+
+    assert not notes
+    assert "URL: (not available)" in rendered
+
+
 def test_render_review_section_hard_caps_total_budget():
     threads = [
         ReviewThread.model_validate(

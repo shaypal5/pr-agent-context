@@ -353,7 +353,7 @@ def _render_failing_check(
         lines.append(f"Conclusion: {failure.conclusion}")
     if failure.is_current_run:
         lines.append("Current run: yes")
-    lines.append(f"URL: {failure.url}")
+    lines.append(f"URL: {failure.url or '(not available)'}")
     if failure.failed_steps:
         lines.append(f"Failed steps: {', '.join(failure.failed_steps)}")
     if failure.summary:
