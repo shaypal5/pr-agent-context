@@ -209,6 +209,98 @@ class FakeBrokenLogsClient:
         raise GitHubApiError(502, "Bad Gateway", "log download failed")
 
 
+class FakeMixedOutcomeActionsClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 20,
+                        "run_attempt": 1,
+                        "run_number": 2,
+                        "name": "CI",
+                        "display_title": "lint workflow",
+                        "conclusion": "failure",
+                        "updated_at": "2026-03-08T12:10:00Z",
+                        "created_at": "2026-03-08T12:10:00Z",
+                        "html_url": "https://example.invalid/runs/20",
+                    },
+                    {
+                        "id": 19,
+                        "run_attempt": 1,
+                        "run_number": 1,
+                        "name": "CI",
+                        "display_title": "lint workflow",
+                        "conclusion": "success",
+                        "updated_at": "2026-03-08T12:00:00Z",
+                        "created_at": "2026-03-08T12:00:00Z",
+                        "html_url": "https://example.invalid/runs/19",
+                    },
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            if "/actions/runs/20/" in path:
+                return {
+                    "jobs": [
+                        {
+                            "id": 2001,
+                            "name": "lint",
+                            "workflow_name": "CI",
+                            "conclusion": "failure",
+                            "html_url": "https://example.invalid/jobs/2001",
+                            "completed_at": "2026-03-08T12:10:00Z",
+                            "steps": [{"name": "Run ruff", "conclusion": "failure"}],
+                        }
+                    ]
+                }
+            return {
+                "jobs": [
+                    {
+                        "id": 1901,
+                        "name": "lint",
+                        "workflow_name": "CI",
+                        "conclusion": "success",
+                        "html_url": "https://example.invalid/jobs/1901",
+                        "completed_at": "2026-03-08T12:00:00Z",
+                        "steps": [{"name": "Run ruff", "conclusion": "success"}],
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        assert method == "GET"
+        return _zip_bytes(load_text_fixture("github/logs/pre_commit_failure.log"))
+
+
+class FakeActionRequiredRunClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 203,
+                        "run_attempt": 1,
+                        "run_number": 7,
+                        "name": "release workflow",
+                        "display_title": "release workflow",
+                        "conclusion": "action_required",
+                        "updated_at": "2026-03-08T12:12:00Z",
+                        "created_at": "2026-03-08T12:12:00Z",
+                        "html_url": "https://example.invalid/runs/203",
+                    }
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            raise GitHubApiError(404, "Not Found", "")
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 def test_collect_failing_checks_aggregates_head_sha_failures():
     failures, debug = collect_failing_checks(
         FakeFailingChecksClient(),
@@ -295,6 +387,51 @@ def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbid
         warning.startswith("Unable to fetch workflow runs for head SHA def456:")
         for warning in debug["warnings"]
     )
+
+
+def test_collect_failing_checks_keeps_failed_actions_observation_over_successful_rerun():
+    failures, _ = collect_failing_checks(
+        FakeMixedOutcomeActionsClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=19,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+    )
+
+    assert len(failures) == 1
+    assert failures[0].source_type == "actions_job"
+    assert failures[0].conclusion == "failure"
+    assert failures[0].job_id == 2001
+
+
+def test_collect_failing_checks_includes_action_required_run_level_failures():
+    failures, _ = collect_failing_checks(
+        FakeActionRequiredRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+    )
+
+    assert len(failures) == 1
+    assert failures[0].source_type == "actions_workflow_run"
+    assert failures[0].conclusion == "action_required"
 
 
 def test_collect_external_check_runs_handles_pagination():

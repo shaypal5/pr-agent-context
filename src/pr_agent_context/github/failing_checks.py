@@ -223,7 +223,7 @@ def _collect_actions_failures_for_head_sha(
             continue
 
         conclusion = str(run.get("conclusion") or "")
-        if conclusion in FAILED_JOB_CONCLUSIONS:
+        if conclusion in FAILED_CHECK_CONCLUSIONS:
             run_level_failures.append(
                 _normalize_actions_run_failure(
                     run,
@@ -238,7 +238,11 @@ def _collect_actions_failures_for_head_sha(
     selected_jobs = []
     for key, latest in latest_jobs.items():
         if latest.conclusion in FAILED_JOB_CONCLUSIONS:
-            candidates = [failure for failure in job_observations if failure.dedupe_key == key]
+            candidates = [
+                failure
+                for failure in job_observations
+                if failure.dedupe_key == key and failure.conclusion in FAILED_JOB_CONCLUSIONS
+            ]
             selected_jobs.append(_select_best_failure(candidates))
 
     selected_jobs = sorted(selected_jobs, key=failing_check_sort_key)[:max_actions_jobs]
