@@ -13,8 +13,18 @@ on:
         required: false
         default: true
         type: boolean
-      include_failing_jobs:
-        description: Include same-run failing GitHub Actions jobs.
+      include_failing_checks:
+        description: Include failing checks in the rendered prompt.
+        required: false
+        default: true
+        type: boolean
+      include_cross_run_failures:
+        description: Expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs.
+        required: false
+        default: true
+        type: boolean
+      include_external_checks:
+        description: Include failed external check runs and commit statuses for the PR head SHA.
         required: false
         default: true
         type: boolean
@@ -33,10 +43,25 @@ on:
         required: false
         default: 50
         type: number
-      max_failed_jobs:
-        description: Maximum failed jobs to include.
+      max_actions_jobs:
+        description: Maximum failed Actions jobs to include after aggregation and dedupe.
         required: false
         default: 20
+        type: number
+      max_actions_runs:
+        description: Maximum completed workflow runs to inspect for the PR head SHA.
+        required: false
+        default: 20
+        type: number
+      max_external_checks:
+        description: Maximum failed external check/status items to include after normalization.
+        required: false
+        default: 20
+        type: number
+      max_failing_checks:
+        description: Maximum total failing-check items to render after dedupe.
+        required: false
+        default: 25
         type: number
       max_log_lines_per_job:
         description: Maximum log excerpt lines per failed job.
@@ -103,9 +128,9 @@ on:
       unresolved_thread_count:
         description: Count of unresolved review threads included in the prompt.
         value: ${{ jobs.pr-agent-context.outputs.unresolved_thread_count }}
-      failed_job_count:
-        description: Count of failed jobs included in the prompt.
-        value: ${{ jobs.pr-agent-context.outputs.failed_job_count }}
+      failing_check_count:
+        description: Count of failing-check items included in the prompt.
+        value: ${{ jobs.pr-agent-context.outputs.failing_check_count }}
       has_actionable_items:
         description: Whether the rendered prompt contains actionable content.
         value: ${{ jobs.pr-agent-context.outputs.has_actionable_items }}
@@ -131,7 +156,7 @@ jobs:
       comment_id: ${{ steps.run_tool.outputs.comment_id }}
       comment_url: ${{ steps.run_tool.outputs.comment_url }}
       unresolved_thread_count: ${{ steps.run_tool.outputs.unresolved_thread_count }}
-      failed_job_count: ${{ steps.run_tool.outputs.failed_job_count }}
+      failing_check_count: ${{ steps.run_tool.outputs.failing_check_count }}
       has_actionable_items: ${{ steps.run_tool.outputs.has_actionable_items }}
       patch_coverage_percent: ${{ steps.run_tool.outputs.patch_coverage_percent }}
       prompt_sha256: ${{ steps.run_tool.outputs.prompt_sha256 }}
@@ -173,11 +198,16 @@ jobs:
           PR_AGENT_CONTEXT_TOOL_REF: ${{ inputs.tool_ref }}
           PR_AGENT_CONTEXT_WORKSPACE: ${{ github.workspace }}/caller-repo
           PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS: ${{ inputs.include_review_comments }}
-          PR_AGENT_CONTEXT_INCLUDE_FAILING_JOBS: ${{ inputs.include_failing_jobs }}
+          PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS: ${{ inputs.include_failing_checks }}
+          PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES: ${{ inputs.include_cross_run_failures }}
+          PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS: ${{ inputs.include_external_checks }}
           PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
           PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE: ${{ inputs.prompt_template_file }}
           PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}
-          PR_AGENT_CONTEXT_MAX_FAILED_JOBS: ${{ inputs.max_failed_jobs }}
+          PR_AGENT_CONTEXT_MAX_ACTIONS_RUNS: ${{ inputs.max_actions_runs }}
+          PR_AGENT_CONTEXT_MAX_ACTIONS_JOBS: ${{ inputs.max_actions_jobs }}
+          PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS: ${{ inputs.max_external_checks }}
+          PR_AGENT_CONTEXT_MAX_FAILING_CHECKS: ${{ inputs.max_failing_checks }}
           PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB: ${{ inputs.max_log_lines_per_job }}
           PR_AGENT_CONTEXT_CHARACTERS_PER_LINE: ${{ inputs.characters_per_line }}
           PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE: ${{ inputs.target_patch_coverage }}

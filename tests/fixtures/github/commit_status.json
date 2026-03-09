@@ -1,0 +1,19 @@
+{
+  "state": "failure",
+  "statuses": [
+    {
+      "context": "codecov/patch",
+      "state": "failure",
+      "description": "Patch coverage failed",
+      "target_url": "https://app.codecov.io/gh/shaypal5/example/pull/17?check=patch",
+      "updated_at": "2026-03-08T12:25:00Z"
+    },
+    {
+      "context": "security/scan",
+      "state": "failure",
+      "description": "Dependency vulnerability scan failed",
+      "target_url": "https://security.example.invalid/scan/17",
+      "updated_at": "2026-03-08T12:26:00Z"
+    }
+  ]
+}

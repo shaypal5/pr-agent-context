@@ -14,7 +14,10 @@ from pr_agent_context.constants import (
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
+    DEFAULT_MAX_EXTERNAL_CHECKS,
     DEFAULT_MAX_FAILED_JOBS,
+    DEFAULT_MAX_FAILED_RUNS,
+    DEFAULT_MAX_FAILING_ITEMS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
     DEFAULT_TARGET_PATCH_COVERAGE,
@@ -65,7 +68,9 @@ class RunConfig(BaseModel):
     run_attempt: int
     workspace: Path
     include_review_comments: bool = True
-    include_failing_jobs: bool = True
+    include_failing_checks: bool = True
+    include_cross_run_failures: bool = True
+    include_external_checks: bool = True
     include_patch_coverage: bool = True
     force_patch_coverage_section: bool = False
     prompt_preamble: str = ""
@@ -76,7 +81,10 @@ class RunConfig(BaseModel):
         default_factory=lambda: _parse_copilot_author_patterns(None)
     )
     max_review_threads: int = DEFAULT_MAX_REVIEW_THREADS
-    max_failed_jobs: int = DEFAULT_MAX_FAILED_JOBS
+    max_actions_runs: int = DEFAULT_MAX_FAILED_RUNS
+    max_actions_jobs: int = DEFAULT_MAX_FAILED_JOBS
+    max_external_checks: int = DEFAULT_MAX_EXTERNAL_CHECKS
+    max_failing_checks: int = DEFAULT_MAX_FAILING_ITEMS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
@@ -120,8 +128,16 @@ class RunConfig(BaseModel):
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS"),
                 default=True,
             ),
-            include_failing_jobs=_parse_bool(
-                env_map.get("PR_AGENT_CONTEXT_INCLUDE_FAILING_JOBS"),
+            include_failing_checks=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS"),
+                default=True,
+            ),
+            include_cross_run_failures=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES"),
+                default=True,
+            ),
+            include_external_checks=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS"),
                 default=True,
             ),
             include_patch_coverage=_parse_bool(
@@ -152,10 +168,28 @@ class RunConfig(BaseModel):
                     str(DEFAULT_MAX_REVIEW_THREADS),
                 )
             ),
-            max_failed_jobs=int(
+            max_actions_jobs=int(
                 env_map.get(
-                    "PR_AGENT_CONTEXT_MAX_FAILED_JOBS",
+                    "PR_AGENT_CONTEXT_MAX_ACTIONS_JOBS",
                     str(DEFAULT_MAX_FAILED_JOBS),
+                )
+            ),
+            max_actions_runs=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_MAX_ACTIONS_RUNS",
+                    str(DEFAULT_MAX_FAILED_RUNS),
+                )
+            ),
+            max_external_checks=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS",
+                    str(DEFAULT_MAX_EXTERNAL_CHECKS),
+                )
+            ),
+            max_failing_checks=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_MAX_FAILING_CHECKS",
+                    str(DEFAULT_MAX_FAILING_ITEMS),
                 )
             ),
             max_log_lines_per_job=int(

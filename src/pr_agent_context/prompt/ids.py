@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from pr_agent_context.domain.models import ReviewThread, WorkflowFailure, review_thread_sort_key
+from pr_agent_context.domain.models import (
+    FailingCheck,
+    ReviewThread,
+    failing_check_sort_key,
+    review_thread_sort_key,
+)
 
 
 def assign_item_ids(
     review_threads: list[ReviewThread],
-    workflow_failures: list[WorkflowFailure],
-) -> tuple[list[ReviewThread], list[WorkflowFailure]]:
+    failing_checks: list[FailingCheck],
+) -> tuple[list[ReviewThread], list[FailingCheck]]:
     copilot_threads = sorted(
         [thread for thread in review_threads if thread.classifier == "copilot"],
         key=review_thread_sort_key,
@@ -16,13 +21,8 @@ def assign_item_ids(
         key=review_thread_sort_key,
     )
     failures = sorted(
-        workflow_failures,
-        key=lambda failure: (
-            failure.workflow_name,
-            failure.job_name,
-            failure.matrix_label or "",
-            failure.job_id,
-        ),
+        failing_checks,
+        key=failing_check_sort_key,
     )
 
     numbered_copilot = [

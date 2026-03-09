@@ -6,7 +6,7 @@ from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 
 from pr_agent_context.constants import ERROR_MARKERS, FAILED_JOB_CONCLUSIONS
-from pr_agent_context.domain.models import WorkflowFailure
+from pr_agent_context.domain.models import FailingCheck
 from pr_agent_context.github.api import GitHubApiClient
 
 FAILED_STEP_CONCLUSIONS = {"failure", "timed_out", "startup_failure", "cancelled"}
@@ -20,9 +20,9 @@ def collect_failed_jobs(
     repo: str,
     run_id: int,
     run_attempt: int,
-    max_failed_jobs: int,
+    max_actions_jobs: int,
     max_log_lines_per_job: int,
-) -> list[WorkflowFailure]:
+) -> list[FailingCheck]:
     jobs: list[dict[str, object]] = []
     page = 1
     while True:
@@ -44,7 +44,7 @@ def collect_failed_jobs(
                 f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
             )
         ),
-        max_failed_jobs=max_failed_jobs,
+        max_actions_jobs=max_actions_jobs,
         max_log_lines_per_job=max_log_lines_per_job,
     )
 
@@ -53,10 +53,10 @@ def parse_failed_jobs(
     jobs: Iterable[dict[str, object]],
     *,
     log_fetcher: Callable[[int], str],
-    max_failed_jobs: int,
+    max_actions_jobs: int,
     max_log_lines_per_job: int,
-) -> list[WorkflowFailure]:
-    failures: list[WorkflowFailure] = []
+) -> list[FailingCheck]:
+    failures: list[FailingCheck] = []
     for raw_job in jobs:
         conclusion = raw_job.get("conclusion")
         if conclusion not in FAILED_JOB_CONCLUSIONS:
@@ -70,7 +70,7 @@ def parse_failed_jobs(
         log_text = log_fetcher(job_id)
         job_name, matrix_label = split_job_display_name(str(raw_job.get("name", f"job-{job_id}")))
         failures.append(
-            WorkflowFailure(
+            FailingCheck(
                 job_id=job_id,
                 workflow_name=str(raw_job.get("workflow_name") or "Workflow"),
                 job_name=job_name,
@@ -93,7 +93,7 @@ def parse_failed_jobs(
             failure.matrix_label or "",
             failure.job_id,
         ),
-    )[:max_failed_jobs]
+    )[:max_actions_jobs]
 
 
 def split_job_display_name(name: str) -> tuple[str, str | None]:

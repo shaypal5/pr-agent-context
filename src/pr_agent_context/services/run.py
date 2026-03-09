@@ -15,9 +15,9 @@ from pr_agent_context.domain.models import (
     PatchCoverageSummary,
 )
 from pr_agent_context.github.api import GitHubApiClient
+from pr_agent_context.github.failing_checks import collect_failing_checks
 from pr_agent_context.github.issue_comments import sync_managed_comment
 from pr_agent_context.github.review_threads import collect_unresolved_review_threads
-from pr_agent_context.github.workflow_jobs import collect_failed_jobs
 from pr_agent_context.prompt.ids import assign_item_ids
 from pr_agent_context.prompt.render import render_prompt
 
@@ -37,7 +37,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     _log(
         "config",
         include_review_comments=config.include_review_comments,
-        include_failing_jobs=config.include_failing_jobs,
+        include_failing_checks=config.include_failing_checks,
+        include_cross_run_failures=config.include_cross_run_failures,
+        include_external_checks=config.include_external_checks,
         include_patch_coverage=config.include_patch_coverage,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
@@ -45,6 +47,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             str(config.prompt_template_file) if config.prompt_template_file else ""
         ),
         characters_per_line=config.characters_per_line,
+        max_actions_runs=config.max_actions_runs,
+        max_external_checks=config.max_external_checks,
+        max_failing_checks=config.max_failing_checks,
     )
     api_client = client or GitHubApiClient(
         token=config.github_token,
@@ -63,18 +68,31 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         )
     _log("review_threads", enabled=config.include_review_comments, count=len(review_threads))
 
-    workflow_failures = []
-    if config.include_failing_jobs:
-        workflow_failures = collect_failed_jobs(
+    failing_checks = []
+    failing_check_debug: dict | None = None
+    if config.include_failing_checks:
+        failing_checks, failing_check_debug = collect_failing_checks(
             api_client,
             owner=config.pull_request.owner,
             repo=config.pull_request.repo,
-            run_id=config.run_id,
-            run_attempt=config.run_attempt,
-            max_failed_jobs=config.max_failed_jobs,
+            head_sha=config.pull_request.head_sha,
+            current_run_id=config.run_id,
+            current_run_attempt=config.run_attempt,
+            include_cross_run_failures=config.include_cross_run_failures,
+            include_external_checks=config.include_external_checks,
+            max_actions_runs=config.max_actions_runs,
+            max_actions_jobs=config.max_actions_jobs,
+            max_external_checks=config.max_external_checks,
+            max_failing_checks=config.max_failing_checks,
             max_log_lines_per_job=config.max_log_lines_per_job,
         )
-    _log("workflow_failures", enabled=config.include_failing_jobs, count=len(workflow_failures))
+    _log(
+        "failing_checks",
+        enabled=config.include_failing_checks,
+        count=len(failing_checks),
+        source_counts=(failing_check_debug or {}).get("deduped_source_counts", {}),
+        warning_count=len((failing_check_debug or {}).get("warnings", [])),
+    )
 
     patch_coverage = None
     changed_lines: dict[str, list[int]] = {}
@@ -126,21 +144,22 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             coverage_artifact_files=0,
         )
 
-    numbered_threads, numbered_failures = assign_item_ids(review_threads, workflow_failures)
+    numbered_threads, numbered_failures = assign_item_ids(review_threads, failing_checks)
     collected_context = CollectedContext(
         pull_request=config.pull_request,
         review_threads=numbered_threads,
-        workflow_failures=numbered_failures,
+        failing_checks=numbered_failures,
         patch_coverage=patch_coverage,
+        failing_check_debug=failing_check_debug,
     )
     rendered = render_prompt(
         pull_request_number=config.pull_request.number,
         head_sha=config.pull_request.head_sha,
         review_threads=numbered_threads,
-        workflow_failures=numbered_failures,
+        failing_checks=numbered_failures,
         patch_coverage=patch_coverage,
         include_review_comments=config.include_review_comments,
-        include_failing_jobs=config.include_failing_jobs,
+        include_failing_checks=config.include_failing_checks,
         include_patch_coverage=config.include_patch_coverage,
         prompt_preamble=config.prompt_preamble,
         force_patch_coverage_section=config.force_patch_coverage_section,
@@ -183,7 +202,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     summary = DebugSummary(
         tool_ref=config.tool_ref,
         unresolved_thread_count=len(numbered_threads),
-        failed_job_count=len(numbered_failures),
+        failing_check_count=len(numbered_failures),
+        failing_check_source_counts=(failing_check_debug or {}).get("deduped_source_counts", {}),
         patch_coverage_percent=_patch_coverage_percent(patch_coverage),
         has_actionable_items=rendered.has_actionable_items,
         should_publish_comment=rendered.should_publish_comment,
@@ -196,7 +216,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     _log(
         "summary",
         unresolved_thread_count=summary.unresolved_thread_count,
-        failed_job_count=summary.failed_job_count,
+        failing_check_count=summary.failing_check_count,
+        failing_check_source_counts=summary.failing_check_source_counts,
         patch_coverage_percent=""
         if summary.patch_coverage_percent is None
         else round(summary.patch_coverage_percent, 2),
@@ -210,11 +231,12 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             collected_context=collected_context,
             rendered=rendered,
             summary=summary,
+            failing_check_debug=failing_check_debug,
         )
     _write_outputs(
         config.github_output_path,
         unresolved_thread_count=len(numbered_threads),
-        failed_job_count=len(numbered_failures),
+        failing_check_count=len(numbered_failures),
         has_actionable_items=rendered.has_actionable_items,
         patch_coverage_percent=_patch_coverage_percent(patch_coverage),
         comment_written=publication.comment_written,
@@ -229,7 +251,7 @@ def _write_outputs(
     output_path: Path | None,
     *,
     unresolved_thread_count: int,
-    failed_job_count: int,
+    failing_check_count: int,
     has_actionable_items: bool,
     patch_coverage_percent: float | None,
     comment_written: bool,
@@ -241,7 +263,7 @@ def _write_outputs(
         return
     lines = [
         f"unresolved_thread_count={unresolved_thread_count}",
-        f"failed_job_count={failed_job_count}",
+        f"failing_check_count={failing_check_count}",
         f"has_actionable_items={str(has_actionable_items).lower()}",
         "patch_coverage_percent="
         f"{'' if patch_coverage_percent is None else round(patch_coverage_percent, 2)}",
@@ -265,6 +287,7 @@ def _write_debug_artifacts(
     collected_context: CollectedContext,
     rendered,
     summary: DebugSummary,
+    failing_check_debug: dict | None,
 ) -> None:
     if debug_dir is None:
         return
@@ -282,6 +305,8 @@ def _write_debug_artifacts(
             ],
         },
     )
+    if failing_check_debug is not None:
+        _write_json(debug_dir / "failing-check-universe.json", failing_check_debug)
 
 
 def _write_json(path: Path, payload: dict) -> None:

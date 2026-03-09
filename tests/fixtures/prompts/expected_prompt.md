@@ -1,14 +1,14 @@
 Repository: foldermix
 
-Below are the details of unresolved review comments and failing GitHub Actions jobs on PR #17 for
-head commit def456.
+Below are the details of unresolved review comments and failing checks on PR #17 for head commit
+def456.
 
 For each unresolved comment, recommend one of: resolve as irrelevant, accept and implement the
 recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and
 implement a different solution, or resolve as already treated by the code.
 
 After I reply with my decision per item, implement the accepted actions, resolve the corresponding
-PR comments, fix each failing job below, and push all of these changes in a single commit.
+PR comments, fix each failing check below, and push all of these changes in a single commit.
 
 # Copilot Comments
 
@@ -34,12 +34,14 @@ Root author: octocat
 Comment:
     This assertion is brittle across Python versions.
 
-# Failing Jobs
+# Failing Workflows
 
 ## FAIL-1
+Type: GitHub Actions job
 Workflow: CI
 Job: pre-commit.ci
 Matrix: ubuntu-latest
+Conclusion: failure
 URL: https://github.com/shaypal5/example/actions/runs/1/job/1002
 Failed steps: Run pre-commit
 
@@ -51,9 +53,11 @@ Excerpt:
     ::error::Process completed with exit code 1.
 
 ## FAIL-2
+Type: GitHub Actions job
 Workflow: CI
 Job: smoke
 Matrix: ubuntu-latest, 3.12
+Conclusion: failure
 URL: https://github.com/shaypal5/example/actions/runs/1/job/1001
 Failed steps: Run pytest
 

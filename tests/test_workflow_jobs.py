@@ -29,7 +29,7 @@ def test_parse_failed_jobs_sorts_and_trims_logs(workflow_jobs_payload):
     failures = parse_failed_jobs(
         workflow_jobs_payload["jobs"],
         log_fetcher=lambda job_id: logs[job_id],
-        max_failed_jobs=10,
+        max_actions_jobs=10,
         max_log_lines_per_job=6,
     )
 
