@@ -13,6 +13,7 @@ from pr_agent_context.config import (
     _extract_pull_request_number,
     _extract_pull_request_shas,
     _load_event_payload,
+    _parse_bool,
 )
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.issue_comments import sync_managed_comment
@@ -62,7 +63,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
         "error_type": type(error).__name__,
         "error_message": str(error),
     }
-    print(json.dumps(payload, sort_keys=True))
+    print(json.dumps(_filtered_log_payload(payload), sort_keys=True))
 
     publication = None
     if context:
@@ -83,16 +84,18 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
             )
             print(
                 json.dumps(
-                    {
-                        "tool": "pr-agent-context",
-                        "event": "fatal_error_comment_sync",
-                        "action": publication.action,
-                        "comment_written": publication.comment_written,
-                        "comment_id": publication.comment_id or "",
-                        "comment_url": publication.comment_url or "",
-                        "skipped_reason": publication.skipped_reason or "",
-                        "error_status_code": publication.error_status_code or "",
-                    },
+                    _filtered_log_payload(
+                        {
+                            "tool": "pr-agent-context",
+                            "event": "fatal_error_comment_sync",
+                            "action": publication.action,
+                            "comment_written": publication.comment_written,
+                            "comment_id": publication.comment_id or "",
+                            "comment_url": publication.comment_url or "",
+                            "skipped_reason": publication.skipped_reason or "",
+                            "error_status_code": publication.error_status_code or "",
+                        }
+                    ),
                     sort_keys=True,
                 )
             )
@@ -155,7 +158,10 @@ def _resolve_failure_context(
         "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
         "github_token": github_token,
         "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
-        "skip_comment_on_readonly_token": True,
+        "skip_comment_on_readonly_token": _parse_bool(
+            env.get("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN"),
+            default=True,
+        ),
     }
 
 
@@ -208,3 +214,7 @@ def _write_failure_outputs(
         f"comment_written={'true' if publication and publication.comment_written else 'false'}",
     ]
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _filtered_log_payload(payload: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in payload.items() if value != ""}
