@@ -37,7 +37,7 @@ def test_parse_managed_comment_marker_rejects_missing_fields():
 
 def test_parse_managed_comment_marker_rejects_unknown_schema():
     body = (
-        "<!-- pr-agent-context:managed-comment; schema=v2; pr=17; run_id=100; "
+        "<!-- pr-agent-context:managed-comment; schema=v999; pr=17; run_id=100; "
         "run_attempt=2; head_sha=def456; tool_ref=v3 -->"
     )
 

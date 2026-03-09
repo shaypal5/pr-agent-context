@@ -23,7 +23,7 @@ def test_cli_run_invokes_service(monkeypatch):
 
 def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_path, capsys):
     class FakeConfig:
-        tool_ref = "v2"
+        tool_ref = "v3"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
@@ -101,7 +101,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
 
 def test_cli_run_returns_zero_when_failure_comment_sync_fails(monkeypatch, capsys):
     class FakeConfig:
-        tool_ref = "v2"
+        tool_ref = "v3"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
@@ -165,7 +165,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "4")
     monkeypatch.setenv("GITHUB_TOKEN", "token")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
-    monkeypatch.setenv("PR_AGENT_CONTEXT_TOOL_REF", "v2")
+    monkeypatch.setenv("PR_AGENT_CONTEXT_TOOL_REF", "v3")
     monkeypatch.setenv("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN", "false")
 
     captured = {}

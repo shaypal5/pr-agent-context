@@ -1,8 +1,8 @@
 Repository: foldermix
 
 Run metadata:
-- Tool ref: v2
-- Tool version: 2.0.0
+- Tool ref: v3
+- Tool version: 3.0.0
 - Workflow run: 0 attempt 1
 - PR head commit: def456
 
