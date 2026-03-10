@@ -181,9 +181,6 @@ def _build_failure_markdown(*, context: dict[str, object], error: Exception) -> 
         "🚨 `pr-agent-context` failed while preparing PR context.",
         "",
         f"PR: #{context['pull_request_number']}",
-        f"Head commit: {context['head_sha']}",
-        f"Tool ref: {context.get('tool_ref') or 'unknown'}",
-        f"Version: {__version__}",
         f"Error: {type(error).__name__}: {error}",
     ]
     if run_url:

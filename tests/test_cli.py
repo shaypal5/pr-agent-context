@@ -88,10 +88,14 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     )
     assert "skipped_reason" not in comment_sync_event
     assert "error_status_code" not in comment_sync_event
+    assert captured["body"].startswith(
+        "<!-- pr-agent-context:managed-comment; schema=v3; pr=15; run_id=123; "
+    )
+    assert "\npr-agent-context report:\n```markdown\n" in captured["body"]
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
-    assert "Head commit: deadbeef" in captured["body"]
-    assert "Version:" in captured["body"]
-    assert "run_attempt=2" in captured["body"].splitlines()[0]
+    assert "\nRun metadata:\n```\nTool ref: v3\nTool version:" in captured["body"]
+    assert "Workflow run: 123 attempt 2" in captured["body"]
+    assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")

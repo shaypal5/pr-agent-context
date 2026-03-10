@@ -17,11 +17,11 @@ from pr_agent_context.domain.models import (
 def test_run_scoped_constants_expose_v3_marker_contract():
     assert MANAGED_COMMENT_MARKER_PREFIX == "<!-- pr-agent-context:managed-comment"
     assert MANAGED_COMMENT_SCHEMA_VERSION == "v3"
-    assert "{run_id}" in DEFAULT_PROMPT_OPENING
-    assert "{run_attempt}" in DEFAULT_PROMPT_OPENING
-    assert "{tool_ref}" in DEFAULT_PROMPT_OPENING
-    assert "{tool_version}" in DEFAULT_PROMPT_OPENING
-    assert "{run_id}" in DEFAULT_ALL_CLEAR_PROMPT
+    assert "{run_id}" not in DEFAULT_PROMPT_OPENING
+    assert "{run_attempt}" not in DEFAULT_PROMPT_OPENING
+    assert "{tool_ref}" not in DEFAULT_PROMPT_OPENING
+    assert "{tool_version}" not in DEFAULT_PROMPT_OPENING
+    assert "{run_id}" not in DEFAULT_ALL_CLEAR_PROMPT
     assert "{{ failing_checks_section }}" in DEFAULT_PROMPT_TEMPLATE
 
 
