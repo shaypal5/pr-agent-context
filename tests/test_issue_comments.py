@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from pr_agent_context.github.api import GitHubApiError
 from pr_agent_context.github.issue_comments import (
+    _select_primary_comment,
+    is_managed_comment,
+    list_issue_comments,
     managed_comments_only,
     normalize_issue_comment,
     sync_managed_comment,
@@ -13,12 +18,14 @@ class FakeIssueCommentClient:
         self.comments = list(comments)
         self.updated_comment_id: int | None = None
         self.updated_body: str | None = None
+        self.deleted_ids: list[int] = []
 
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == "GET" and path.endswith("/comments"):
             return self.comments
         if method == "DELETE":
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
+            self.deleted_ids.append(comment_id)
             self.comments = [comment for comment in self.comments if comment["id"] != comment_id]
             return {}
         if method == "PATCH":
@@ -397,6 +404,34 @@ def test_sync_managed_comment_reports_unchanged_latest_managed_for_empty_body(
     assert result.sync_debug["action"] == "unchanged_latest_managed"
 
 
+def test_sync_managed_comment_deletes_matching_comment_when_empty_body_requests_delete(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="def456",
+        tool_ref="v3",
+        trigger_event_name="pull_request",
+        publish_mode="update_matching",
+        generated_at="2026-03-07T08:50:00+00:00",
+        body=None,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert client.deleted_ids == [4]
+    assert result.action == "deleted"
+    assert result.comment_written is False
+    assert result.matched_existing_comment is True
+
+
 def test_sync_managed_comment_uses_supplied_generated_at_in_current_identity(
     issue_comments_payload,
 ):
@@ -426,3 +461,75 @@ def test_sync_managed_comment_uses_supplied_generated_at_in_current_identity(
 
     assert result.action == "created"
     assert result.sync_debug["current_identity"]["generated_at"] == "2026-03-08T10:11:12+00:00"
+
+
+def test_is_managed_comment_requires_bot_author():
+    comment = normalize_issue_comment(
+        {
+            "id": 99,
+            "body": (
+                "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+                "head_sha=def456; trigger_event=pull_request; "
+                "generated_at=2026-03-08T10:11:12+00:00; tool_ref=v3 -->\n```markdown\nbody\n```"
+            ),
+            "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-99",
+            "created_at": "2026-03-07T08:00:00Z",
+            "updated_at": "2026-03-07T08:00:00Z",
+            "user": {"login": "shaypalachy", "type": "User"},
+        }
+    )
+
+    assert is_managed_comment(comment) is False
+
+
+class PagingIssueCommentClient(FakeIssueCommentClient):
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "GET" and path.endswith("/comments"):
+            page = int((params or {}).get("page", 1))
+            if page == 1:
+                return self.comments[:100]
+            if page == 2:
+                return self.comments[100:]
+            return []
+        return super().request_json(
+            method, path, params=params, payload=payload, extra_headers=extra_headers
+        )
+
+
+def test_list_issue_comments_handles_pagination(issue_comments_payload):
+    extra_comments = [
+        {
+            "id": 1000 + index,
+            "body": "plain body",
+            "html_url": f"https://github.com/shaypal5/example/pull/17#issuecomment-{1000 + index}",
+            "created_at": "2026-03-07T08:00:00Z",
+            "updated_at": "2026-03-07T08:00:00Z",
+            "user": {"login": "octocat", "type": "User"},
+        }
+        for index in range(105)
+    ]
+    client = PagingIssueCommentClient(extra_comments)
+
+    comments = list_issue_comments(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+    )
+
+    assert len(comments) == 105
+    assert comments[0].comment_id == 1000
+    assert comments[-1].comment_id == 1104
+
+
+def test_select_primary_comment_rejects_unknown_publish_mode(issue_comments_payload):
+    comments = managed_comments_only(
+        [normalize_issue_comment(comment) for comment in issue_comments_payload]
+    )
+
+    with pytest.raises(ValueError, match="Unsupported publish mode: weird"):
+        _select_primary_comment(
+            managed_comments=comments,
+            matching_run_comments=[],
+            publish_mode="weird",
+        )

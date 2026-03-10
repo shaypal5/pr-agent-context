@@ -66,3 +66,31 @@ def test_parse_managed_comment_marker_rejects_non_integer_identity_fields():
     )
 
     assert parse_managed_comment_marker(body) is None
+
+
+def test_format_managed_comment_marker_omits_missing_run_identity():
+    identity = ManagedCommentIdentity(
+        pull_request_number=17,
+        publish_mode="append",
+        head_sha="def456",
+        trigger_event_name="status",
+        generated_at="2026-03-10T10:00:00+00:00",
+        tool_ref="v3",
+        run_id=None,
+        run_attempt=None,
+    )
+
+    marker = format_managed_comment_marker(identity)
+
+    assert "run_id=" not in marker
+    assert "run_attempt=" not in marker
+
+
+def test_parse_managed_comment_marker_rejects_missing_terminator():
+    body = (
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+        "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; "
+        "tool_ref=v3"
+    )
+
+    assert parse_managed_comment_marker(body) is None

@@ -5,10 +5,16 @@ import json
 import pytest
 
 from pr_agent_context.config import (
+    PullRequestRef,
     RunConfig,
     _extract_pull_request_number,
     _extract_pull_request_shas,
+    _extract_trigger_context,
     _parse_bool,
+    _parse_coverage_selection_strategy,
+    _parse_fork_behavior,
+    _parse_publish_mode,
+    _resolve_execution_mode,
     load_pull_request_context_from_env,
     load_trigger_context_from_env,
     parse_bool_env,
@@ -415,3 +421,72 @@ def test_run_config_auto_execution_mode_resolves_by_event_name(
     )
 
     assert config.execution_mode == expected_mode
+
+
+def test_run_config_repository_property_prefers_explicit_repository_fields(tmp_path):
+    config = RunConfig(
+        github_token="token",
+        repository_owner="shaypal5",
+        repository_name="example",
+        run_id=1,
+        run_attempt=1,
+        workspace=tmp_path,
+    )
+
+    assert config.repository == "shaypal5/example"
+
+
+def test_run_config_repository_property_falls_back_to_pull_request(tmp_path):
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha="abc123",
+            head_sha="def456",
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=tmp_path,
+    )
+
+    assert config.repository == "shaypal5/example"
+
+
+@pytest.mark.parametrize(
+    ("parser", "value", "expected_message"),
+    [
+        (_resolve_execution_mode, ("weird", "pull_request"), "Unsupported execution mode"),
+        (_parse_publish_mode, ("weird",), "Unsupported publish mode"),
+        (
+            _parse_coverage_selection_strategy,
+            ("earliest",),
+            "Unsupported coverage selection strategy",
+        ),
+        (_parse_fork_behavior, ("strict",), "Unsupported fork behavior"),
+    ],
+)
+def test_config_rejects_unsupported_enum_values(parser, value, expected_message):
+    with pytest.raises(ValueError, match=expected_message):
+        parser(*value)
+
+
+def test_extract_trigger_context_supports_check_run_and_check_suite():
+    check_run = _extract_trigger_context(
+        "check_run",
+        "completed",
+        "check_run:completed",
+        {"check_run": {"head_sha": "deadbeef", "pull_requests": [{"number": 17}]}},
+    )
+    check_suite = _extract_trigger_context(
+        "check_suite",
+        "completed",
+        "check_suite:completed",
+        {"check_suite": {"head_sha": "feedface", "pull_requests": [{"number": 18}]}},
+    )
+
+    assert check_run.pull_request_number == 17
+    assert check_run.head_sha == "deadbeef"
+    assert check_suite.pull_request_number == 18
+    assert check_suite.head_sha == "feedface"

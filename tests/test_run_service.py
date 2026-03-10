@@ -683,3 +683,64 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
+
+
+def test_run_service_refresh_mode_marks_review_wait_disabled(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "execution_mode": "refresh",
+            "wait_for_reviews_to_settle": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": False,
+        }
+    )
+
+    assert run_service(config, client=client) == 0
+
+    collected = json.loads(
+        (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
+    )
+    assert collected["review_settlement_debug"]["skipped_reason"] == "refresh_wait_disabled"
+
+
+def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": True,
+            "coverage_artifacts_dir": tmp_path / "missing-artifacts",
+        }
+    )
+    monkeypatch.setattr("pr_agent_context.services.run.collect_changed_lines", lambda *_, **__: {})
+
+    assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+    assert "resolution" in coverage_source

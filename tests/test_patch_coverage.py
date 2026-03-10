@@ -4,11 +4,12 @@ import io
 import zipfile
 from pathlib import Path
 
+import pytest
 from coverage import Coverage
 from coverage.exceptions import DataError
 
 from pr_agent_context.coverage import combine as combine_module
-from pr_agent_context.coverage.artifacts import resolve_coverage_files
+from pr_agent_context.coverage.artifacts import discover_coverage_files, resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import compute_patch_coverage
 
@@ -365,3 +366,136 @@ def test_resolve_coverage_files_reports_missing_suitable_producer_run(tmp_path):
     assert debug["resolution"] == "no_suitable_coverage_source"
     assert debug["selected_run"] is None
     assert debug["candidate_runs"][0]["reasons"] == ["no_matching_artifacts"]
+
+
+def test_discover_coverage_files_ignores_transient_sqlite_sidecars(tmp_path):
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / ".coverage").write_text("main", encoding="utf-8")
+    (artifacts / ".coverage-shm").write_text("shm", encoding="utf-8")
+    (artifacts / ".coverage-wal").write_text("wal", encoding="utf-8")
+    (artifacts / ".coverage.lock").write_text("lock", encoding="utf-8")
+
+    files = discover_coverage_files(artifacts)
+
+    assert files == [artifacts / ".coverage"]
+
+
+def test_resolve_coverage_files_prefers_local_ci_artifacts_when_present(tmp_path):
+    local_dir = tmp_path / "artifacts"
+    local_dir.mkdir()
+    local_file = local_dir / ".coverage.py312"
+    local_file.write_text("local", encoding="utf-8")
+
+    files, debug = resolve_coverage_files(
+        client=CoverageSourceClient(
+            workflow_runs={"workflow_runs": []},
+            artifacts_by_run={},
+            zip_bytes_by_artifact={},
+        ),
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=local_dir,
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="ci",
+        workflow_names=(),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == [local_file]
+    assert debug["resolution"] == "local_current_run_artifacts"
+
+
+def test_resolve_coverage_files_returns_local_files_when_cross_run_lookup_disabled(tmp_path):
+    local_dir = tmp_path / "artifacts"
+    local_dir.mkdir()
+    local_file = local_dir / ".coverage.py312"
+    local_file.write_text("local", encoding="utf-8")
+
+    files, debug = resolve_coverage_files(
+        client=CoverageSourceClient(
+            workflow_runs={"workflow_runs": []},
+            artifacts_by_run={},
+            zip_bytes_by_artifact={},
+        ),
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=local_dir,
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=False,
+        execution_mode="refresh",
+        workflow_names=(),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == [local_file]
+    assert debug["resolution"] == "cross_run_lookup_disabled"
+
+
+def test_resolve_coverage_files_reports_selected_run_without_coverage_files(tmp_path):
+    empty_zip = io.BytesIO()
+    with zipfile.ZipFile(empty_zip, "w"):
+        pass
+    client = CoverageSourceClient(
+        workflow_runs={
+            "workflow_runs": [
+                {
+                    "id": 30,
+                    "name": "CI",
+                    "conclusion": "success",
+                    "updated_at": "2026-03-10T12:00:00Z",
+                }
+            ]
+        },
+        artifacts_by_run={
+            30: {"artifacts": [{"id": 3001, "name": "pr-agent-context-coverage-linux"}]}
+        },
+        zip_bytes_by_artifact={3001: empty_zip.getvalue()},
+    )
+
+    files, debug = resolve_coverage_files(
+        client=client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=tmp_path / "downloaded",
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=("CI",),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == []
+    assert debug["resolution"] == "selected_run_without_coverage_files"
+
+
+def test_resolve_coverage_files_rejects_unsupported_selection_strategy(tmp_path):
+    with pytest.raises(ValueError, match="Unsupported coverage selection strategy"):
+        resolve_coverage_files(
+            client=CoverageSourceClient(
+                workflow_runs={"workflow_runs": []},
+                artifacts_by_run={},
+                zip_bytes_by_artifact={},
+            ),
+            owner="shaypal5",
+            repo="example",
+            head_sha="deadbeef",
+            local_artifacts_dir=tmp_path / "downloaded",
+            artifact_prefix="pr-agent-context-coverage",
+            enable_cross_run_lookup=True,
+            execution_mode="refresh",
+            workflow_names=(),
+            allowed_conclusions=("success",),
+            selection_strategy="oldest",
+            max_candidate_runs=20,
+        )

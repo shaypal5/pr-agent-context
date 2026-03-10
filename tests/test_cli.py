@@ -407,3 +407,51 @@ def test_resolve_failure_context_falls_back_to_env_when_config_pull_request_is_n
     assert context["pull_request_number"] == 17
     assert context["head_sha"] == "def456"
     assert context["trigger_event_name"] == "pull_request_review"
+
+
+def test_resolve_failure_context_prefers_config_pull_request(tmp_path):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    class FakeConfig:
+        tool_ref = "v3"
+        github_token = "token"
+        github_api_url = "https://api.github.com"
+        skip_comment_on_readonly_token = False
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
+
+        class pull_request:
+            owner = "shaypal5"
+            repo = "pr-agent-context"
+            number = 17
+            head_sha = "def456"
+
+        run_id = 123
+        run_attempt = 2
+
+    context = _resolve_failure_context(
+        config=FakeConfig(),
+        env={"GITHUB_REPOSITORY": "ignored/repo", "GITHUB_TOKEN": "token"},
+    )
+
+    assert context is not None
+    assert context["repository"] == "shaypal5/pr-agent-context"
+    assert context["head_sha"] == "def456"
+    assert context["skip_comment_on_readonly_token"] is False
+
+
+def test_build_failure_markdown_omits_run_url_when_run_id_missing():
+    from pr_agent_context.cli import _build_failure_markdown
+
+    markdown = _build_failure_markdown(
+        context={
+            "repository": "shaypal5/pr-agent-context",
+            "pull_request_number": 17,
+            "run_id": 0,
+        },
+        error=RuntimeError("boom"),
+    )
+
+    assert "Run:" not in markdown
