@@ -25,6 +25,15 @@ jobs:
         run: ruff check .
       - name: Pytest
         run: pytest --cov=src/pr_agent_context --cov-branch --cov-report=xml --cov-report=term
+      - name: Verify raw coverage data exists
+        if: ${{ success() }}
+        run: |
+          shopt -s nullglob dotglob
+          files=(.coverage*)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::pytest succeeded but no raw .coverage* files were produced."
+            exit 1
+          fi
       - name: Upload raw coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4

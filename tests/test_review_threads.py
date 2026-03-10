@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pr_agent_context.config import CopilotAuthorMatcherConfig
 from pr_agent_context.domain.models import ReviewThread
-from pr_agent_context.github.review_threads import parse_review_threads
+from pr_agent_context.github.review_threads import (
+    parse_review_threads,
+    wait_for_review_threads_to_settle,
+)
 from pr_agent_context.prompt.ids import assign_item_ids
 
 
@@ -111,3 +114,57 @@ def test_assign_item_ids_preserves_numeric_order_for_legacy_int_thread_ids():
 
     assert [thread.thread_id for thread in numbered_threads] == [2, 10]
     assert [thread.item_id for thread in numbered_threads] == ["REVIEW-1", "REVIEW-2"]
+
+
+class _FakeReviewThreadsClient:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def graphql(self, query, variables):  # noqa: ARG002
+        return self.payload["data"]
+
+
+def test_wait_for_review_threads_to_settle_collects_once_when_timeout_non_positive(
+    review_threads_payload,
+):
+    threads, debug = wait_for_review_threads_to_settle(
+        _FakeReviewThreadsClient(review_threads_payload),
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        max_threads=50,
+        copilot_matcher=CopilotAuthorMatcherConfig(
+            exact_logins=("copilot-pull-request-reviewer[bot]",),
+            regex_patterns=("copilot.*bot",),
+        ),
+        timeout_seconds=0,
+        poll_interval_seconds=10,
+    )
+
+    assert len(threads) == 2
+    assert debug["skipped_reason"] == "timeout_non_positive"
+    assert debug["poll_count"] == 1
+    assert debug["thread_count"] == 2
+
+
+def test_wait_for_review_threads_to_settle_collects_once_when_poll_interval_non_positive(
+    review_threads_payload,
+):
+    threads, debug = wait_for_review_threads_to_settle(
+        _FakeReviewThreadsClient(review_threads_payload),
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        max_threads=50,
+        copilot_matcher=CopilotAuthorMatcherConfig(
+            exact_logins=("copilot-pull-request-reviewer[bot]",),
+            regex_patterns=("copilot.*bot",),
+        ),
+        timeout_seconds=10,
+        poll_interval_seconds=0,
+    )
+
+    assert len(threads) == 2
+    assert debug["skipped_reason"] == "poll_interval_non_positive"
+    assert debug["poll_count"] == 1
+    assert debug["thread_count"] == 2

@@ -71,6 +71,7 @@ def _sync(client, *, body: str | None):
         tool_ref="v3",
         trigger_event_name="pull_request",
         publish_mode="update_matching",
+        generated_at="2026-03-07T08:50:00+00:00",
         body=body,
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=True,
@@ -123,6 +124,7 @@ def test_sync_managed_comment_updates_same_run_even_if_head_sha_and_tool_ref_dif
         tool_ref="v4",
         trigger_event_name="pull_request_review",
         publish_mode="update_matching",
+        generated_at="2026-03-07T08:50:00+00:00",
         body=(
             "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
             "head_sha=newsha999; trigger_event=pull_request_review; "
@@ -185,6 +187,7 @@ def test_sync_managed_comment_append_creates_new_comment_for_different_run_attem
         tool_ref="v3",
         trigger_event_name="pull_request",
         publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
         body=(
             "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
             "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
@@ -216,6 +219,7 @@ def test_sync_managed_comment_ignores_legacy_marker_comments(issue_comments_payl
         tool_ref="v3",
         trigger_event_name="pull_request_review_comment",
         publish_mode="append",
+        generated_at="2026-03-07T09:00:00+00:00",
         body=(
             "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
             "head_sha=feedface; trigger_event=pull_request_review_comment; "
@@ -245,6 +249,7 @@ def test_sync_managed_comment_noops_on_empty_body_in_append_mode(issue_comments_
         tool_ref="v3",
         trigger_event_name="pull_request",
         publish_mode="append",
+        generated_at="2026-03-07T09:00:00+00:00",
         body=None,
         delete_comment_when_empty=False,
         skip_comment_on_readonly_token=False,
@@ -269,6 +274,7 @@ def test_sync_managed_comment_noops_without_comment_when_body_missing(issue_comm
         tool_ref="v3",
         trigger_event_name="pull_request",
         publish_mode="update_matching",
+        generated_at="2026-03-07T09:00:00+00:00",
         body=None,
         delete_comment_when_empty=False,
         skip_comment_on_readonly_token=False,
@@ -293,6 +299,7 @@ def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
         tool_ref="v3",
         trigger_event_name="pull_request",
         publish_mode="append",
+        generated_at="2026-03-07T09:00:00+00:00",
         body=(
             "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
             "head_sha=abc123; trigger_event=pull_request; generated_at=2026-03-07T09:00:00+00:00; "
@@ -345,6 +352,7 @@ def test_sync_managed_comment_updates_latest_managed_when_requested(issue_commen
         tool_ref="v3",
         trigger_event_name="pull_request_review",
         publish_mode="update_latest_managed",
+        generated_at="2026-03-07T09:10:00+00:00",
         body=(
             "<!-- pr-agent-context:managed-comment; schema=v4; "
             "publish_mode=update_latest_managed; pr=17; "
@@ -377,6 +385,7 @@ def test_sync_managed_comment_reports_unchanged_latest_managed_for_empty_body(
         tool_ref="v3",
         trigger_event_name="pull_request_review",
         publish_mode="update_latest_managed",
+        generated_at="2026-03-07T09:10:00+00:00",
         body=None,
         delete_comment_when_empty=False,
         skip_comment_on_readonly_token=False,
@@ -386,3 +395,34 @@ def test_sync_managed_comment_reports_unchanged_latest_managed_for_empty_body(
     assert result.comment_written is True
     assert result.matched_existing_comment is True
     assert result.sync_debug["action"] == "unchanged_latest_managed"
+
+
+def test_sync_managed_comment_uses_supplied_generated_at_in_current_identity(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient([issue_comments_payload[0]])
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=321,
+        run_attempt=4,
+        head_sha="feedbeef",
+        tool_ref="v3",
+        trigger_event_name="pull_request_review",
+        publish_mode="append",
+        generated_at="2026-03-08T10:11:12+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=feedbeef; trigger_event=pull_request_review; "
+            "generated_at=2026-03-08T10:11:12+00:00; "
+            "tool_ref=v3; run_id=321; run_attempt=4 -->\n```markdown\ncreated body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert result.sync_debug["current_identity"]["generated_at"] == "2026-03-08T10:11:12+00:00"

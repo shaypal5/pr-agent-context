@@ -63,6 +63,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         tool_ref,
         trigger_event_name,
         publish_mode,
+        generated_at,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -77,6 +78,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["tool_ref"] = tool_ref
         captured["trigger_event_name"] = trigger_event_name
         captured["publish_mode"] = publish_mode
+        captured["generated_at"] = generated_at
         return PublicationResult(
             comment_id=500,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/15#issuecomment-500",
@@ -107,6 +109,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2
+    assert captured["generated_at"] is not None
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=500" in outputs
@@ -199,6 +202,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         tool_ref,
         trigger_event_name,
         publish_mode,
+        generated_at,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -214,6 +218,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["tool_ref"] = tool_ref
         captured["trigger_event_name"] = trigger_event_name
         captured["publish_mode"] = publish_mode
+        captured["generated_at"] = generated_at
         return PublicationResult(
             comment_id=777,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",
@@ -237,6 +242,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert captured["skip_comment_on_readonly_token"] is False
     assert captured["run_id"] == 321
     assert captured["run_attempt"] == 4
+    assert captured["generated_at"] is not None
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=777" in outputs

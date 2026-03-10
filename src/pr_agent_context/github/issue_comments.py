@@ -58,11 +58,12 @@ def sync_managed_comment(
     tool_ref: str,
     trigger_event_name: str,
     publish_mode: str,
+    generated_at: str | None,
     body: str | None,
     delete_comment_when_empty: bool,
     skip_comment_on_readonly_token: bool,
 ) -> PublicationResult:
-    generated_at = datetime.now(timezone.utc).isoformat()
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat()
     current_identity = ManagedCommentIdentity(
         pull_request_number=pull_request_number,
         publish_mode=publish_mode,  # type: ignore[arg-type]

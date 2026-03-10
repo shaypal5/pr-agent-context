@@ -98,24 +98,40 @@ def wait_for_review_threads_to_settle(
     poll_interval_seconds: int,
 ) -> tuple[list[ReviewThread], dict[str, object]]:
     if timeout_seconds <= 0:
-        return [], {
+        threads = collect_unresolved_review_threads(
+            client,
+            owner=owner,
+            repo=repo,
+            pull_request_number=pull_request_number,
+            max_threads=max_threads,
+            copilot_matcher=copilot_matcher,
+        )
+        return threads, {
             "enabled": True,
             "settled": False,
             "timed_out": False,
             "skipped_reason": "timeout_non_positive",
-            "poll_count": 0,
+            "poll_count": 1,
             "elapsed_seconds": 0.0,
-            "thread_count": 0,
+            "thread_count": len(threads),
         }
     if poll_interval_seconds <= 0:
-        return [], {
+        threads = collect_unresolved_review_threads(
+            client,
+            owner=owner,
+            repo=repo,
+            pull_request_number=pull_request_number,
+            max_threads=max_threads,
+            copilot_matcher=copilot_matcher,
+        )
+        return threads, {
             "enabled": True,
             "settled": False,
             "timed_out": False,
             "skipped_reason": "poll_interval_non_positive",
-            "poll_count": 0,
+            "poll_count": 1,
             "elapsed_seconds": 0.0,
-            "thread_count": 0,
+            "thread_count": len(threads),
         }
 
     start = _monotonic()

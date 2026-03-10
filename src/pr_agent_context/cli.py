@@ -5,6 +5,7 @@ import json
 import os
 import traceback
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pr_agent_context import __version__
@@ -67,6 +68,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
     publication = None
     if context:
         try:
+            generated_at = datetime.now(timezone.utc).isoformat()
             client = GitHubApiClient(
                 token=context["github_token"],
                 api_url=context["github_api_url"],
@@ -80,6 +82,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 publish_mode=str(context.get("publish_mode") or "append"),
                 head_sha=str(context["head_sha"]),
                 tool_ref=str(context.get("tool_ref") or "unknown"),
+                generated_at=generated_at,
             )
             publication = sync_managed_comment(
                 client,
@@ -92,6 +95,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 tool_ref=context.get("tool_ref") or "unknown",
                 trigger_event_name=context.get("trigger_event_name") or "unknown",
                 publish_mode=context.get("publish_mode") or "append",
+                generated_at=generated_at,
                 body=body,
                 delete_comment_when_empty=False,
                 skip_comment_on_readonly_token=context["skip_comment_on_readonly_token"],

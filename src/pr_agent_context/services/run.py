@@ -319,6 +319,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         tool_ref=config.tool_ref,
         trigger_event_name=config.trigger.event_name,
         publish_mode=config.publish_mode,
+        generated_at=generated_at,
         body=rendered.comment_body if rendered.should_publish_comment else None,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
