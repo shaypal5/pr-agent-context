@@ -1,4 +1,4 @@
-<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=0; run_attempt=1; head_sha=def456; tool_ref=v3 -->
+<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; head_sha=def456; trigger_event=pull_request; generated_at=unknown; tool_ref=v3; run_id=0; run_attempt=1 -->
 pr-agent-context report:
 ```markdown
 Repository: foldermix

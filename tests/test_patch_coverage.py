@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 from coverage import Coverage
 from coverage.exceptions import DataError
 
 from pr_agent_context.coverage import combine as combine_module
+from pr_agent_context.coverage.artifacts import resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import compute_patch_coverage
 
@@ -27,6 +30,42 @@ def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> No
         exec(invocation, globals_dict)
     coverage.stop()
     coverage.save()
+
+
+def _coverage_zip_bytes(source_file: Path) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(".coverage.py312", source_file.read_bytes())
+    return buffer.getvalue()
+
+
+class CoverageSourceClient:
+    def __init__(
+        self,
+        *,
+        workflow_runs: dict[str, object],
+        artifacts_by_run: dict[int, dict[str, object]],
+        zip_bytes_by_artifact: dict[int, bytes],
+    ) -> None:
+        self.workflow_runs = workflow_runs
+        self.artifacts_by_run = artifacts_by_run
+        self.zip_bytes_by_artifact = zip_bytes_by_artifact
+
+    def request_json(self, method: str, path: str, params=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return self.workflow_runs
+        if "/actions/runs/" in path and path.endswith("/artifacts"):
+            run_id = int(path.split("/actions/runs/")[1].split("/")[0])
+            return self.artifacts_by_run.get(run_id, {"artifacts": []})
+        raise AssertionError(f"Unexpected JSON request: {path}")
+
+    def request_bytes(self, method: str, path: str) -> bytes:
+        assert method == "GET"
+        if "/actions/artifacts/" in path and path.endswith("/zip"):
+            artifact_id = int(path.split("/actions/artifacts/")[1].split("/")[0])
+            return self.zip_bytes_by_artifact[artifact_id]
+        raise AssertionError(f"Unexpected bytes request: {path}")
 
 
 def test_build_combined_coverage_merges_multiple_data_files(tmp_path):
@@ -217,3 +256,112 @@ def test_compute_patch_coverage_ignores_changed_python_files_outside_measured_ro
     assert summary.is_na is True
     assert summary.actual_percent is None
     assert summary.files == []
+
+
+def test_resolve_coverage_files_selects_latest_successful_matching_workflow(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+    coverage_file = tmp_path / ".coverage.producer"
+    _build_coverage_data(coverage_file, [(module_path, "covered()")])
+
+    client = CoverageSourceClient(
+        workflow_runs={
+            "workflow_runs": [
+                {
+                    "id": 10,
+                    "name": "Other workflow",
+                    "conclusion": "success",
+                    "updated_at": "2026-03-10T10:00:00Z",
+                },
+                {
+                    "id": 20,
+                    "name": "CI",
+                    "conclusion": "failure",
+                    "updated_at": "2026-03-10T11:00:00Z",
+                },
+                {
+                    "id": 30,
+                    "name": "CI",
+                    "conclusion": "success",
+                    "updated_at": "2026-03-10T12:00:00Z",
+                },
+            ]
+        },
+        artifacts_by_run={
+            10: {"artifacts": [{"id": 1001, "name": "pr-agent-context-coverage-old"}]},
+            20: {"artifacts": [{"id": 2001, "name": "pr-agent-context-coverage-fail"}]},
+            30: {"artifacts": [{"id": 3001, "name": "pr-agent-context-coverage-linux"}]},
+        },
+        zip_bytes_by_artifact={
+            1001: _coverage_zip_bytes(coverage_file),
+            2001: _coverage_zip_bytes(coverage_file),
+            3001: _coverage_zip_bytes(coverage_file),
+        },
+    )
+
+    files, debug = resolve_coverage_files(
+        client=client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=tmp_path / "downloaded",
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=("CI",),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert len(files) == 1
+    assert files[0].name.startswith(".coverage")
+    assert debug["resolution"] == "cross_run_downloaded"
+    assert debug["selected_run"] == {
+        "id": 30,
+        "name": "CI",
+        "conclusion": "success",
+        "updated_at": "2026-03-10T12:00:00Z",
+    }
+    assert [candidate["id"] for candidate in debug["candidate_runs"]] == [30, 20, 10]
+    assert debug["candidate_runs"][1]["reasons"] == ["conclusion_filtered"]
+    assert debug["candidate_runs"][2]["reasons"] == ["workflow_name_filtered"]
+
+
+def test_resolve_coverage_files_reports_missing_suitable_producer_run(tmp_path):
+    client = CoverageSourceClient(
+        workflow_runs={
+            "workflow_runs": [
+                {
+                    "id": 10,
+                    "name": "CI",
+                    "conclusion": "success",
+                    "updated_at": "2026-03-10T10:00:00Z",
+                }
+            ]
+        },
+        artifacts_by_run={10: {"artifacts": [{"id": 1001, "name": "unrelated-artifact"}]}},
+        zip_bytes_by_artifact={},
+    )
+
+    files, debug = resolve_coverage_files(
+        client=client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=None,
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=(),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == []
+    assert debug["resolution"] == "no_suitable_coverage_source"
+    assert debug["selected_run"] is None
+    assert debug["candidate_runs"][0]["reasons"] == ["no_matching_artifacts"]

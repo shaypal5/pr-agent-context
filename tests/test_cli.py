@@ -28,6 +28,10 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
         github_output_path = tmp_path / "github-output.txt"
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
 
         class pull_request:
             owner = "shaypal5"
@@ -57,6 +61,8 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         run_attempt,
         head_sha,
         tool_ref,
+        trigger_event_name,
+        publish_mode,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -69,6 +75,8 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["run_attempt"] = run_attempt
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
+        captured["trigger_event_name"] = trigger_event_name
+        captured["publish_mode"] = publish_mode
         return PublicationResult(
             comment_id=500,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/15#issuecomment-500",
@@ -89,7 +97,8 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "skipped_reason" not in comment_sync_event
     assert "error_status_code" not in comment_sync_event
     assert captured["body"].startswith(
-        "<!-- pr-agent-context:managed-comment; schema=v3; pr=15; run_id=123; "
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; "
+        "pr=15; head_sha=deadbeef; trigger_event=pull_request; generated_at="
     )
     assert "\npr-agent-context report:\n```markdown\n" in captured["body"]
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
@@ -110,6 +119,10 @@ def test_cli_run_returns_zero_when_failure_comment_sync_fails(monkeypatch, capsy
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
         github_output_path = None
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
 
         class pull_request:
             owner = "shaypal5"
@@ -184,6 +197,8 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         run_attempt,
         head_sha,
         tool_ref,
+        trigger_event_name,
+        publish_mode,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -197,6 +212,8 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["run_attempt"] = run_attempt
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
+        captured["trigger_event_name"] = trigger_event_name
+        captured["publish_mode"] = publish_mode
         return PublicationResult(
             comment_id=777,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pr_agent_context import __version__
 from pr_agent_context.config import RunConfig
-from pr_agent_context.coverage.artifacts import discover_coverage_files
+from pr_agent_context.coverage.artifacts import resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.git_diff import collect_changed_lines
 from pr_agent_context.coverage.patch import compute_patch_coverage
@@ -17,68 +18,147 @@ from pr_agent_context.domain.models import (
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.failing_checks import collect_failing_checks
 from pr_agent_context.github.issue_comments import sync_managed_comment
-from pr_agent_context.github.review_threads import collect_unresolved_review_threads
+from pr_agent_context.github.pull_request_context import resolve_pull_request_ref
+from pr_agent_context.github.review_threads import (
+    collect_unresolved_review_threads,
+    wait_for_review_threads_to_settle,
+)
 from pr_agent_context.prompt.ids import assign_item_ids
 from pr_agent_context.prompt.render import render_prompt
 
 
 def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> int:
+    generated_at = datetime.now(UTC).isoformat()
+    api_client = client or GitHubApiClient(
+        token=config.github_token,
+        api_url=config.github_api_url,
+    )
+    repository_owner = config.repository_owner or (
+        config.pull_request.owner if config.pull_request is not None else ""
+    )
+    repository_name = config.repository_name or (
+        config.pull_request.repo if config.pull_request is not None else ""
+    )
+    pull_request, pull_request_debug = resolve_pull_request_ref(
+        api_client,
+        owner=repository_owner,
+        repo=repository_name,
+        trigger=config.trigger,
+        pull_request_hint=config.pull_request,
+    )
     _log(
         "start",
         version=__version__,
         tool_ref=config.tool_ref,
-        repository=f"{config.pull_request.owner}/{config.pull_request.repo}",
-        pull_request_number=config.pull_request.number,
-        base_sha=config.pull_request.base_sha,
-        head_sha=config.pull_request.head_sha,
+        repository=f"{pull_request.owner}/{pull_request.repo}",
+        pull_request_number=pull_request.number,
+        base_sha=pull_request.base_sha,
+        head_sha=pull_request.head_sha,
         run_id=config.run_id,
         run_attempt=config.run_attempt,
+        execution_mode=config.execution_mode,
+        publish_mode=config.publish_mode,
+        trigger_event_name=config.trigger.event_name,
+        trigger_action=config.trigger.action or "",
     )
     _log(
         "config",
+        include_refresh_metadata=config.include_refresh_metadata,
         include_review_comments=config.include_review_comments,
         include_failing_checks=config.include_failing_checks,
         include_cross_run_failures=config.include_cross_run_failures,
         include_external_checks=config.include_external_checks,
         wait_for_checks_to_settle=config.wait_for_checks_to_settle,
+        wait_for_reviews_to_settle=config.wait_for_reviews_to_settle,
         include_patch_coverage=config.include_patch_coverage,
+        enable_cross_run_coverage_lookup=config.enable_cross_run_coverage_lookup,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
         prompt_template_file=(
             str(config.prompt_template_file) if config.prompt_template_file else ""
         ),
+        coverage_source_workflows=list(config.coverage_source_workflows),
+        coverage_source_conclusions=list(config.coverage_source_conclusions),
+        coverage_selection_strategy=config.coverage_selection_strategy,
+        fork_behavior=config.fork_behavior,
         check_settle_timeout_seconds=config.check_settle_timeout_seconds,
         check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
+        review_settle_timeout_seconds=config.review_settle_timeout_seconds,
+        review_settle_poll_interval_seconds=config.review_settle_poll_interval_seconds,
         characters_per_line=config.characters_per_line,
         max_actions_runs=config.max_actions_runs,
         max_external_checks=config.max_external_checks,
         max_failing_checks=config.max_failing_checks,
     )
-    api_client = client or GitHubApiClient(
-        token=config.github_token,
-        api_url=config.github_api_url,
+    _log(
+        "trigger",
+        event_name=config.trigger.event_name,
+        action=config.trigger.action or "",
+        source=config.trigger.source,
+        trigger_pull_request_number=config.trigger.pull_request_number or "",
+        trigger_head_sha=config.trigger.head_sha or "",
+        trigger_is_fork=config.trigger.is_fork if config.trigger.is_fork is not None else "",
+        pull_request_resolution=pull_request_debug.get("resolution", ""),
     )
 
     review_threads = []
+    review_settlement_debug = {
+        "enabled": False,
+        "settled": False,
+        "timed_out": False,
+        "skipped_reason": "disabled",
+        "poll_count": 0,
+        "elapsed_seconds": 0.0,
+        "thread_count": 0,
+    }
     if config.include_review_comments:
-        review_threads = collect_unresolved_review_threads(
-            api_client,
-            owner=config.pull_request.owner,
-            repo=config.pull_request.repo,
-            pull_request_number=config.pull_request.number,
-            max_threads=config.max_review_threads,
-            copilot_matcher=config.copilot_author_patterns,
-        )
+        if config.execution_mode == "refresh" and config.wait_for_reviews_to_settle:
+            review_threads, review_settlement_debug = wait_for_review_threads_to_settle(
+                api_client,
+                owner=pull_request.owner,
+                repo=pull_request.repo,
+                pull_request_number=pull_request.number,
+                max_threads=config.max_review_threads,
+                copilot_matcher=config.copilot_author_patterns,
+                timeout_seconds=config.review_settle_timeout_seconds,
+                poll_interval_seconds=config.review_settle_poll_interval_seconds,
+            )
+        else:
+            review_threads = collect_unresolved_review_threads(
+                api_client,
+                owner=pull_request.owner,
+                repo=pull_request.repo,
+                pull_request_number=pull_request.number,
+                max_threads=config.max_review_threads,
+                copilot_matcher=config.copilot_author_patterns,
+            )
+            if config.execution_mode == "refresh":
+                review_settlement_debug = {
+                    **review_settlement_debug,
+                    "enabled": config.wait_for_reviews_to_settle,
+                    "skipped_reason": "refresh_wait_disabled",
+                    "thread_count": len(review_threads),
+                }
     _log("review_threads", enabled=config.include_review_comments, count=len(review_threads))
+    _log(
+        "review_settlement",
+        enabled=review_settlement_debug.get("enabled", False),
+        settled=review_settlement_debug.get("settled", False),
+        timed_out=review_settlement_debug.get("timed_out", False),
+        skipped_reason=review_settlement_debug.get("skipped_reason", ""),
+        poll_count=review_settlement_debug.get("poll_count", 0),
+        elapsed_seconds=review_settlement_debug.get("elapsed_seconds", 0.0),
+        thread_count=review_settlement_debug.get("thread_count", 0),
+    )
 
     failing_checks = []
     failing_check_debug: dict | None = None
     if config.include_failing_checks:
         failing_checks, failing_check_debug = collect_failing_checks(
             api_client,
-            owner=config.pull_request.owner,
-            repo=config.pull_request.repo,
-            head_sha=config.pull_request.head_sha,
+            owner=pull_request.owner,
+            repo=pull_request.repo,
+            head_sha=pull_request.head_sha,
             current_run_id=config.run_id,
             current_run_attempt=config.run_attempt,
             include_cross_run_failures=config.include_cross_run_failures,
@@ -114,19 +194,43 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     patch_coverage = None
     changed_lines: dict[str, list[int]] = {}
     coverage_files: list[Path] = []
+    coverage_source_debug: dict | None = None
     if config.include_patch_coverage:
         changed_lines = collect_changed_lines(
             config.workspace,
-            base_sha=config.pull_request.base_sha,
-            head_sha=config.pull_request.head_sha,
+            base_sha=pull_request.base_sha,
+            head_sha=pull_request.head_sha,
         )
-        coverage_files = discover_coverage_files(config.coverage_artifacts_dir)
+        coverage_files, coverage_source_debug = resolve_coverage_files(
+            client=api_client,
+            owner=pull_request.owner,
+            repo=pull_request.repo,
+            head_sha=pull_request.head_sha,
+            local_artifacts_dir=config.coverage_artifacts_dir,
+            artifact_prefix=config.coverage_artifact_prefix,
+            enable_cross_run_lookup=config.enable_cross_run_coverage_lookup,
+            execution_mode=config.execution_mode,
+            workflow_names=config.coverage_source_workflows,
+            allowed_conclusions=config.coverage_source_conclusions,
+            selection_strategy=config.coverage_selection_strategy,
+            max_candidate_runs=config.max_actions_runs,
+        )
         _log(
             "patch_inputs",
             enabled=config.include_patch_coverage,
             changed_files=len(changed_lines),
             changed_python_files=sum(1 for path in changed_lines if path.endswith(".py")),
             coverage_artifact_files=len(coverage_files),
+        )
+        _log(
+            "coverage_source",
+            resolution=(coverage_source_debug or {}).get("resolution", ""),
+            candidate_runs=len((coverage_source_debug or {}).get("candidate_runs", [])),
+            selected_run_id=((coverage_source_debug or {}).get("selected_run") or {}).get("id", ""),
+            selected_artifact_count=len(
+                (coverage_source_debug or {}).get("selected_artifacts", [])
+            ),
+            warning_count=len((coverage_source_debug or {}).get("warnings", [])),
         )
         combined_coverage = build_combined_coverage(
             workspace=config.workspace,
@@ -163,17 +267,23 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
 
     numbered_threads, numbered_failures = assign_item_ids(review_threads, failing_checks)
     collected_context = CollectedContext(
-        pull_request=config.pull_request,
+        trigger=config.trigger,
+        pull_request=pull_request,
         review_threads=numbered_threads,
         failing_checks=numbered_failures,
         patch_coverage=patch_coverage,
         failing_check_debug=failing_check_debug,
+        review_settlement_debug=review_settlement_debug,
+        coverage_source_debug=coverage_source_debug,
     )
     rendered = render_prompt(
-        pull_request_number=config.pull_request.number,
-        head_sha=config.pull_request.head_sha,
+        pull_request_number=pull_request.number,
+        head_sha=pull_request.head_sha,
         run_id=config.run_id,
         run_attempt=config.run_attempt,
+        trigger_event_name=config.trigger.event_name,
+        execution_mode=config.execution_mode,
+        publish_mode=config.publish_mode,
         tool_ref=config.tool_ref,
         tool_version=__version__,
         review_threads=numbered_threads,
@@ -182,10 +292,12 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         include_review_comments=config.include_review_comments,
         include_failing_checks=config.include_failing_checks,
         include_patch_coverage=config.include_patch_coverage,
+        include_refresh_metadata=config.include_refresh_metadata,
         prompt_preamble=config.prompt_preamble,
         force_patch_coverage_section=config.force_patch_coverage_section,
         prompt_template_file=config.prompt_template_file,
         characters_per_line=config.characters_per_line,
+        generated_at=generated_at,
     )
     _log(
         "render",
@@ -198,13 +310,15 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     )
     publication = sync_managed_comment(
         api_client,
-        owner=config.pull_request.owner,
-        repo=config.pull_request.repo,
-        pull_request_number=config.pull_request.number,
+        owner=pull_request.owner,
+        repo=pull_request.repo,
+        pull_request_number=pull_request.number,
         run_id=config.run_id,
         run_attempt=config.run_attempt,
-        head_sha=config.pull_request.head_sha,
+        head_sha=pull_request.head_sha,
         tool_ref=config.tool_ref,
+        trigger_event_name=config.trigger.event_name,
+        publish_mode=config.publish_mode,
         body=rendered.comment_body if rendered.should_publish_comment else None,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
@@ -215,9 +329,11 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         comment_written=publication.comment_written,
         comment_id=publication.comment_id or "",
         comment_url=publication.comment_url or "",
+        publish_mode=publication.publish_mode,
         managed_comments=publication.managed_comment_count,
         body_changed=publication.body_changed,
         matched_existing_comment=publication.matched_existing_comment,
+        matched_comment_id=publication.matched_comment_id or "",
         matched_comment_run_id=publication.matched_comment_run_id or "",
         matched_comment_run_attempt=publication.matched_comment_run_attempt or "",
         skipped_reason=publication.skipped_reason or "",
@@ -260,6 +376,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             summary=summary,
             publication=publication,
             failing_check_debug=failing_check_debug,
+            coverage_source_debug=coverage_source_debug,
+            pull_request_debug=pull_request_debug,
         )
     _write_outputs(
         config.github_output_path,
@@ -317,6 +435,8 @@ def _write_debug_artifacts(
     summary: DebugSummary,
     publication,
     failing_check_debug: dict | None,
+    coverage_source_debug: dict | None,
+    pull_request_debug: dict[str, object],
 ) -> None:
     if debug_dir is None:
         return
@@ -336,6 +456,9 @@ def _write_debug_artifacts(
     )
     if failing_check_debug is not None:
         _write_json(debug_dir / "failing-check-universe.json", failing_check_debug)
+    if coverage_source_debug is not None:
+        _write_json(debug_dir / "coverage-source.json", coverage_source_debug)
+    _write_json(debug_dir / "pull-request-context.json", pull_request_debug)
     _write_json(debug_dir / "comment-sync.json", publication.model_dump(mode="json"))
 
 

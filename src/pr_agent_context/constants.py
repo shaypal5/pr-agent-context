@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 MANAGED_COMMENT_MARKER_PREFIX = "<!-- pr-agent-context:managed-comment"
-MANAGED_COMMENT_SCHEMA_VERSION = "v3"
+MANAGED_COMMENT_SCHEMA_VERSION = "v4"
 
 DEFAULT_PROMPT_OPENING = (
     "Below are the details of possibly unresolved review comments and/or "
@@ -21,6 +21,8 @@ DEFAULT_ALL_CLEAR_PROMPT = (
     "coverage gaps were found on PR #{pr_number}. Treat this PR as all clear "
     "unless new signals appear."
 )
+
+DEFAULT_REFRESH_NOTE = "This is a refreshed snapshot of the current PR state."
 
 COPILOT_COMMENT_SECTION = "Copilot Comments"
 REVIEW_COMMENT_SECTION = "Other Review Comments"
@@ -84,11 +86,18 @@ DEFAULT_MAX_FAILING_ITEMS = 25
 DEFAULT_MAX_LOG_LINES_PER_JOB = 80
 DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS = 45
 DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS = 5
+DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS = 180
+DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS = 10
 DEFAULT_CHARACTERS_PER_LINE = 100
 DEFAULT_TARGET_PATCH_COVERAGE = 100.0
 DEFAULT_COVERAGE_ARTIFACT_PREFIX = "pr-agent-context-coverage"
 DEFAULT_TOOL_REF = "v3"
 DEFAULT_DEBUG_ARTIFACT_PREFIX = "pr-agent-context-debug"
+DEFAULT_EXECUTION_MODE = "auto"
+DEFAULT_PUBLISH_MODE = "append"
+DEFAULT_COVERAGE_SELECTION_STRATEGY = "latest_successful"
+DEFAULT_FORK_BEHAVIOR = "best_effort"
+DEFAULT_COVERAGE_SOURCE_CONCLUSIONS = ("success",)
 
 DEFAULT_SECTION_BUDGETS = {
     "copilot_comments_section": 12000,

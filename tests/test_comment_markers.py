@@ -10,15 +10,18 @@ from pr_agent_context.github.comment_markers import (
 def test_format_and_parse_managed_comment_marker_round_trip():
     identity = ManagedCommentIdentity(
         pull_request_number=17,
+        publish_mode="append",
         run_id=100,
         run_attempt=2,
         head_sha="def456",
+        trigger_event_name="pull_request_review",
+        generated_at="2026-03-10T10:00:00+00:00",
         tool_ref="v3",
     )
 
     marker = format_managed_comment_marker(identity)
 
-    assert marker.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
+    assert marker.startswith("<!-- pr-agent-context:managed-comment; schema=v4;")
     assert parse_managed_comment_marker(marker) == identity
 
 
@@ -28,8 +31,8 @@ def test_parse_managed_comment_marker_rejects_legacy_marker():
 
 def test_parse_managed_comment_marker_rejects_missing_fields():
     body = (
-        "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; run_id=100; "
-        "run_attempt=2; head_sha=def456 -->"
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+        "run_id=100; run_attempt=2; head_sha=def456 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -37,8 +40,9 @@ def test_parse_managed_comment_marker_rejects_missing_fields():
 
 def test_parse_managed_comment_marker_rejects_unknown_schema():
     body = (
-        "<!-- pr-agent-context:managed-comment; schema=v999; pr=17; run_id=100; "
-        "run_attempt=2; head_sha=def456; tool_ref=v3 -->"
+        "<!-- pr-agent-context:managed-comment; schema=v999; publish_mode=append; pr=17; "
+        "run_id=100; run_attempt=2; head_sha=def456; trigger_event=pull_request; "
+        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -46,8 +50,9 @@ def test_parse_managed_comment_marker_rejects_unknown_schema():
 
 def test_parse_managed_comment_marker_rejects_invalid_entries():
     body = (
-        "<!-- pr-agent-context:managed-comment; schema=v3; pr=17; bad-entry; "
-        "run_id=100; run_attempt=2; head_sha=def456; tool_ref=v3 -->"
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+        "bad-entry; run_id=100; run_attempt=2; head_sha=def456; "
+        "trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -55,8 +60,9 @@ def test_parse_managed_comment_marker_rejects_invalid_entries():
 
 def test_parse_managed_comment_marker_rejects_non_integer_identity_fields():
     body = (
-        "<!-- pr-agent-context:managed-comment; schema=v3; pr=abc; run_id=100; "
-        "run_attempt=two; head_sha=def456; tool_ref=v3 -->"
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=abc; "
+        "run_id=100; run_attempt=two; head_sha=def456; trigger_event=pull_request; "
+        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
     )
 
     assert parse_managed_comment_marker(body) is None

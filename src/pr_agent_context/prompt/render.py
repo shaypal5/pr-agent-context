@@ -13,6 +13,7 @@ from pr_agent_context.constants import (
     DEFAULT_ITEM_BUDGET_FLOOR,
     DEFAULT_PATCH_SECTION_HARD_LIMIT,
     DEFAULT_PROMPT_OPENING,
+    DEFAULT_REFRESH_NOTE,
     DEFAULT_REPLY_BODY_CHARS,
     DEFAULT_ROOT_COMMENT_BODY_CHARS,
     DEFAULT_SECTION_BUDGETS,
@@ -42,6 +43,9 @@ def render_prompt(
     head_sha: str | None = None,
     run_id: int = 0,
     run_attempt: int = 1,
+    trigger_event_name: str = "pull_request",
+    execution_mode: str = "ci",
+    publish_mode: str = "append",
     tool_ref: str = DEFAULT_TOOL_REF,
     tool_version: str = __version__,
     review_threads: list[ReviewThread],
@@ -50,10 +54,12 @@ def render_prompt(
     include_review_comments: bool = True,
     include_failing_checks: bool = True,
     include_patch_coverage: bool = True,
+    include_refresh_metadata: bool = True,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
     prompt_template_file: Path | None = None,
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE,
+    generated_at: str | None = None,
 ) -> RenderedPrompt:
     truncation_notes: list[TruncationNote] = []
     has_review_items = include_review_comments and bool(review_threads)
@@ -103,6 +109,8 @@ def render_prompt(
                 include_review_comments=include_review_comments,
                 include_failing_checks=include_failing_checks,
                 include_patch_coverage=include_patch_coverage,
+                execution_mode=execution_mode,
+                include_refresh_metadata=include_refresh_metadata,
             ),
             "copilot_comments_section": copilot_section,
             "review_comments_section": review_section,
@@ -120,8 +128,12 @@ def render_prompt(
         pull_request_number=pull_request_number,
         run_id=run_id,
         run_attempt=run_attempt,
+        trigger_event_name=trigger_event_name,
+        publish_mode=publish_mode,
         head_sha=head_sha or "unknown",
         tool_ref=tool_ref,
+        tool_version=tool_version,
+        generated_at=generated_at,
     )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
@@ -140,21 +152,28 @@ def build_managed_comment_body(
     pull_request_number: int,
     run_id: int,
     run_attempt: int,
+    trigger_event_name: str,
+    publish_mode: str,
     head_sha: str,
     tool_ref: str,
+    tool_version: str = __version__,
+    generated_at: str | None = None,
 ) -> str:
     marker = format_managed_comment_marker(
         ManagedCommentIdentity(
             pull_request_number=pull_request_number,
+            publish_mode=publish_mode,  # type: ignore[arg-type]
+            head_sha=head_sha,
+            trigger_event_name=trigger_event_name,
+            generated_at=generated_at or "unknown",
+            tool_ref=tool_ref,
             run_id=run_id,
             run_attempt=run_attempt,
-            head_sha=head_sha,
-            tool_ref=tool_ref,
         )
     )
     metadata = _render_run_metadata(
         tool_ref=tool_ref,
-        tool_version=__version__,
+        tool_version=tool_version,
         run_id=run_id,
         run_attempt=run_attempt,
         head_sha=head_sha,
@@ -176,9 +195,16 @@ def _build_opening_instructions(
     include_review_comments: bool,
     include_failing_checks: bool,
     include_patch_coverage: bool,
+    execution_mode: str,
+    include_refresh_metadata: bool,
 ) -> str:
+    refresh_note = (
+        f"{DEFAULT_REFRESH_NOTE}\n\n"
+        if include_refresh_metadata and execution_mode == "refresh"
+        else ""
+    )
     if has_actionable_items:
-        return DEFAULT_PROMPT_OPENING.format(
+        return refresh_note + DEFAULT_PROMPT_OPENING.format(
             pr_number=pull_request_number,
         )
 
@@ -192,11 +218,11 @@ def _build_opening_instructions(
         if not enabled
     ]
     if not disabled_checks:
-        return DEFAULT_ALL_CLEAR_PROMPT.format(
+        return refresh_note + DEFAULT_ALL_CLEAR_PROMPT.format(
             pr_number=pull_request_number,
         )
     return (
-        "No actionable items were found in the enabled checks for PR "
+        refresh_note + "No actionable items were found in the enabled checks for PR "
         f"#{pull_request_number} at head commit {head_sha or 'unknown'}."
         + "\n\n"
         + "Note: This assessment only covers the enabled checks for this run. "

@@ -10,11 +10,12 @@ from pathlib import Path
 from pr_agent_context import __version__
 from pr_agent_context.config import (
     RunConfig,
-    load_pull_request_context_from_env,
+    load_trigger_context_from_env,
     parse_bool_env,
 )
 from pr_agent_context.github.api import GitHubApiClient
 from pr_agent_context.github.issue_comments import sync_managed_comment
+from pr_agent_context.github.pull_request_context import resolve_pull_request_ref
 from pr_agent_context.prompt.render import build_managed_comment_body
 from pr_agent_context.services.run import run_service
 
@@ -75,6 +76,8 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 pull_request_number=int(context["pull_request_number"]),
                 run_id=int(context["run_id"]),
                 run_attempt=int(context["run_attempt"]),
+                trigger_event_name=str(context.get("trigger_event_name") or "unknown"),
+                publish_mode=str(context.get("publish_mode") or "append"),
                 head_sha=str(context["head_sha"]),
                 tool_ref=str(context.get("tool_ref") or "unknown"),
             )
@@ -87,6 +90,8 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 run_attempt=context["run_attempt"],
                 head_sha=context["head_sha"],
                 tool_ref=context.get("tool_ref") or "unknown",
+                trigger_event_name=context.get("trigger_event_name") or "unknown",
+                publish_mode=context.get("publish_mode") or "append",
                 body=body,
                 delete_comment_when_empty=False,
                 skip_comment_on_readonly_token=context["skip_comment_on_readonly_token"],
@@ -130,6 +135,9 @@ def _resolve_failure_context(
     env: dict[str, str],
 ) -> dict[str, object] | None:
     if config is not None:
+        if config.pull_request is None:
+            return None
+        trigger = getattr(config, "trigger", None)
         return {
             "owner": config.pull_request.owner,
             "repo": config.pull_request.repo,
@@ -139,6 +147,8 @@ def _resolve_failure_context(
             "run_id": config.run_id,
             "run_attempt": config.run_attempt,
             "tool_ref": config.tool_ref,
+            "trigger_event_name": getattr(trigger, "event_name", "unknown"),
+            "publish_mode": getattr(config, "publish_mode", "append"),
             "github_token": config.github_token,
             "github_api_url": config.github_api_url,
             "skip_comment_on_readonly_token": config.skip_comment_on_readonly_token,
@@ -150,7 +160,37 @@ def _resolve_failure_context(
     if not repository or not github_token or not event_path:
         return None
     try:
-        owner, repo, pull_request = load_pull_request_context_from_env(env)
+        owner, repo = repository.split("/", maxsplit=1)
+        trigger = load_trigger_context_from_env(env)
+        if trigger.pull_request_number is not None and trigger.head_sha:
+            return {
+                "owner": owner,
+                "repo": repo,
+                "repository": repository,
+                "pull_request_number": trigger.pull_request_number,
+                "head_sha": trigger.head_sha,
+                "run_id": int(env.get("GITHUB_RUN_ID", "0") or "0"),
+                "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
+                "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
+                "trigger_event_name": trigger.event_name,
+                "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
+                "github_token": github_token,
+                "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
+                "skip_comment_on_readonly_token": parse_bool_env(
+                    env.get("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN"),
+                    default=True,
+                ),
+            }
+        client = GitHubApiClient(
+            token=github_token,
+            api_url=env.get("GITHUB_API_URL", "https://api.github.com"),
+        )
+        pull_request, _ = resolve_pull_request_ref(
+            client,
+            owner=owner,
+            repo=repo,
+            trigger=trigger,
+        )
     except Exception:
         return None
     return {
@@ -162,6 +202,8 @@ def _resolve_failure_context(
         "run_id": int(env.get("GITHUB_RUN_ID", "0") or "0"),
         "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
         "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
+        "trigger_event_name": trigger.event_name,
+        "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
         "github_token": github_token,
         "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
         "skip_comment_on_readonly_token": parse_bool_env(

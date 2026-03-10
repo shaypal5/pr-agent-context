@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from pr_agent_context.config import PullRequestRef
+from pr_agent_context.config import PullRequestRef, TriggerContext
 
 
 class ReviewMessage(BaseModel):
@@ -133,11 +133,14 @@ class PatchCoverageSummary(BaseModel):
 class CollectedContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    trigger: TriggerContext
     pull_request: PullRequestRef
     review_threads: list[ReviewThread] = Field(default_factory=list)
     failing_checks: list[FailingCheck] = Field(default_factory=list)
     patch_coverage: PatchCoverageSummary | None = None
     failing_check_debug: dict | None = None
+    review_settlement_debug: dict | None = None
+    coverage_source_debug: dict | None = None
 
 
 class ManagedComment(BaseModel):
@@ -156,22 +159,26 @@ class ManagedComment(BaseModel):
 class ManagedCommentIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    schema_version: str = "v3"
+    schema_version: str = "v4"
     pull_request_number: int
-    run_id: int
-    run_attempt: int
+    publish_mode: Literal["append", "update_latest_managed", "update_matching"] = "append"
     head_sha: str
+    trigger_event_name: str = "pull_request"
+    generated_at: str = "unknown"
     tool_ref: str
+    run_id: int | None = None
+    run_attempt: int | None = None
 
 
 PublicationAction = Literal[
     "none",
     "deleted",
     "noop_no_comment",
-    "preserved_empty",
     "created",
-    "updated_same_run",
-    "unchanged_same_run",
+    "updated_latest_managed",
+    "updated_matching",
+    "unchanged_latest_managed",
+    "unchanged_matching",
     "skipped_forbidden",
 ]
 
@@ -225,10 +232,13 @@ class PublicationResult(BaseModel):
     body_changed: bool = False
     skipped_reason: str | None = None
     error_status_code: int | None = None
+    publish_mode: Literal["append", "update_latest_managed", "update_matching"] = "append"
     run_id: int | None = None
     run_attempt: int | None = None
     head_sha: str | None = None
+    trigger_event_name: str | None = None
     matched_existing_comment: bool = False
+    matched_comment_id: int | None = None
     matched_comment_run_id: int | None = None
     matched_comment_run_attempt: int | None = None
     sync_debug: dict[str, object] = Field(default_factory=dict)

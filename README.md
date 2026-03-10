@@ -14,15 +14,17 @@ Current behavior includes:
 - configurable prompt templating from the caller repository
 - structured debug artifacts for inspection and downstream automation
 - deterministic prompt rendering with stable item IDs
-- append-only managed PR comments scoped to the producing workflow run
+- refresh-capable execution for CI producer runs and later PR lifecycle events
+- append-first managed PR comments with optional update modes
+- cross-run coverage artifact reuse for refresh invocations on the same PR head SHA
 
-Each run writes its own managed comment. The tool updates only the comment for the exact same
-`(run_id, run_attempt)` identity and preserves older run comments for auditability.
+By default, each invocation writes a new managed comment. The tool can also be configured to
+update the latest managed comment or update the newest comment matching the current run identity.
 
 The managed comment body shape is:
 
 ````markdown
-<!-- pr-agent-context:managed-comment; schema=v3; pr=<PR>; run_id=<RUN_ID>; run_attempt=<ATTEMPT>; head_sha=<HEAD_SHA>; tool_ref=<TOOL_REF> -->
+<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=<MODE>; pr=<PR>; head_sha=<HEAD_SHA>; trigger_event=<EVENT>; generated_at=<TIMESTAMP>; tool_ref=<TOOL_REF>; run_id=<RUN_ID>; run_attempt=<ATTEMPT> -->
 pr-agent-context report:
 ```markdown
 <rendered prompt>
@@ -79,14 +81,23 @@ After the version tag push completes, the workflow force-updates the matching ma
 The reusable workflow inputs are:
 
 - `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v3"`
+- `execution_mode`: `ci`, `refresh`, or `auto`, default `auto`
+- `publish_mode`: `append`, `update_latest_managed`, or `update_matching`, default `append`
+- `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`
 - `include_review_comments`: include unresolved PR review threads, default `true`
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
 - `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
+- `wait_for_reviews_to_settle`: in refresh mode, briefly poll unresolved review threads before rendering, default `false`
 - `target_patch_coverage`: required patch coverage percentage, default `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
 - `coverage_artifact_prefix`: artifact name prefix for raw `.coverage*` uploads, default `pr-agent-context-coverage`
+- `enable_cross_run_coverage_lookup`: allow refresh-mode runs to reuse coverage artifacts from prior producer runs on the same head SHA, default `true`
+- `coverage_source_workflows`: optional workflow-name filter for reusable coverage producer runs
+- `coverage_source_conclusions`: allowed producer run conclusions, default `success`
+- `coverage_selection_strategy`: coverage producer selection strategy, default `latest_successful`
+- `fork_behavior`: fork degradation policy, default `best_effort`
 - `force_patch_coverage_section`: render the `# Codecov/patch` section even when patch coverage is not actionable, default `false`
 - `prompt_preamble`: optional text inserted near the top of the rendered prompt
 - `prompt_template_file`: optional template file path in the caller repository workspace
@@ -101,6 +112,8 @@ The reusable workflow inputs are:
 - `max_log_lines_per_job`: cap collected failed-job excerpt lines before rendering, default `80`
 - `check_settle_timeout_seconds`: maximum seconds to wait for the head-SHA check universe to settle, default `45`
 - `check_settle_poll_interval_seconds`: polling interval in seconds while waiting for late checks, default `5`
+- `review_settle_timeout_seconds`: maximum seconds to wait for unresolved review threads to stabilize in refresh mode, default `180`
+- `review_settle_poll_interval_seconds`: polling interval while waiting for review-thread stability, default `10`
 - `characters_per_line`: wrap plain prose lines in rendered output to this width, default `100`
 
 When failing-check collection is enabled, `pr-agent-context` now waits briefly for the PR head
@@ -154,14 +167,45 @@ are wrapped to 100 characters, while semantically sensitive lines are left untou
 - metadata lines such as `Location:` and `URL:`
 - lines containing URLs
 
+## Refresh Mode
+
+`pr-agent-context` now supports both CI producer runs and later refresh-style runs with the same
+reusable workflow.
+
+Recommended consumer patterns:
+
+1. CI producer workflow
+- trigger: `pull_request`
+- runs tests and uploads raw `.coverage*` artifacts
+- invokes `pr-agent-context` in normal/auto mode
+
+2. Refresh workflow
+- triggers: `pull_request_review`, `pull_request_review_comment`
+- optional additional triggers: `workflow_run`, `status`, `check_run`
+- invokes the same reusable workflow with:
+  - `execution_mode: refresh`
+  - `publish_mode: append`
+  - `enable_cross_run_coverage_lookup: true`
+  - optional `wait_for_reviews_to_settle: true`
+
+Refresh mode is best-effort on forks. When write access, external checks, or artifact access are
+restricted, the tool records those degradations in debug artifacts instead of failing wholesale.
+
 ## Coverage Artifact Contract
 
 Patch coverage is computed locally from:
 
 1. the caller repo git diff between the PR base SHA and head SHA
-2. merged raw `.coverage*` data downloaded from artifacts produced earlier in the same caller workflow run
+2. merged raw `.coverage*` data downloaded either from the current run or from a selected prior
+   producer workflow run for the same PR head SHA
 
 The reusable workflow does **not** scrape the Codecov UI and does **not** call Codecov APIs.
+
+For refresh invocations, `pr-agent-context` can reuse artifacts from prior runs:
+- it searches workflow runs for the same head SHA
+- filters by configured workflow names/conclusions when provided
+- deterministically chooses the latest suitable producer run
+- downloads matching artifacts and reuses the existing `coverage.py` combine + patch analysis flow
 
 Coverage-producing jobs in downstream repos must upload raw `coverage.py` data files in
 artifacts whose names start with the configured prefix. Example:
@@ -198,6 +242,8 @@ When `debug_artifacts` is enabled, the reusable workflow uploads a debug bundle 
 
 - `collected-context.json`: normalized collected review/failure/coverage context
 - `failing-check-universe.json`: raw failing-check universe, deduped failing-check set, source counts, and collector warnings
+- `coverage-source.json`: coverage-source candidate runs, selected producer run/artifacts, and reuse decisions
+- `pull-request-context.json`: trigger-derived PR resolution details
 - `prompt.md`: rendered prompt markdown before the managed-comment wrapper
 - `comment-body.md`: final managed PR comment body
 - `comment-sync.json`: parsed managed comments, current run identity, selected sync target, and publication action

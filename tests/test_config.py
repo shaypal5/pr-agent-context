@@ -10,6 +10,7 @@ from pr_agent_context.config import (
     _extract_pull_request_shas,
     _parse_bool,
     load_pull_request_context_from_env,
+    load_trigger_context_from_env,
     parse_bool_env,
 )
 
@@ -275,3 +276,142 @@ def test_load_pull_request_context_from_env(tmp_path):
     assert pull_request.number == 42
     assert pull_request.base_sha == "abc123"
     assert pull_request.head_sha == "def456"
+
+
+@pytest.mark.parametrize(
+    ("event_name", "event_payload", "expected_source", "expected_number", "expected_head_sha"),
+    [
+        (
+            "pull_request_review",
+            {
+                "action": "submitted",
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456", "repo": {"fork": True}},
+                },
+            },
+            "pull_request_review:submitted",
+            17,
+            "def456",
+        ),
+        (
+            "pull_request_review_comment",
+            {
+                "action": "created",
+                "pull_request": {
+                    "number": 18,
+                    "base": {"sha": "base123"},
+                    "head": {"sha": "head123", "repo": {"fork": False}},
+                },
+            },
+            "pull_request_review_comment:created",
+            18,
+            "head123",
+        ),
+        (
+            "workflow_run",
+            {
+                "action": "completed",
+                "workflow_run": {
+                    "head_sha": "deadbeef",
+                    "pull_requests": [{"number": 21}],
+                },
+            },
+            "workflow_run:completed",
+            21,
+            "deadbeef",
+        ),
+        (
+            "status",
+            {
+                "sha": "feedface",
+            },
+            "status",
+            None,
+            "feedface",
+        ),
+    ],
+)
+def test_load_trigger_context_from_env_supports_refresh_events(
+    tmp_path,
+    event_name,
+    event_payload,
+    expected_source,
+    expected_number,
+    expected_head_sha,
+):
+    event_path = tmp_path / f"{event_name}.json"
+    event_path.write_text(json.dumps(event_payload), encoding="utf-8")
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": event_name,
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(event_payload.get("action") or ""),
+        }
+    )
+
+    assert trigger.event_name == event_name
+    assert trigger.source == expected_source
+    assert trigger.pull_request_number == expected_number
+    assert trigger.head_sha == expected_head_sha
+
+
+@pytest.mark.parametrize(
+    ("event_name", "expected_mode"),
+    [
+        ("pull_request", "ci"),
+        ("pull_request_review", "refresh"),
+        ("pull_request_review_comment", "refresh"),
+        ("workflow_run", "refresh"),
+        ("status", "refresh"),
+    ],
+)
+def test_run_config_auto_execution_mode_resolves_by_event_name(
+    tmp_path,
+    event_name,
+    expected_mode,
+):
+    event_path = tmp_path / f"{event_name}.json"
+    if event_name == "pull_request":
+        payload = {
+            "pull_request": {
+                "number": 17,
+                "base": {"sha": "abc123"},
+                "head": {"sha": "def456", "repo": {"fork": False}},
+            }
+        }
+    elif event_name == "workflow_run":
+        payload = {
+            "workflow_run": {
+                "head_sha": "def456",
+                "pull_requests": [{"number": 17}],
+            }
+        }
+    elif event_name == "status":
+        payload = {"sha": "def456"}
+    else:
+        payload = {
+            "action": "created",
+            "pull_request": {
+                "number": 17,
+                "base": {"sha": "abc123"},
+                "head": {"sha": "def456", "repo": {"fork": False}},
+            },
+        }
+    event_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+            "PR_AGENT_CONTEXT_EXECUTION_MODE": "auto",
+        }
+    )
+
+    assert config.execution_mode == expected_mode
