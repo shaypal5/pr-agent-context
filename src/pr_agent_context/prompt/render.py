@@ -99,10 +99,6 @@ def render_prompt(
             "opening_instructions": _build_opening_instructions(
                 pull_request_number=pull_request_number,
                 head_sha=head_sha,
-                run_id=run_id,
-                run_attempt=run_attempt,
-                tool_ref=tool_ref,
-                tool_version=tool_version,
                 has_actionable_items=has_actionable_items,
                 include_review_comments=include_review_comments,
                 include_failing_checks=include_failing_checks,
@@ -156,17 +152,26 @@ def build_managed_comment_body(
             tool_ref=tool_ref,
         )
     )
-    return f"{marker}\n{_wrap_markdown_code_block(markdown)}"
+    metadata = _render_run_metadata(
+        tool_ref=tool_ref,
+        tool_version=__version__,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        head_sha=head_sha,
+    )
+    return (
+        f"{marker}\n"
+        "pr-agent-context report:\n"
+        f"{_wrap_code_block(markdown, info_string='markdown')}\n"
+        "Run metadata:\n"
+        f"{_wrap_code_block(metadata)}"
+    )
 
 
 def _build_opening_instructions(
     *,
     pull_request_number: int,
     head_sha: str | None,
-    run_id: int,
-    run_attempt: int,
-    tool_ref: str,
-    tool_version: str,
     has_actionable_items: bool,
     include_review_comments: bool,
     include_failing_checks: bool,
@@ -175,11 +180,6 @@ def _build_opening_instructions(
     if has_actionable_items:
         return DEFAULT_PROMPT_OPENING.format(
             pr_number=pull_request_number,
-            head_sha=head_sha or "unknown",
-            run_id=run_id,
-            run_attempt=run_attempt,
-            tool_ref=tool_ref,
-            tool_version=tool_version,
         )
 
     disabled_checks = [
@@ -194,11 +194,6 @@ def _build_opening_instructions(
     if not disabled_checks:
         return DEFAULT_ALL_CLEAR_PROMPT.format(
             pr_number=pull_request_number,
-            head_sha=head_sha or "unknown",
-            run_id=run_id,
-            run_attempt=run_attempt,
-            tool_ref=tool_ref,
-            tool_version=tool_version,
         )
     return (
         "No actionable items were found in the enabled checks for PR "
@@ -558,7 +553,29 @@ def _sanitize_block(text: str) -> str:
     return normalized.replace("```", "~~~")
 
 
+def _render_run_metadata(
+    *,
+    tool_ref: str,
+    tool_version: str,
+    run_id: int,
+    run_attempt: int,
+    head_sha: str,
+) -> str:
+    return "\n".join(
+        [
+            f"Tool ref: {tool_ref}",
+            f"Tool version: {tool_version}",
+            f"Workflow run: {run_id} attempt {run_attempt}",
+            f"PR head commit: {head_sha}",
+        ]
+    )
+
+
 def _wrap_markdown_code_block(text: str) -> str:
+    return _wrap_code_block(text, info_string="markdown")
+
+
+def _wrap_code_block(text: str, *, info_string: str | None = None) -> str:
     fence = "```"
     if fence in text:
         alternative = "~~~"
@@ -567,7 +584,8 @@ def _wrap_markdown_code_block(text: str) -> str:
         else:
             while fence in text:
                 fence += "`"
-    return f"{fence}markdown\n{text}\n{fence}"
+    opening = f"{fence}{info_string}" if info_string else fence
+    return f"{opening}\n{text}\n{fence}"
 
 
 def _format_percent(value: float) -> str:

@@ -4,11 +4,6 @@ MANAGED_COMMENT_MARKER_PREFIX = "<!-- pr-agent-context:managed-comment"
 MANAGED_COMMENT_SCHEMA_VERSION = "v3"
 
 DEFAULT_PROMPT_OPENING = (
-    "Run metadata:\n"
-    "- Tool ref: {tool_ref}\n"
-    "- Tool version: {tool_version}\n"
-    "- Workflow run: {run_id} attempt {run_attempt}\n"
-    "- PR head commit: {head_sha}\n\n"
     "Below are the details of possibly unresolved review comments and/or "
     "(possibly) failing checks on PR #{pr_number}.\n\n"
     "For each unresolved comment (if any), recommend one of: resolve as "
@@ -22,11 +17,6 @@ DEFAULT_PROMPT_OPENING = (
 )
 
 DEFAULT_ALL_CLEAR_PROMPT = (
-    "Run metadata:\n"
-    "- Tool ref: {tool_ref}\n"
-    "- Tool version: {tool_version}\n"
-    "- Workflow run: {run_id} attempt {run_attempt}\n"
-    "- PR head commit: {head_sha}\n\n"
     "No unresolved review comments, failing checks, or actionable patch "
     "coverage gaps were found on PR #{pr_number}. Treat this PR as all clear "
     "unless new signals appear."

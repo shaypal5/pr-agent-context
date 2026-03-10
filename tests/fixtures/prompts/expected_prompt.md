@@ -1,11 +1,5 @@
 Repository: foldermix
 
-Run metadata:
-- Tool ref: v3
-- Tool version: 3.0.0
-- Workflow run: 0 attempt 1
-- PR head commit: def456
-
 Below are the details of possibly unresolved review comments and/or (possibly) failing checks on PR
 #17.
 

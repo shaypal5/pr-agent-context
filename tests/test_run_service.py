@@ -674,4 +674,6 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert comment_sync["sync_debug"]["matched_existing_comment"] is False
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
+    assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
+    assert "\nRun metadata:\n```\nTool ref: v3\n" in comment_body
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()

@@ -23,8 +23,16 @@ The managed comment body shape is:
 
 ````markdown
 <!-- pr-agent-context:managed-comment; schema=v3; pr=<PR>; run_id=<RUN_ID>; run_attempt=<ATTEMPT>; head_sha=<HEAD_SHA>; tool_ref=<TOOL_REF> -->
+pr-agent-context report:
 ```markdown
 <rendered prompt>
+```
+Run metadata:
+```
+Tool ref: <TOOL_REF>
+Tool version: <TOOL_VERSION>
+Workflow run: <RUN_ID> attempt <ATTEMPT>
+PR head commit: <HEAD_SHA>
 ```
 ````
 
