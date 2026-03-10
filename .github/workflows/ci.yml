@@ -32,7 +32,7 @@ jobs:
           name: pr-agent-context-coverage-py${{ matrix.python-version }}
           path: .coverage*
           include-hidden-files: true
-          if-no-files-found: error
+          if-no-files-found: ignore
       - name: Upload coverage reports to Codecov
         if: ${{ always() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5

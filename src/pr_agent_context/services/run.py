@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pr_agent_context import __version__
@@ -28,7 +28,7 @@ from pr_agent_context.prompt.render import render_prompt
 
 
 def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> int:
-    generated_at = datetime.now(UTC).isoformat()
+    generated_at = datetime.now(timezone.utc).isoformat()
     api_client = client or GitHubApiClient(
         token=config.github_token,
         api_url=config.github_api_url,

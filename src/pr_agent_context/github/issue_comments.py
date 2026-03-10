@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from pr_agent_context.domain.models import ManagedComment, ManagedCommentIdentity, PublicationResult
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
@@ -62,7 +62,7 @@ def sync_managed_comment(
     delete_comment_when_empty: bool,
     skip_comment_on_readonly_token: bool,
 ) -> PublicationResult:
-    generated_at = datetime.now(UTC).isoformat()
+    generated_at = datetime.now(timezone.utc).isoformat()
     current_identity = ManagedCommentIdentity(
         pull_request_number=pull_request_number,
         publish_mode=publish_mode,  # type: ignore[arg-type]
