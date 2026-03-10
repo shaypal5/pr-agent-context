@@ -135,24 +135,23 @@ def _resolve_failure_context(
     env: dict[str, str],
 ) -> dict[str, object] | None:
     if config is not None:
-        if config.pull_request is None:
-            return None
         trigger = getattr(config, "trigger", None)
-        return {
-            "owner": config.pull_request.owner,
-            "repo": config.pull_request.repo,
-            "repository": f"{config.pull_request.owner}/{config.pull_request.repo}",
-            "pull_request_number": config.pull_request.number,
-            "head_sha": config.pull_request.head_sha,
-            "run_id": config.run_id,
-            "run_attempt": config.run_attempt,
-            "tool_ref": config.tool_ref,
-            "trigger_event_name": getattr(trigger, "event_name", "unknown"),
-            "publish_mode": getattr(config, "publish_mode", "append"),
-            "github_token": config.github_token,
-            "github_api_url": config.github_api_url,
-            "skip_comment_on_readonly_token": config.skip_comment_on_readonly_token,
-        }
+        if config.pull_request is not None:
+            return {
+                "owner": config.pull_request.owner,
+                "repo": config.pull_request.repo,
+                "repository": f"{config.pull_request.owner}/{config.pull_request.repo}",
+                "pull_request_number": config.pull_request.number,
+                "head_sha": config.pull_request.head_sha,
+                "run_id": config.run_id,
+                "run_attempt": config.run_attempt,
+                "tool_ref": config.tool_ref,
+                "trigger_event_name": getattr(trigger, "event_name", "unknown"),
+                "publish_mode": getattr(config, "publish_mode", "append"),
+                "github_token": config.github_token,
+                "github_api_url": config.github_api_url,
+                "skip_comment_on_readonly_token": config.skip_comment_on_readonly_token,
+            }
 
     repository = env.get("GITHUB_REPOSITORY", "")
     github_token = env.get("GITHUB_TOKEN", "")

@@ -347,3 +347,57 @@ def test_resolve_failure_context_returns_none_for_invalid_event_payload(tmp_path
     )
 
     assert context is None
+
+
+def test_resolve_failure_context_falls_back_to_env_when_config_pull_request_is_none(
+    monkeypatch,
+    tmp_path,
+):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "action": "submitted",
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeConfig:
+        pull_request = None
+        tool_ref = "v3"
+        github_token = "token"
+        github_api_url = "https://api.github.com"
+        skip_comment_on_readonly_token = True
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request_review"
+
+        run_id = 123
+        run_attempt = 2
+
+    context = _resolve_failure_context(
+        config=FakeConfig(),
+        env={
+            "GITHUB_REPOSITORY": "shaypal5/pr-agent-context",
+            "GITHUB_TOKEN": "token",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request_review",
+            "GITHUB_RUN_ID": "321",
+            "GITHUB_RUN_ATTEMPT": "4",
+            "PR_AGENT_CONTEXT_TOOL_REF": "v3",
+        },
+    )
+
+    assert context is not None
+    assert context["pull_request_number"] == 17
+    assert context["head_sha"] == "def456"
+    assert context["trigger_event_name"] == "pull_request_review"

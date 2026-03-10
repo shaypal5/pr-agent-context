@@ -359,3 +359,30 @@ def test_sync_managed_comment_updates_latest_managed_when_requested(issue_commen
     assert client.updated_comment_id == 4
     assert result.action == "updated_latest_managed"
     assert result.matched_existing_comment is True
+
+
+def test_sync_managed_comment_reports_unchanged_latest_managed_for_empty_body(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=999,
+        run_attempt=1,
+        head_sha="freshsha",
+        tool_ref="v3",
+        trigger_event_name="pull_request_review",
+        publish_mode="update_latest_managed",
+        body=None,
+        delete_comment_when_empty=False,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "unchanged_latest_managed"
+    assert result.comment_written is True
+    assert result.matched_existing_comment is True
+    assert result.sync_debug["action"] == "unchanged_latest_managed"

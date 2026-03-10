@@ -145,11 +145,12 @@ def sync_managed_comment(
                     },
                 )
             if publish_mode != "append" and primary_comment is not None:
+                unchanged_action = _unchanged_action_for_mode(publish_mode)
                 return PublicationResult(
                     comment_id=primary_comment.comment_id,
                     comment_url=primary_comment.url,
                     comment_written=True,
-                    action="unchanged_matching",
+                    action=unchanged_action,
                     managed_comment_count=managed_comment_count,
                     publish_mode=publish_mode,  # type: ignore[arg-type]
                     run_id=run_id,
@@ -164,7 +165,7 @@ def sync_managed_comment(
                     matched_comment_run_attempt=primary_comment.marker.run_attempt
                     if primary_comment and primary_comment.marker
                     else None,
-                    sync_debug={**sync_debug, "action": "unchanged_matching"},
+                    sync_debug={**sync_debug, "action": unchanged_action},
                 )
             return PublicationResult(
                 comment_written=False,

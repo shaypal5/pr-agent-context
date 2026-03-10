@@ -89,11 +89,11 @@ def _fetch_pull_request_for_head_sha(
     candidates = sorted(
         payload,
         key=lambda pull: (
-            0 if str(pull.get("state") or "") == "open" else 1,
+            str(pull.get("state") or "") == "open",
             str(pull.get("updated_at") or pull.get("created_at") or ""),
             int(pull.get("number") or 0),
         ),
-        reverse=False,
+        reverse=True,
     )
     selected = candidates[0]
     try:
