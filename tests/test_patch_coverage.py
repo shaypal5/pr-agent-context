@@ -6,12 +6,19 @@ from pathlib import Path
 
 import pytest
 from coverage import Coverage
-from coverage.exceptions import DataError
+from coverage.exceptions import DataError, NoSource
 
 from pr_agent_context.coverage import combine as combine_module
 from pr_agent_context.coverage.artifacts import discover_coverage_files, resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
-from pr_agent_context.coverage.patch import compute_patch_coverage
+from pr_agent_context.coverage.patch import (
+    _is_in_coverage_scope,
+    _matches_any_pattern,
+    _matches_inferred_measured_roots,
+    _matches_source_entry,
+    _normalize_compare_path,
+    compute_patch_coverage,
+)
 
 
 def _write_file(path: Path, content: str) -> None:
@@ -257,6 +264,139 @@ def test_compute_patch_coverage_ignores_changed_python_files_outside_measured_ro
     assert summary.is_na is True
     assert summary.actual_percent is None
     assert summary.files == []
+
+
+def test_compute_patch_coverage_skips_non_python_deleted_and_empty_inputs(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    existing = repo / "src" / "pkg" / "module.py"
+    _write_file(existing, "def covered():\n    return 1\n")
+    combined = build_combined_coverage(workspace=repo, coverage_files=[])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={
+            "README.md": [1],
+            "src/pkg/deleted.py": [1, 2],
+            "src/pkg/module.py": [],
+        },
+        coverage=combined,
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert summary.files == []
+
+
+def test_compute_patch_coverage_skips_files_with_no_source(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+    coverage_file = tmp_path / ".coverage"
+    _build_coverage_data(coverage_file, [(module_path, "covered()")])
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+
+    def missing_source(path):  # noqa: ARG001
+        raise NoSource("missing source")
+
+    monkeypatch.setattr(combined, "analysis2", missing_source)
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": [1, 2]},
+        coverage=combined,
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert summary.total_changed_executable_lines == 0
+
+
+def test_patch_scope_helper_respects_omit_source_and_source_pkgs(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+    combined = build_combined_coverage(workspace=repo, coverage_files=[])
+
+    combined.config.run_omit = ["src/pkg/module.py"]
+    assert _is_in_coverage_scope(combined, module_path, repo, {}) is False
+
+    combined.config.run_omit = []
+    combined.config.source = ["src"]
+    combined.config.source_pkgs = []
+    assert _is_in_coverage_scope(combined, module_path, repo, {}) is True
+
+    combined.config.source = []
+    combined.config.source_pkgs = ["pkg"]
+    assert _is_in_coverage_scope(combined, module_path, repo, {}) is True
+
+    combined.config.source = ["docs"]
+    combined.config.source_pkgs = []
+    assert _is_in_coverage_scope(combined, module_path, repo, {}) is False
+
+
+def test_patch_helper_functions_cover_edge_cases(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+
+    relative_path = "src/pkg/module.py"
+    parts = ("src", "pkg", "module.py")
+
+    assert _matches_inferred_measured_roots("", {"src/pkg/module.py": "value"}) is False
+    assert (
+        _matches_inferred_measured_roots("src/pkg/module.py", {"": "value", ".": "value"}) is True
+    )
+    assert _matches_any_pattern(relative_path, ["src/*"]) is True
+    assert _matches_source_entry(module_path, relative_path, parts, repo, "") is False
+    assert (
+        _matches_source_entry(
+            module_path,
+            relative_path,
+            parts,
+            repo,
+            str((repo / "src").resolve()),
+        )
+        is True
+    )
+    assert (
+        _matches_source_entry(
+            module_path,
+            relative_path,
+            parts,
+            repo,
+            str((repo.parent / "outside").resolve()),
+        )
+        is False
+    )
+    assert (
+        _matches_source_entry(module_path, relative_path, parts, repo, "src/pkg/module.py") is True
+    )
+    assert _matches_source_entry(module_path, relative_path, parts, repo, "pkg") is True
+    assert (
+        _matches_source_entry(
+            module_path,
+            str((repo / "src" / "pkg" / "module.py").resolve()),
+            parts,
+            repo,
+            "src/pkg",
+        )
+        is True
+    )
+    assert _matches_source_entry(module_path, relative_path, parts, repo, "module.py") is False
+    assert _normalize_compare_path(str(repo.resolve()), repo) == "."
+    assert _normalize_compare_path("/tmp/elsewhere/module.py", repo) == "/tmp/elsewhere/module.py"
+
+
+def test_find_coverage_config_file_prefers_existing_project_config(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text("[tool.coverage.run]\n", encoding="utf-8")
+
+    assert combine_module._find_coverage_config_file(repo) == repo / "pyproject.toml"
 
 
 def test_resolve_coverage_files_selects_latest_successful_matching_workflow(tmp_path):

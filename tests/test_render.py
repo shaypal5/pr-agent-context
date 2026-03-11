@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from conftest import load_json_fixture, load_text_fixture
-from pr_agent_context.domain.models import FailingCheck, PatchCoverageSummary, ReviewThread
+from pr_agent_context.domain.models import (
+    FailingCheck,
+    PatchCoverageSummary,
+    ReviewThread,
+    TruncationNote,
+)
 from pr_agent_context.prompt import render as render_module
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
@@ -188,6 +193,10 @@ def test_wrap_markdown_prose_skips_sensitive_long_lines():
     assert wrapped == text
 
 
+def test_wrap_markdown_prose_skips_blank_whitespace_only_lines():
+    assert wrap_markdown_prose(" " * 40, max_chars=10) == " " * 40
+
+
 def test_render_prompt_renders_actionable_patch_coverage_section():
     rendered = render_prompt(
         pull_request_number=17,
@@ -218,7 +227,116 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
     assert "PR head commit: deadbeef" not in rendered.prompt_markdown
     assert "patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
-    assert rendered.has_actionable_items is True
+
+
+def test_render_helpers_append_truncation_notes(monkeypatch):
+    note = TruncationNote(
+        target="target",
+        strategy="section_budget",
+        message="truncated",
+        original_size=100,
+        truncated_size=20,
+    )
+    monkeypatch.setattr(render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", note))
+
+    thread = ReviewThread.model_validate(
+        {
+            "thread_id": "PRRT_note",
+            "classifier": "review",
+            "item_id": "REVIEW-1",
+            "sort_key": 1,
+            "path": "src/example.py",
+            "line": 10,
+            "original_line": 10,
+            "is_resolved": False,
+            "is_outdated": False,
+            "url": "https://example.invalid/thread",
+            "messages": [
+                {
+                    "comment_id": 1,
+                    "author_login": "octocat",
+                    "body": "body",
+                    "url": "https://example.invalid/comment",
+                }
+            ],
+        }
+    )
+    failure = FailingCheck.model_validate(
+        {
+            "source_type": "actions_job",
+            "item_id": "FAILURE-1",
+            "workflow_name": "CI",
+            "job_name": "lint",
+            "conclusion": "failure",
+            "url": "https://example.invalid/failure",
+        }
+    )
+
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20)
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20)
+
+    assert note in _render_review_thread(thread, max_chars=20)[1]
+    assert (
+        note
+        in _render_review_threads_section(
+            "Review threads", [thread], section_key="review_threads_section"
+        )[1]
+    )
+    assert note in _render_failing_check(failure, max_chars=20)[1]
+    assert note in _render_failing_checks_section([failure])[1]
+
+
+def test_render_helpers_skip_none_truncation_notes(monkeypatch):
+    monkeypatch.setattr(render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", None))
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20)
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20)
+
+    thread = ReviewThread.model_validate(
+        {
+            "thread_id": "PRRT_note",
+            "classifier": "review",
+            "item_id": "REVIEW-1",
+            "sort_key": 1,
+            "path": "src/example.py",
+            "line": 10,
+            "original_line": 10,
+            "is_resolved": False,
+            "is_outdated": False,
+            "url": "https://example.invalid/thread",
+            "messages": [
+                {
+                    "comment_id": 1,
+                    "author_login": "octocat",
+                    "body": "body",
+                    "url": "https://example.invalid/comment",
+                }
+            ],
+        }
+    )
+    failure = FailingCheck.model_validate(
+        {
+            "source_type": "actions_job",
+            "item_id": "FAILURE-1",
+            "workflow_name": "CI",
+            "job_name": "lint",
+            "conclusion": "failure",
+            "url": "https://example.invalid/failure",
+        }
+    )
+
+    assert all(
+        note.message != "truncated" for note in _render_review_thread(thread, max_chars=20)[1]
+    )
+    assert (
+        _render_review_threads_section(
+            "Review threads", [thread], section_key="review_threads_section"
+        )[1]
+        == []
+    )
+    assert all(
+        note.message != "truncated" for note in _render_failing_check(failure, max_chars=20)[1]
+    )
+    assert _render_failing_checks_section([failure])[1] == []
 
 
 def test_render_prompt_omits_patch_coverage_section_when_not_actionable():

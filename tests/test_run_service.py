@@ -744,3 +744,49 @@ def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
         (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
     )
     assert "resolution" in coverage_source
+
+
+def test_run_service_uses_review_settlement_and_skips_debug_artifacts_when_disabled(
+    tmp_path,
+    issue_comments_payload,
+    monkeypatch,
+):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(
+        tmp_path,
+        execution_mode="refresh",
+        wait_for_reviews_to_settle=True,
+        debug_artifacts=False,
+        include_failing_checks=False,
+    )
+    review_settle_called = {"value": False}
+
+    def fake_wait_for_review_threads_to_settle(*args, **kwargs):  # noqa: ARG001
+        review_settle_called["value"] = True
+        return [], {
+            "enabled": True,
+            "settled": True,
+            "timed_out": False,
+            "skipped_reason": "",
+            "poll_count": 1,
+            "elapsed_seconds": 0.0,
+            "thread_count": 0,
+        }
+
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.wait_for_review_threads_to_settle",
+        fake_wait_for_review_threads_to_settle,
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run._write_debug_artifacts",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not write debug artifacts")
+        ),
+    )
+
+    assert run_service(config, client=client) == 0
+    assert review_settle_called["value"] is True

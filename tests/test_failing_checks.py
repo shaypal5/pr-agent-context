@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -968,4 +969,278 @@ def test_fallback_dedupe_key_and_external_check_status_filters():
             }
         )
         is False
+    )
+
+
+class FakeCompletedActionsRunsClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 1,
+                        "name": "CI",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "updated_at": "2026-03-08T12:00:00Z",
+                        "created_at": "2026-03-08T12:00:00Z",
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+
+class FakeSuccessfulRunWithoutJobsClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 1,
+                        "run_attempt": 1,
+                        "conclusion": "success",
+                        "updated_at": "2026-03-08T12:00:00Z",
+                        "created_at": "2026-03-08T12:00:00Z",
+                    }
+                ]
+            }
+        if path.endswith("/jobs"):
+            return {"jobs": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+
+def test_wait_for_check_settlement_repolls_without_sleep_when_poll_interval_is_zero(monkeypatch):
+    snapshots = iter(
+        [
+            (
+                {
+                    "fingerprint": ["pending"],
+                    "pending_count": 1,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_collect_check_settlement_snapshot",
+        lambda *args, **kwargs: next(snapshots),
+    )
+    monkeypatch.setattr(failing_checks_module, "_minimum_check_settle_wait_seconds", lambda **_: 0)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", iter([0.0, 0.1, 0.2, 0.3]).__next__)
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_sleep",
+        lambda _: (_ for _ in ()).throw(AssertionError("sleep should not be called")),
+    )
+
+    settlement, warnings = failing_checks_module._wait_for_check_settlement(
+        FakeNoPollClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=False,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_external_checks=10,
+        timeout_seconds=5,
+        poll_interval_seconds=0,
+    )
+
+    assert settlement["settled"] is True
+    assert warnings == []
+
+
+def test_wait_for_check_settlement_repolls_without_sleep_when_timeout_is_zero(monkeypatch):
+    snapshots = iter(
+        [
+            (
+                {
+                    "fingerprint": ["pending"],
+                    "pending_count": 1,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_collect_check_settlement_snapshot",
+        lambda *args, **kwargs: next(snapshots),
+    )
+    monkeypatch.setattr(failing_checks_module, "_minimum_check_settle_wait_seconds", lambda **_: 0)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", iter([0.0, 0.1, 0.2, 0.3]).__next__)
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_sleep",
+        lambda _: (_ for _ in ()).throw(AssertionError("sleep should not be called")),
+    )
+
+    settlement, warnings = failing_checks_module._wait_for_check_settlement(
+        FakeNoPollClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=False,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_external_checks=10,
+        timeout_seconds=0,
+        poll_interval_seconds=5,
+    )
+
+    assert settlement["settled"] is True
+    assert warnings == []
+
+
+def test_collect_check_settlement_snapshot_handles_completed_actions_without_external_checks():
+    snapshot, warnings = failing_checks_module._collect_check_settlement_snapshot(
+        FakeCompletedActionsRunsClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        max_actions_runs=10,
+        max_external_checks=10,
+    )
+
+    assert snapshot["actions_run_count"] == 1
+    assert snapshot["pending_source_counts"] == {}
+    assert warnings == []
+
+
+def test_collect_actions_failures_for_head_sha_ignores_successful_runs_without_jobs():
+    failures, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
+        FakeSuccessfulRunWithoutJobsClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_log_lines_per_job=6,
+    )
+
+    assert failures == []
+    assert warnings == []
+
+
+def test_collect_external_check_runs_returns_empty_when_limit_is_zero():
+    failures, warnings = failing_checks_module._collect_external_check_runs(
+        FakePaginatedChecksClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_external_checks=0,
+    )
+
+    assert failures == []
+    assert warnings == []
+
+
+def test_fetch_workflow_runs_for_head_sha_returns_empty_when_limit_is_zero():
+    runs = failing_checks_module._fetch_workflow_runs_for_head_sha(
+        FakePaginatedRunsClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_runs=0,
+        warnings=[],
+    )
+
+    assert runs == []
+
+
+def test_fetch_external_check_run_snapshots_returns_empty_when_limit_is_zero():
+    snapshots = failing_checks_module._fetch_external_check_run_snapshots(
+        FakePaginatedChecksClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        max_external_checks=0,
+        warnings=[],
+    )
+
+    assert snapshots == []
+
+
+def test_selection_score_includes_summary_bonus():
+    without_summary = FailingCheck.model_validate(
+        {
+            "source_type": "actions_job",
+            "conclusion": "failure",
+            "job_name": "lint",
+            "workflow_name": "CI",
+            "url": "https://example.invalid/a",
+            "observed_at": datetime(2026, 3, 8, tzinfo=timezone.utc),
+            "excerpt_lines": ["line"],
+            "failed_steps": ["Run ruff"],
+        }
+    )
+    with_summary = without_summary.model_copy(update={"summary": "failed"})
+
+    assert failing_checks_module._selection_score(with_summary)[1] == (
+        failing_checks_module._selection_score(without_summary)[1] + 1
     )

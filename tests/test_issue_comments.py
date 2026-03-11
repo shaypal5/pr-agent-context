@@ -4,7 +4,11 @@ import pytest
 
 from pr_agent_context.github.api import GitHubApiError
 from pr_agent_context.github.issue_comments import (
+    _matching_run_comments,
     _select_primary_comment,
+    _selection_reason,
+    _unchanged_action_for_mode,
+    _update_action_for_mode,
     is_managed_comment,
     list_issue_comments,
     managed_comments_only,
@@ -345,6 +349,30 @@ def test_sync_managed_comment_skips_forbidden_update(issue_comments_payload):
     assert result.matched_comment_run_attempt == 2
 
 
+def test_sync_managed_comment_noops_delete_request_when_no_matching_comment(issue_comments_payload):
+    client = FakeIssueCommentClient([issue_comments_payload[0]])
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=2,
+        head_sha="def456",
+        tool_ref="v3",
+        trigger_event_name="pull_request",
+        publish_mode="update_matching",
+        generated_at="2026-03-07T08:50:00+00:00",
+        body=None,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "noop_no_comment"
+    assert client.deleted_ids == []
+
+
 def test_sync_managed_comment_updates_latest_managed_when_requested(issue_comments_payload):
     client = FakeIssueCommentClient(issue_comments_payload)
 
@@ -520,6 +548,58 @@ def test_list_issue_comments_handles_pagination(issue_comments_payload):
     assert len(comments) == 105
     assert comments[0].comment_id == 1000
     assert comments[-1].comment_id == 1104
+
+
+def test_sync_managed_comment_reports_unchanged_matching_when_body_is_identical(
+    issue_comments_payload,
+):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = _sync(client, body=issue_comments_payload[3]["body"])
+
+    assert result.action == "unchanged_matching"
+    assert result.comment_id == 4
+    assert client.updated_comment_id is None
+
+
+def test_sync_managed_comment_reraises_forbidden_errors_when_skip_disabled(issue_comments_payload):
+    client = ForbiddenIssueCommentClient(issue_comments_payload, fail_method="PATCH")
+
+    with pytest.raises(GitHubApiError, match="Forbidden"):
+        sync_managed_comment(
+            client,
+            owner="shaypal5",
+            repo="example",
+            pull_request_number=17,
+            run_id=100,
+            run_attempt=2,
+            head_sha="def456",
+            tool_ref="v3",
+            trigger_event_name="pull_request",
+            publish_mode="update_matching",
+            generated_at="2026-03-07T08:50:00+00:00",
+            body=(
+                "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+                "head_sha=def456; trigger_event=pull_request; "
+                "generated_at=2026-03-07T08:50:00+00:00; "
+                "tool_ref=v3; run_id=100; run_attempt=2 -->\n```markdown\nupdated body\n```"
+            ),
+            delete_comment_when_empty=True,
+            skip_comment_on_readonly_token=False,
+        )
+
+
+def test_issue_comment_helper_functions_cover_unmatched_and_unknown_paths(issue_comments_payload):
+    comments = [normalize_issue_comment(comment) for comment in issue_comments_payload]
+    matches = _matching_run_comments(
+        comments,
+        comments[-1].marker.model_copy(update={"run_id": 100, "run_attempt": 2}),
+    )
+
+    assert [comment.comment_id for comment in matches] == [4]
+    assert _selection_reason(publish_mode="mystery", primary_comment=comments[-1]) == "unknown"
+    assert _update_action_for_mode("append") == "created"
+    assert _unchanged_action_for_mode("append") == "noop_no_comment"
 
 
 def test_select_primary_comment_rejects_unknown_publish_mode(issue_comments_payload):

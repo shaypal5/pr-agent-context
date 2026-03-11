@@ -5,9 +5,11 @@ from zipfile import ZipFile
 
 from conftest import load_text_fixture
 from pr_agent_context.github.workflow_jobs import (
+    collect_failed_jobs,
     extract_log_text,
     parse_failed_jobs,
     split_job_display_name,
+    trim_log_excerpt,
 )
 
 
@@ -47,3 +49,93 @@ def test_extract_log_text_reads_zip_archives():
         archive.writestr("1_step.txt", "third line\n")
 
     assert extract_log_text(payload.getvalue()) == "first line\nsecond line\nthird line"
+
+
+def test_extract_log_text_falls_back_to_raw_payload_when_not_a_zip():
+    assert extract_log_text(b"\xffraw text") == "\ufffdraw text"
+
+
+def test_extract_log_text_falls_back_when_zip_contains_only_empty_files():
+    payload = BytesIO()
+    with ZipFile(payload, "w") as archive:
+        archive.writestr("job.log", "")
+
+    assert isinstance(extract_log_text(payload.getvalue()), str)
+
+
+def test_extract_log_text_falls_back_when_zip_has_no_file_entries():
+    payload = BytesIO()
+    with ZipFile(payload, "w"):
+        pass
+
+    assert isinstance(extract_log_text(payload.getvalue()), str)
+
+
+def test_trim_log_excerpt_handles_empty_and_anchorless_logs():
+    assert trim_log_excerpt("", failed_steps=["Run pytest"], max_lines=3) == []
+    assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=2) == [
+        "three",
+        "four",
+    ]
+
+
+class _PagedWorkflowJobsClient:
+    def __init__(self) -> None:
+        self.pages: list[int] = []
+
+    def request_json(self, method, path, params=None):  # noqa: ANN001
+        assert method == "GET"
+        assert path.endswith("/jobs")
+        page = params["page"]
+        self.pages.append(page)
+        if page == 1:
+            return {
+                "jobs": [
+                    {
+                        "id": index,
+                        "name": f"success-{index}",
+                        "workflow_name": "CI",
+                        "conclusion": "success",
+                        "html_url": f"https://example.invalid/{index}",
+                        "steps": [],
+                    }
+                    for index in range(1, 101)
+                ]
+            }
+        return {
+            "jobs": [
+                {
+                    "id": 999,
+                    "name": "smoke (ubuntu-latest, 3.12)",
+                    "workflow_name": "CI",
+                    "conclusion": "failure",
+                    "html_url": "https://example.invalid/999",
+                    "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+                }
+            ]
+        }
+
+    def request_bytes(self, method, path):  # noqa: ANN001
+        assert method == "GET"
+        assert path.endswith("/999/logs")
+        payload = BytesIO()
+        with ZipFile(payload, "w") as archive:
+            archive.writestr("job.log", "line 1\nERROR: failed\nline 3\n")
+        return payload.getvalue()
+
+
+def test_collect_failed_jobs_handles_pagination():
+    client = _PagedWorkflowJobsClient()
+
+    failures = collect_failed_jobs(
+        client,
+        owner="shaypal5",
+        repo="example",
+        run_id=123,
+        run_attempt=1,
+        max_actions_jobs=5,
+        max_log_lines_per_job=4,
+    )
+
+    assert client.pages == [1, 2]
+    assert [failure.job_id for failure in failures] == [999]

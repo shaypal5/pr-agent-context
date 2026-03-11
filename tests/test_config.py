@@ -7,8 +7,11 @@ import pytest
 from pr_agent_context.config import (
     PullRequestRef,
     RunConfig,
+    _extract_is_fork,
     _extract_pull_request_number,
+    _extract_pull_request_number_if_present,
     _extract_pull_request_shas,
+    _extract_shas_from_pull_request_mapping,
     _extract_trigger_context,
     _parse_bool,
     _parse_coverage_selection_strategy,
@@ -284,6 +287,23 @@ def test_load_pull_request_context_from_env(tmp_path):
     assert pull_request.head_sha == "def456"
 
 
+def test_load_pull_request_context_from_env_rejects_missing_pull_request_context(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"workflow_run": {"head_sha": "deadbeef", "pull_requests": []}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unable to determine pull request context"):
+        load_pull_request_context_from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_EVENT_NAME": "workflow_run",
+            }
+        )
+
+
 @pytest.mark.parametrize(
     ("event_name", "event_payload", "expected_source", "expected_number", "expected_head_sha"),
     [
@@ -454,6 +474,17 @@ def test_run_config_repository_property_falls_back_to_pull_request(tmp_path):
     assert config.repository == "shaypal5/example"
 
 
+def test_run_config_repository_property_returns_empty_without_repository_context(tmp_path):
+    config = RunConfig(
+        github_token="token",
+        run_id=1,
+        run_attempt=1,
+        workspace=tmp_path,
+    )
+
+    assert config.repository == ""
+
+
 @pytest.mark.parametrize(
     ("parser", "value", "expected_message"),
     [
@@ -490,3 +521,98 @@ def test_extract_trigger_context_supports_check_run_and_check_suite():
     assert check_run.head_sha == "deadbeef"
     assert check_suite.pull_request_number == 18
     assert check_suite.head_sha == "feedface"
+
+
+def test_extract_trigger_context_handles_sparse_refresh_payloads():
+    workflow_run = _extract_trigger_context(
+        "workflow_run",
+        "completed",
+        "workflow_run:completed",
+        {"workflow_run": {"pull_requests": [{}]}},
+    )
+    check_run = _extract_trigger_context(
+        "check_run",
+        "completed",
+        "check_run:completed",
+        {"check_run": {"head_sha": "deadbeef", "pull_requests": [{}]}},
+    )
+    check_suite = _extract_trigger_context(
+        "check_suite",
+        "completed",
+        "check_suite:completed",
+        {"check_suite": {"head_sha": "feedface", "pull_requests": [{"number": None}]}},
+    )
+    fallback = _extract_trigger_context("workflow_dispatch", None, "workflow_dispatch", {})
+    pull_request = _extract_trigger_context(
+        "pull_request",
+        "opened",
+        "pull_request:opened",
+        {
+            "pull_request": {
+                "number": 17,
+                "base": {"sha": "abc123"},
+                "head": {"sha": "def456"},
+            }
+        },
+    )
+
+    assert workflow_run.pull_request_number is None
+    assert workflow_run.head_sha is None
+    assert check_run.pull_request_number is None
+    assert check_run.head_sha == "deadbeef"
+    assert check_suite.pull_request_number is None
+    assert check_suite.head_sha == "feedface"
+    assert fallback.event_name == "workflow_dispatch"
+    assert fallback.pull_request_number is None
+    assert pull_request.is_fork is None
+
+
+def test_resolve_execution_mode_accepts_explicit_values():
+    assert _resolve_execution_mode("ci", "status") == "ci"
+    assert _resolve_execution_mode("refresh", "pull_request") == "refresh"
+
+
+def test_config_private_helpers_cover_sparse_pull_request_mappings():
+    assert _extract_pull_request_number_if_present({"pull_request": {"number": 17}}) == 17
+    assert _extract_pull_request_number_if_present({}) is None
+    assert _extract_shas_from_pull_request_mapping({"base": {}, "head": "oops"}) == (None, None)
+
+    with pytest.raises(ValueError, match="missing base/head SHAs"):
+        _extract_pull_request_shas(
+            {"pull_request": {"base": {"sha": "abc123"}, "head": {"sha": ""}}}
+        )
+
+    assert _extract_is_fork({"head": "oops"}) is None
+    assert _extract_is_fork({"head": {"repo": "oops"}}) is None
+    assert _extract_is_fork({"head": {"repo": {"fork": None}}}) is None
+    assert _extract_pull_request_shas(
+        {"pull_request": {"base": {"sha": "abc123"}, "head": {"sha": "def456"}}}
+    ) == ("abc123", "def456")
+
+
+def test_extract_trigger_context_falls_back_when_refresh_payloads_are_not_mappings():
+    workflow_run = _extract_trigger_context(
+        "workflow_run",
+        "completed",
+        "workflow_run:completed",
+        {"workflow_run": "invalid"},
+    )
+    check_run = _extract_trigger_context(
+        "check_run",
+        "completed",
+        "check_run:completed",
+        {"check_run": "invalid"},
+    )
+    check_run_with_empty_list = _extract_trigger_context(
+        "check_run",
+        "completed",
+        "check_run:completed",
+        {"check_run": {"head_sha": "deadbeef", "pull_requests": []}},
+    )
+
+    assert workflow_run.pull_request_number is None
+    assert workflow_run.head_sha is None
+    assert check_run.pull_request_number is None
+    assert check_run.head_sha is None
+    assert check_run_with_empty_list.pull_request_number is None
+    assert check_run_with_empty_list.head_sha == "deadbeef"
