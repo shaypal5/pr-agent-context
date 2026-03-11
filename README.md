@@ -1,5 +1,10 @@
 # pr-agent-context
 
+[![CI](https://github.com/shaypal5/pr-agent-context/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shaypal5/pr-agent-context/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/shaypal5/pr-agent-context/graph/badge.svg)](https://codecov.io/gh/shaypal5/pr-agent-context)
+[![Latest release](https://img.shields.io/github/v/release/shaypal5/pr-agent-context?sort=semver)](https://github.com/shaypal5/pr-agent-context/releases)
+[![License: MIT](https://img.shields.io/github/license/shaypal5/pr-agent-context)](https://github.com/shaypal5/pr-agent-context/blob/main/LICENSE)
+
 `pr-agent-context` is a reusable GitHub Actions tool that assembles managed
 PR handoff comments for coding agents.
 
