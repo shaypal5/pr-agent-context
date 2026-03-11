@@ -172,8 +172,8 @@ def _zip_bytes(text: str) -> bytes:
     return buffer.getvalue()
 
 
-def _build_config(tmp_path):
-    return RunConfig(
+def _build_config(tmp_path, **overrides):
+    config = RunConfig(
         github_token="token",
         tool_ref="v3",
         pull_request=PullRequestRef(
@@ -200,6 +200,7 @@ def _build_config(tmp_path):
         skip_comment_on_readonly_token=True,
         github_output_path=tmp_path / "github-output.txt",
     )
+    return config.model_copy(update=overrides)
 
 
 def _read_outputs(path):
@@ -314,8 +315,8 @@ def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
 
     outputs = _read_outputs(config.github_output_path)
     assert client.deleted_ids == []
-    assert client.updated_bodies
-    assert "No actionable items were found in the enabled checks" in client.updated_bodies[0]
+    assert client.created_bodies
+    assert "No actionable items were found in the enabled checks" in client.created_bodies[-1]
     assert outputs["has_actionable_items"] == "false"
     assert outputs["comment_written"] == "true"
 
@@ -462,7 +463,7 @@ def test_run_service_updates_existing_same_run_comment_without_reordering(
         workflow_jobs_payload=load_json_fixture("github/workflow_jobs.json"),
         issue_comments_payload=issue_comments_payload,
     )
-    config = _build_config(tmp_path)
+    config = _build_config(tmp_path, publish_mode="update_matching")
 
     assert run_service(config, client=client) == 0
 
@@ -672,8 +673,74 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert (config.debug_artifacts_dir / "failing-check-universe.json").exists()
     assert comment_sync["sync_debug"]["current_identity"]["run_id"] == 100
     assert comment_sync["sync_debug"]["matched_existing_comment"] is False
+    assert comment_sync["sync_debug"]["current_identity"]["generated_at"].endswith("+00:00")
     assert prompt_text.startswith("Repository: foldermix")
-    assert comment_body.startswith("<!-- pr-agent-context:managed-comment; schema=v3;")
+    assert comment_body.startswith(
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append;"
+    )
     assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
     assert "\nRun metadata:\n```\nTool ref: v3\n" in comment_body
+    assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
+    assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
+
+
+def test_run_service_refresh_mode_marks_review_wait_disabled(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "execution_mode": "refresh",
+            "wait_for_reviews_to_settle": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": False,
+        }
+    )
+
+    assert run_service(config, client=client) == 0
+
+    collected = json.loads(
+        (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
+    )
+    assert collected["review_settlement_debug"]["skipped_reason"] == "refresh_wait_disabled"
+
+
+def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": True,
+            "coverage_artifacts_dir": tmp_path / "missing-artifacts",
+        }
+    )
+    monkeypatch.setattr("pr_agent_context.services.run.collect_changed_lines", lambda *_, **__: {})
+
+    assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+    assert "resolution" in coverage_source

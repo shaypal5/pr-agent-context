@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 
 from pr_agent_context.config import CopilotAuthorMatcherConfig
@@ -48,6 +49,9 @@ query PullRequestReviewThreads(
 }
 """
 
+_monotonic = time.monotonic
+_sleep = time.sleep
+
 
 def collect_unresolved_review_threads(
     client: GitHubApiClient,
@@ -80,6 +84,106 @@ def collect_unresolved_review_threads(
             break
         cursor = page_info["endCursor"]
     return sorted(threads, key=review_thread_sort_key)[:max_threads]
+
+
+def wait_for_review_threads_to_settle(
+    client: GitHubApiClient,
+    *,
+    owner: str,
+    repo: str,
+    pull_request_number: int,
+    max_threads: int,
+    copilot_matcher: CopilotAuthorMatcherConfig,
+    timeout_seconds: int,
+    poll_interval_seconds: int,
+) -> tuple[list[ReviewThread], dict[str, object]]:
+    if timeout_seconds <= 0:
+        threads = collect_unresolved_review_threads(
+            client,
+            owner=owner,
+            repo=repo,
+            pull_request_number=pull_request_number,
+            max_threads=max_threads,
+            copilot_matcher=copilot_matcher,
+        )
+        return threads, {
+            "enabled": True,
+            "settled": False,
+            "timed_out": False,
+            "skipped_reason": "timeout_non_positive",
+            "poll_count": 1,
+            "elapsed_seconds": 0.0,
+            "thread_count": len(threads),
+        }
+    if poll_interval_seconds <= 0:
+        threads = collect_unresolved_review_threads(
+            client,
+            owner=owner,
+            repo=repo,
+            pull_request_number=pull_request_number,
+            max_threads=max_threads,
+            copilot_matcher=copilot_matcher,
+        )
+        return threads, {
+            "enabled": True,
+            "settled": False,
+            "timed_out": False,
+            "skipped_reason": "poll_interval_non_positive",
+            "poll_count": 1,
+            "elapsed_seconds": 0.0,
+            "thread_count": len(threads),
+        }
+
+    start = _monotonic()
+    poll_count = 0
+    stable_snapshots = 0
+    last_fingerprint: tuple[int, ...] | None = None
+    latest_threads: list[ReviewThread] = []
+    while True:
+        poll_count += 1
+        latest_threads = collect_unresolved_review_threads(
+            client,
+            owner=owner,
+            repo=repo,
+            pull_request_number=pull_request_number,
+            max_threads=max_threads,
+            copilot_matcher=copilot_matcher,
+        )
+        fingerprint = tuple(
+            sorted(message.comment_id for thread in latest_threads for message in thread.messages)
+        )
+        if fingerprint == last_fingerprint:
+            stable_snapshots += 1
+        else:
+            stable_snapshots = 0
+            last_fingerprint = fingerprint
+
+        elapsed_seconds = max(_monotonic() - start, 0.0)
+        settled = stable_snapshots >= 1
+        timed_out = elapsed_seconds >= timeout_seconds
+        if settled or timed_out:
+            return latest_threads, {
+                "enabled": True,
+                "settled": settled,
+                "timed_out": timed_out and not settled,
+                "skipped_reason": "",
+                "poll_count": poll_count,
+                "elapsed_seconds": round(elapsed_seconds, 3),
+                "thread_count": len(latest_threads),
+            }
+        remaining = max(timeout_seconds - elapsed_seconds, 0.0)
+        sleep_seconds = min(poll_interval_seconds, remaining)
+        if sleep_seconds <= 0:
+            return latest_threads, {
+                "enabled": True,
+                "settled": False,
+                "timed_out": True,
+                "skipped_reason": "",
+                "poll_count": poll_count,
+                "elapsed_seconds": round(elapsed_seconds, 3),
+                "thread_count": len(latest_threads),
+            }
+        _sleep(sleep_seconds)
 
 
 def parse_review_threads(

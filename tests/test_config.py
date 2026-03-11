@@ -5,11 +5,18 @@ import json
 import pytest
 
 from pr_agent_context.config import (
+    PullRequestRef,
     RunConfig,
     _extract_pull_request_number,
     _extract_pull_request_shas,
+    _extract_trigger_context,
     _parse_bool,
+    _parse_coverage_selection_strategy,
+    _parse_fork_behavior,
+    _parse_publish_mode,
+    _resolve_execution_mode,
     load_pull_request_context_from_env,
+    load_trigger_context_from_env,
     parse_bool_env,
 )
 
@@ -275,3 +282,211 @@ def test_load_pull_request_context_from_env(tmp_path):
     assert pull_request.number == 42
     assert pull_request.base_sha == "abc123"
     assert pull_request.head_sha == "def456"
+
+
+@pytest.mark.parametrize(
+    ("event_name", "event_payload", "expected_source", "expected_number", "expected_head_sha"),
+    [
+        (
+            "pull_request_review",
+            {
+                "action": "submitted",
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456", "repo": {"fork": True}},
+                },
+            },
+            "pull_request_review:submitted",
+            17,
+            "def456",
+        ),
+        (
+            "pull_request_review_comment",
+            {
+                "action": "created",
+                "pull_request": {
+                    "number": 18,
+                    "base": {"sha": "base123"},
+                    "head": {"sha": "head123", "repo": {"fork": False}},
+                },
+            },
+            "pull_request_review_comment:created",
+            18,
+            "head123",
+        ),
+        (
+            "workflow_run",
+            {
+                "action": "completed",
+                "workflow_run": {
+                    "head_sha": "deadbeef",
+                    "pull_requests": [{"number": 21}],
+                },
+            },
+            "workflow_run:completed",
+            21,
+            "deadbeef",
+        ),
+        (
+            "status",
+            {
+                "sha": "feedface",
+            },
+            "status",
+            None,
+            "feedface",
+        ),
+    ],
+)
+def test_load_trigger_context_from_env_supports_refresh_events(
+    tmp_path,
+    event_name,
+    event_payload,
+    expected_source,
+    expected_number,
+    expected_head_sha,
+):
+    event_path = tmp_path / f"{event_name}.json"
+    event_path.write_text(json.dumps(event_payload), encoding="utf-8")
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": event_name,
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(event_payload.get("action") or ""),
+        }
+    )
+
+    assert trigger.event_name == event_name
+    assert trigger.source == expected_source
+    assert trigger.pull_request_number == expected_number
+    assert trigger.head_sha == expected_head_sha
+
+
+@pytest.mark.parametrize(
+    ("event_name", "expected_mode"),
+    [
+        ("pull_request", "ci"),
+        ("pull_request_review", "refresh"),
+        ("pull_request_review_comment", "refresh"),
+        ("workflow_run", "refresh"),
+        ("status", "refresh"),
+    ],
+)
+def test_run_config_auto_execution_mode_resolves_by_event_name(
+    tmp_path,
+    event_name,
+    expected_mode,
+):
+    event_path = tmp_path / f"{event_name}.json"
+    if event_name == "pull_request":
+        payload = {
+            "pull_request": {
+                "number": 17,
+                "base": {"sha": "abc123"},
+                "head": {"sha": "def456", "repo": {"fork": False}},
+            }
+        }
+    elif event_name == "workflow_run":
+        payload = {
+            "workflow_run": {
+                "head_sha": "def456",
+                "pull_requests": [{"number": 17}],
+            }
+        }
+    elif event_name == "status":
+        payload = {"sha": "def456"}
+    else:
+        payload = {
+            "action": "created",
+            "pull_request": {
+                "number": 17,
+                "base": {"sha": "abc123"},
+                "head": {"sha": "def456", "repo": {"fork": False}},
+            },
+        }
+    event_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+            "PR_AGENT_CONTEXT_EXECUTION_MODE": "auto",
+        }
+    )
+
+    assert config.execution_mode == expected_mode
+
+
+def test_run_config_repository_property_prefers_explicit_repository_fields(tmp_path):
+    config = RunConfig(
+        github_token="token",
+        repository_owner="shaypal5",
+        repository_name="example",
+        run_id=1,
+        run_attempt=1,
+        workspace=tmp_path,
+    )
+
+    assert config.repository == "shaypal5/example"
+
+
+def test_run_config_repository_property_falls_back_to_pull_request(tmp_path):
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha="abc123",
+            head_sha="def456",
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=tmp_path,
+    )
+
+    assert config.repository == "shaypal5/example"
+
+
+@pytest.mark.parametrize(
+    ("parser", "value", "expected_message"),
+    [
+        (_resolve_execution_mode, ("weird", "pull_request"), "Unsupported execution mode"),
+        (_parse_publish_mode, ("weird",), "Unsupported publish mode"),
+        (
+            _parse_coverage_selection_strategy,
+            ("earliest",),
+            "Unsupported coverage selection strategy",
+        ),
+        (_parse_fork_behavior, ("strict",), "Unsupported fork behavior"),
+    ],
+)
+def test_config_rejects_unsupported_enum_values(parser, value, expected_message):
+    with pytest.raises(ValueError, match=expected_message):
+        parser(*value)
+
+
+def test_extract_trigger_context_supports_check_run_and_check_suite():
+    check_run = _extract_trigger_context(
+        "check_run",
+        "completed",
+        "check_run:completed",
+        {"check_run": {"head_sha": "deadbeef", "pull_requests": [{"number": 17}]}},
+    )
+    check_suite = _extract_trigger_context(
+        "check_suite",
+        "completed",
+        "check_suite:completed",
+        {"check_suite": {"head_sha": "feedface", "pull_requests": [{"number": 18}]}},
+    )
+
+    assert check_run.pull_request_number == 17
+    assert check_run.head_sha == "deadbeef"
+    assert check_suite.pull_request_number == 18
+    assert check_suite.head_sha == "feedface"

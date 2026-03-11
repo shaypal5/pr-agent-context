@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime, timezone
 
 from pr_agent_context.domain.models import ManagedComment, ManagedCommentIdentity, PublicationResult
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
@@ -51,20 +52,27 @@ def sync_managed_comment(
     owner: str,
     repo: str,
     pull_request_number: int,
-    run_id: int,
-    run_attempt: int,
+    run_id: int | None,
+    run_attempt: int | None,
     head_sha: str,
     tool_ref: str,
+    trigger_event_name: str,
+    publish_mode: str,
+    generated_at: str | None,
     body: str | None,
     delete_comment_when_empty: bool,
     skip_comment_on_readonly_token: bool,
 ) -> PublicationResult:
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat()
     current_identity = ManagedCommentIdentity(
         pull_request_number=pull_request_number,
+        publish_mode=publish_mode,  # type: ignore[arg-type]
+        head_sha=head_sha,
+        trigger_event_name=trigger_event_name,
+        generated_at=generated_at,
+        tool_ref=tool_ref,
         run_id=run_id,
         run_attempt=run_attempt,
-        head_sha=head_sha,
-        tool_ref=tool_ref,
     )
     comments = list_issue_comments(
         client,
@@ -76,10 +84,16 @@ def sync_managed_comment(
         managed_comments_only(comments), key=lambda comment: comment.comment_id
     )
     matching_run_comments = _matching_run_comments(managed_comments, current_identity)
-    primary_comment = matching_run_comments[-1] if matching_run_comments else None
+    latest_managed_comment = managed_comments[-1] if managed_comments else None
+    primary_comment = _select_primary_comment(
+        managed_comments=managed_comments,
+        matching_run_comments=matching_run_comments,
+        publish_mode=publish_mode,
+    )
     managed_comment_count = len(managed_comments)
     sync_debug = {
         "current_identity": current_identity.model_dump(mode="json"),
+        "publish_mode": publish_mode,
         "managed_comments": [
             {
                 "comment_id": comment.comment_id,
@@ -88,15 +102,22 @@ def sync_managed_comment(
             }
             for comment in managed_comments
         ],
+        "latest_managed_comment_id": (
+            latest_managed_comment.comment_id if latest_managed_comment else None
+        ),
         "matching_comment_ids": [comment.comment_id for comment in matching_run_comments],
         "duplicate_match_count": max(len(matching_run_comments) - 1, 0),
         "matched_comment_id": primary_comment.comment_id if primary_comment else None,
         "matched_existing_comment": primary_comment is not None,
+        "selection_reason": _selection_reason(
+            publish_mode=publish_mode,
+            primary_comment=primary_comment,
+        ),
     }
 
     try:
         if not body:
-            if delete_comment_when_empty:
+            if publish_mode != "append" and delete_comment_when_empty:
                 if primary_comment is not None:
                     client.request_json(
                         "DELETE",
@@ -106,10 +127,13 @@ def sync_managed_comment(
                     comment_written=False,
                     action="deleted" if primary_comment else "noop_no_comment",
                     managed_comment_count=managed_comment_count,
+                    publish_mode=publish_mode,  # type: ignore[arg-type]
                     run_id=run_id,
                     run_attempt=run_attempt,
                     head_sha=head_sha,
+                    trigger_event_name=trigger_event_name,
                     matched_existing_comment=primary_comment is not None,
+                    matched_comment_id=primary_comment.comment_id if primary_comment else None,
                     matched_comment_run_id=primary_comment.marker.run_id
                     if primary_comment and primary_comment.marker
                     else None,
@@ -121,37 +145,43 @@ def sync_managed_comment(
                         "action": "deleted" if primary_comment else "noop_no_comment",
                     },
                 )
-            if primary_comment is not None:
+            if publish_mode != "append" and primary_comment is not None:
+                unchanged_action = _unchanged_action_for_mode(publish_mode)
                 return PublicationResult(
                     comment_id=primary_comment.comment_id,
                     comment_url=primary_comment.url,
                     comment_written=True,
-                    action="preserved_empty",
+                    action=unchanged_action,
                     managed_comment_count=managed_comment_count,
+                    publish_mode=publish_mode,  # type: ignore[arg-type]
                     run_id=run_id,
                     run_attempt=run_attempt,
                     head_sha=head_sha,
+                    trigger_event_name=trigger_event_name,
                     matched_existing_comment=True,
+                    matched_comment_id=primary_comment.comment_id,
                     matched_comment_run_id=primary_comment.marker.run_id
                     if primary_comment and primary_comment.marker
                     else None,
                     matched_comment_run_attempt=primary_comment.marker.run_attempt
                     if primary_comment and primary_comment.marker
                     else None,
-                    sync_debug={**sync_debug, "action": "preserved_empty"},
+                    sync_debug={**sync_debug, "action": unchanged_action},
                 )
             return PublicationResult(
                 comment_written=False,
                 action="noop_no_comment",
                 managed_comment_count=managed_comment_count,
+                publish_mode=publish_mode,  # type: ignore[arg-type]
                 run_id=run_id,
                 run_attempt=run_attempt,
                 head_sha=head_sha,
+                trigger_event_name=trigger_event_name,
                 matched_existing_comment=False,
                 sync_debug={**sync_debug, "action": "noop_no_comment"},
             )
 
-        if primary_comment is None:
+        if publish_mode == "append" or primary_comment is None:
             created = client.request_json(
                 "POST",
                 f"/repos/{owner}/{repo}/issues/{pull_request_number}/comments",
@@ -165,10 +195,14 @@ def sync_managed_comment(
                 action="created",
                 managed_comment_count=managed_comment_count,
                 body_changed=True,
+                publish_mode=publish_mode,  # type: ignore[arg-type]
                 run_id=run_id,
                 run_attempt=run_attempt,
                 head_sha=head_sha,
-                matched_existing_comment=False,
+                trigger_event_name=trigger_event_name,
+                matched_existing_comment=(
+                    False if publish_mode == "append" else primary_comment is not None
+                ),
                 sync_debug={
                     **sync_debug,
                     "action": "created",
@@ -187,13 +221,16 @@ def sync_managed_comment(
                 comment_id=normalized.comment_id,
                 comment_url=normalized.url,
                 comment_written=True,
-                action="updated_same_run",
+                action=_update_action_for_mode(publish_mode),
                 managed_comment_count=managed_comment_count,
                 body_changed=True,
+                publish_mode=publish_mode,  # type: ignore[arg-type]
                 run_id=run_id,
                 run_attempt=run_attempt,
                 head_sha=head_sha,
+                trigger_event_name=trigger_event_name,
                 matched_existing_comment=True,
+                matched_comment_id=primary_comment.comment_id,
                 matched_comment_run_id=primary_comment.marker.run_id
                 if primary_comment and primary_comment.marker
                 else None,
@@ -202,7 +239,7 @@ def sync_managed_comment(
                 else None,
                 sync_debug={
                     **sync_debug,
-                    "action": "updated_same_run",
+                    "action": _update_action_for_mode(publish_mode),
                     "updated_comment_id": normalized.comment_id,
                 },
             )
@@ -211,20 +248,23 @@ def sync_managed_comment(
             comment_id=primary_comment.comment_id,
             comment_url=primary_comment.url,
             comment_written=True,
-            action="unchanged_same_run",
+            action=_unchanged_action_for_mode(publish_mode),
             managed_comment_count=managed_comment_count,
             body_changed=False,
+            publish_mode=publish_mode,  # type: ignore[arg-type]
             run_id=run_id,
             run_attempt=run_attempt,
             head_sha=head_sha,
+            trigger_event_name=trigger_event_name,
             matched_existing_comment=True,
+            matched_comment_id=primary_comment.comment_id,
             matched_comment_run_id=primary_comment.marker.run_id
             if primary_comment and primary_comment.marker
             else None,
             matched_comment_run_attempt=primary_comment.marker.run_attempt
             if primary_comment and primary_comment.marker
             else None,
-            sync_debug={**sync_debug, "action": "unchanged_same_run"},
+            sync_debug={**sync_debug, "action": _unchanged_action_for_mode(publish_mode)},
         )
     except GitHubApiError as error:
         if skip_comment_on_readonly_token and error.status_code == 403:
@@ -237,10 +277,13 @@ def sync_managed_comment(
                 body_changed=primary_comment is None or primary_comment.body != body,
                 skipped_reason="comment mutation skipped after GitHub returned 403",
                 error_status_code=error.status_code,
+                publish_mode=publish_mode,  # type: ignore[arg-type]
                 run_id=run_id,
                 run_attempt=run_attempt,
                 head_sha=head_sha,
+                trigger_event_name=trigger_event_name,
                 matched_existing_comment=primary_comment is not None,
+                matched_comment_id=primary_comment.comment_id if primary_comment else None,
                 matched_comment_run_id=primary_comment.marker.run_id
                 if primary_comment and primary_comment.marker
                 else None,
@@ -279,6 +322,49 @@ def _matching_run_comments(
         ):
             matches.append(comment)
     return matches
+
+
+def _select_primary_comment(
+    *,
+    managed_comments: list[ManagedComment],
+    matching_run_comments: list[ManagedComment],
+    publish_mode: str,
+) -> ManagedComment | None:
+    if publish_mode == "append":
+        return None
+    if publish_mode == "update_latest_managed":
+        return managed_comments[-1] if managed_comments else None
+    if publish_mode == "update_matching":
+        return matching_run_comments[-1] if matching_run_comments else None
+    raise ValueError(f"Unsupported publish mode: {publish_mode}")
+
+
+def _selection_reason(*, publish_mode: str, primary_comment: ManagedComment | None) -> str:
+    if publish_mode == "append":
+        return "append_always_creates"
+    if primary_comment is None:
+        return "no_existing_match"
+    if publish_mode == "update_latest_managed":
+        return "selected_latest_managed"
+    if publish_mode == "update_matching":
+        return "selected_matching_run"
+    return "unknown"
+
+
+def _update_action_for_mode(publish_mode: str) -> str:
+    if publish_mode == "update_latest_managed":
+        return "updated_latest_managed"
+    if publish_mode == "update_matching":
+        return "updated_matching"
+    return "created"
+
+
+def _unchanged_action_for_mode(publish_mode: str) -> str:
+    if publish_mode == "update_latest_managed":
+        return "unchanged_latest_managed"
+    if publish_mode == "update_matching":
+        return "unchanged_matching"
+    return "noop_no_comment"
 
 
 def _is_bot_author(author_login: str, author_type: str | None) -> bool:

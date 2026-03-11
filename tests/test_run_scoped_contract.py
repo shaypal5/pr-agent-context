@@ -16,7 +16,7 @@ from pr_agent_context.domain.models import (
 
 def test_run_scoped_constants_expose_v3_marker_contract():
     assert MANAGED_COMMENT_MARKER_PREFIX == "<!-- pr-agent-context:managed-comment"
-    assert MANAGED_COMMENT_SCHEMA_VERSION == "v3"
+    assert MANAGED_COMMENT_SCHEMA_VERSION == "v4"
     assert "{run_id}" not in DEFAULT_PROMPT_OPENING
     assert "{run_attempt}" not in DEFAULT_PROMPT_OPENING
     assert "{tool_ref}" not in DEFAULT_PROMPT_OPENING
@@ -28,9 +28,12 @@ def test_run_scoped_constants_expose_v3_marker_contract():
 def test_run_scoped_models_preserve_marker_and_publication_metadata():
     identity = ManagedCommentIdentity(
         pull_request_number=17,
+        publish_mode="append",
         run_id=123,
         run_attempt=4,
         head_sha="deadbeef",
+        trigger_event_name="pull_request",
+        generated_at="2026-03-10T10:00:00+00:00",
         tool_ref="v3",
     )
     comment = ManagedComment(
@@ -45,12 +48,14 @@ def test_run_scoped_models_preserve_marker_and_publication_metadata():
         comment_id=9,
         comment_url=comment.url,
         comment_written=True,
-        action="updated_same_run",
+        action="updated_matching",
         managed_comment_count=3,
         body_changed=True,
+        publish_mode="update_matching",
         run_id=identity.run_id,
         run_attempt=identity.run_attempt,
         head_sha=identity.head_sha,
+        trigger_event_name=identity.trigger_event_name,
         matched_existing_comment=True,
         matched_comment_run_id=identity.run_id,
         matched_comment_run_attempt=identity.run_attempt,
@@ -58,6 +63,6 @@ def test_run_scoped_models_preserve_marker_and_publication_metadata():
     )
 
     assert comment.marker == identity
-    assert publication.model_dump(mode="json")["action"] == "updated_same_run"
+    assert publication.model_dump(mode="json")["action"] == "updated_matching"
     assert publication.sync_debug["duplicate_match_count"] == 1
     assert publication.matched_comment_run_id == 123

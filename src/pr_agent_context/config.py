@@ -5,7 +5,7 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,16 +15,29 @@ from pr_agent_context.constants import (
     DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS,
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
+    DEFAULT_COVERAGE_SELECTION_STRATEGY,
+    DEFAULT_COVERAGE_SOURCE_CONCLUSIONS,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
+    DEFAULT_EXECUTION_MODE,
+    DEFAULT_FORK_BEHAVIOR,
     DEFAULT_MAX_EXTERNAL_CHECKS,
     DEFAULT_MAX_FAILED_JOBS,
     DEFAULT_MAX_FAILED_RUNS,
     DEFAULT_MAX_FAILING_ITEMS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
+    DEFAULT_PUBLISH_MODE,
+    DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS,
+    DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS,
     DEFAULT_TARGET_PATCH_COVERAGE,
     DEFAULT_TOOL_REF,
 )
+
+ExecutionMode = Literal["ci", "refresh", "auto"]
+ResolvedExecutionMode = Literal["ci", "refresh"]
+PublishMode = Literal["append", "update_latest_managed", "update_matching"]
+CoverageSelectionStrategy = Literal["latest_successful"]
+ForkBehavior = Literal["best_effort"]
 
 
 def _parse_bool(value: str | bool | None, *, default: bool) -> bool:
@@ -49,6 +62,18 @@ class PullRequestRef(BaseModel):
     head_sha: str
 
 
+class TriggerContext(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    event_name: str
+    action: str | None = None
+    source: str
+    pull_request_number: int | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
+    is_fork: bool | None = None
+
+
 class CopilotAuthorMatcherConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -69,16 +94,30 @@ class RunConfig(BaseModel):
     github_api_url: str = "https://api.github.com"
     github_token: str
     tool_ref: str = DEFAULT_TOOL_REF
-    pull_request: PullRequestRef
+    repository_owner: str = ""
+    repository_name: str = ""
+    trigger: TriggerContext = Field(
+        default_factory=lambda: TriggerContext(
+            event_name="pull_request",
+            action=None,
+            source="pull_request",
+        )
+    )
+    pull_request: PullRequestRef | None = None
     run_id: int
     run_attempt: int
     workspace: Path
+    execution_mode: ResolvedExecutionMode = "ci"
+    publish_mode: PublishMode = DEFAULT_PUBLISH_MODE
+    include_refresh_metadata: bool = True
     include_review_comments: bool = True
     include_failing_checks: bool = True
     include_cross_run_failures: bool = True
     include_external_checks: bool = True
     wait_for_checks_to_settle: bool = True
+    wait_for_reviews_to_settle: bool = False
     include_patch_coverage: bool = True
+    enable_cross_run_coverage_lookup: bool = True
     force_patch_coverage_section: bool = False
     prompt_preamble: str = ""
     prompt_template_file: Path | None = None
@@ -95,34 +134,81 @@ class RunConfig(BaseModel):
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
     check_settle_timeout_seconds: int = DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS
     check_settle_poll_interval_seconds: int = DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS
+    review_settle_timeout_seconds: int = DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS
+    review_settle_poll_interval_seconds: int = DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
+    coverage_source_workflows: tuple[str, ...] = ()
+    coverage_source_conclusions: tuple[str, ...] = DEFAULT_COVERAGE_SOURCE_CONCLUSIONS
+    coverage_selection_strategy: CoverageSelectionStrategy = DEFAULT_COVERAGE_SELECTION_STRATEGY
+    fork_behavior: ForkBehavior = DEFAULT_FORK_BEHAVIOR
     delete_comment_when_empty: bool = True
     skip_comment_on_readonly_token: bool = True
     coverage_artifacts_dir: Path | None = Field(default=None)
     debug_artifacts_dir: Path | None = Field(default=None)
     github_output_path: Path | None = Field(default=None)
 
+    @property
+    def repository(self) -> str:
+        if self.repository_owner and self.repository_name:
+            return f"{self.repository_owner}/{self.repository_name}"
+        if self.pull_request is not None:
+            return f"{self.pull_request.owner}/{self.pull_request.repo}"
+        return ""
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RunConfig:
         env_map = dict(os.environ if env is None else env)
-        _, _, pull_request = load_pull_request_context_from_env(env_map)
+        owner, repo = _extract_repository(env_map)
+        trigger = load_trigger_context_from_env(env_map)
         workspace = Path(env_map.get("PR_AGENT_CONTEXT_WORKSPACE", os.getcwd()))
         debug_artifacts = _parse_bool(
             env_map.get("PR_AGENT_CONTEXT_DEBUG_ARTIFACTS"),
             default=True,
         )
+        execution_mode_requested = (
+            env_map.get(
+                "PR_AGENT_CONTEXT_EXECUTION_MODE",
+                DEFAULT_EXECUTION_MODE,
+            ).strip()
+            or DEFAULT_EXECUTION_MODE
+        )
+        execution_mode = _resolve_execution_mode(
+            execution_mode_requested,
+            trigger.event_name,
+        )
+
+        pull_request = None
+        if trigger.pull_request_number is not None and trigger.base_sha and trigger.head_sha:
+            pull_request = PullRequestRef(
+                owner=owner,
+                repo=repo,
+                number=trigger.pull_request_number,
+                base_sha=trigger.base_sha,
+                head_sha=trigger.head_sha,
+            )
 
         return cls(
             github_api_url=env_map.get("GITHUB_API_URL", "https://api.github.com"),
             github_token=env_map["GITHUB_TOKEN"],
             tool_ref=env_map.get("PR_AGENT_CONTEXT_TOOL_REF", DEFAULT_TOOL_REF).strip()
             or DEFAULT_TOOL_REF,
+            repository_owner=owner,
+            repository_name=repo,
+            trigger=trigger,
             pull_request=pull_request,
             run_id=int(env_map["GITHUB_RUN_ID"]),
             run_attempt=int(env_map.get("GITHUB_RUN_ATTEMPT", "1")),
             workspace=workspace,
+            execution_mode=execution_mode,
+            publish_mode=_parse_publish_mode(
+                env_map.get("PR_AGENT_CONTEXT_PUBLISH_MODE", DEFAULT_PUBLISH_MODE)
+            ),
+            include_refresh_metadata=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_REFRESH_METADATA"),
+                default=True,
+            ),
             include_review_comments=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS"),
                 default=True,
@@ -143,8 +229,16 @@ class RunConfig(BaseModel):
                 env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE"),
                 default=True,
             ),
+            wait_for_reviews_to_settle=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_REVIEWS_TO_SETTLE"),
+                default=False,
+            ),
             include_patch_coverage=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE"),
+                default=True,
+            ),
+            enable_cross_run_coverage_lookup=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_ENABLE_CROSS_RUN_COVERAGE_LOOKUP"),
                 default=True,
             ),
             force_patch_coverage_section=_parse_bool(
@@ -213,6 +307,18 @@ class RunConfig(BaseModel):
                     str(DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS),
                 )
             ),
+            review_settle_timeout_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_REVIEW_SETTLE_TIMEOUT_SECONDS",
+                    str(DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS),
+                )
+            ),
+            review_settle_poll_interval_seconds=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS",
+                    str(DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS),
+                )
+            ),
             characters_per_line=int(
                 env_map.get(
                     "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE",
@@ -230,6 +336,22 @@ class RunConfig(BaseModel):
                 DEFAULT_COVERAGE_ARTIFACT_PREFIX,
             ).strip()
             or DEFAULT_COVERAGE_ARTIFACT_PREFIX,
+            coverage_source_workflows=tuple(
+                _split_pattern_entries(env_map.get("PR_AGENT_CONTEXT_COVERAGE_SOURCE_WORKFLOWS"))
+            ),
+            coverage_source_conclusions=tuple(
+                _split_pattern_entries(env_map.get("PR_AGENT_CONTEXT_COVERAGE_SOURCE_CONCLUSIONS"))
+                or list(DEFAULT_COVERAGE_SOURCE_CONCLUSIONS)
+            ),
+            coverage_selection_strategy=_parse_coverage_selection_strategy(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_COVERAGE_SELECTION_STRATEGY",
+                    DEFAULT_COVERAGE_SELECTION_STRATEGY,
+                )
+            ),
+            fork_behavior=_parse_fork_behavior(
+                env_map.get("PR_AGENT_CONTEXT_FORK_BEHAVIOR", DEFAULT_FORK_BEHAVIOR)
+            ),
             delete_comment_when_empty=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY"),
                 default=True,
@@ -260,50 +382,222 @@ def _load_event_payload(path: str) -> dict[str, Any]:
         return json.load(handle)
 
 
+def _extract_repository(env: Mapping[str, str]) -> tuple[str, str]:
+    repository = env["GITHUB_REPOSITORY"]
+    owner, repo = repository.split("/", maxsplit=1)
+    return owner, repo
+
+
 def load_pull_request_context_from_env(
     env: Mapping[str, str],
 ) -> tuple[str, str, PullRequestRef]:
-    repository = env["GITHUB_REPOSITORY"]
-    owner, repo = repository.split("/", maxsplit=1)
-    event = _load_event_payload(env["GITHUB_EVENT_PATH"])
-    pull_request_number = _extract_pull_request_number(event)
-    base_sha, head_sha = _extract_pull_request_shas(event)
+    owner, repo = _extract_repository(env)
+    trigger = load_trigger_context_from_env(env)
+    if trigger.pull_request_number is None or not trigger.base_sha or not trigger.head_sha:
+        raise ValueError("Unable to determine pull request context from event payload.")
     return (
         owner,
         repo,
         PullRequestRef(
             owner=owner,
             repo=repo,
-            number=pull_request_number,
-            base_sha=base_sha,
-            head_sha=head_sha,
+            number=trigger.pull_request_number,
+            base_sha=trigger.base_sha,
+            head_sha=trigger.head_sha,
         ),
     )
 
 
-def _extract_pull_request_number(event: Mapping[str, Any]) -> int:
-    if "pull_request" in event and isinstance(event["pull_request"], Mapping):
-        pull_request = event["pull_request"]
-        if "number" in pull_request:
-            return int(pull_request["number"])
-    if "number" in event:
+def load_trigger_context_from_env(env: Mapping[str, str]) -> TriggerContext:
+    event = _load_event_payload(env["GITHUB_EVENT_PATH"])
+    event_name = (
+        env.get("PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME") or env.get("GITHUB_EVENT_NAME") or "unknown"
+    ).strip()
+    action = (env.get("PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION") or "").strip() or None
+    source = _build_trigger_source(event_name, action)
+    return _extract_trigger_context(event_name, action, source, event)
+
+
+def _extract_trigger_context(
+    event_name: str,
+    action: str | None,
+    source: str,
+    event: Mapping[str, Any],
+) -> TriggerContext:
+    if pull_request := _extract_pull_request_mapping(event):
+        number = _extract_pull_request_number_if_present(event)
+        base_sha, head_sha = _extract_shas_from_pull_request_mapping(pull_request)
+        return TriggerContext(
+            event_name=event_name,
+            action=action,
+            source=source,
+            pull_request_number=number,
+            base_sha=base_sha,
+            head_sha=head_sha,
+            is_fork=_extract_is_fork(pull_request),
+        )
+
+    if event_name == "workflow_run":
+        workflow_run = event.get("workflow_run")
+        if isinstance(workflow_run, Mapping):
+            number = None
+            pull_requests = workflow_run.get("pull_requests")
+            if isinstance(pull_requests, list) and pull_requests:
+                first = pull_requests[0]
+                if isinstance(first, Mapping) and first.get("number") is not None:
+                    number = int(first["number"])
+            head_sha = str(workflow_run.get("head_sha") or "").strip() or None
+            return TriggerContext(
+                event_name=event_name,
+                action=action,
+                source=source,
+                pull_request_number=number,
+                head_sha=head_sha,
+            )
+
+    if event_name == "status":
+        head_sha = str(event.get("sha") or "").strip() or None
+        return TriggerContext(
+            event_name=event_name,
+            action=action,
+            source=source,
+            head_sha=head_sha,
+        )
+
+    if event_name in {"check_run", "check_suite"}:
+        check = event.get(event_name)
+        if isinstance(check, Mapping):
+            head_sha = str(check.get("head_sha") or "").strip() or None
+            pull_requests = check.get("pull_requests")
+            number = None
+            if isinstance(pull_requests, list) and pull_requests:
+                first = pull_requests[0]
+                if isinstance(first, Mapping) and first.get("number") is not None:
+                    number = int(first["number"])
+            return TriggerContext(
+                event_name=event_name,
+                action=action,
+                source=source,
+                pull_request_number=number,
+                head_sha=head_sha,
+            )
+
+    return TriggerContext(
+        event_name=event_name,
+        action=action,
+        source=source,
+    )
+
+
+def _extract_pull_request_mapping(event: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    pull_request = event.get("pull_request")
+    if isinstance(pull_request, Mapping):
+        return pull_request
+    return None
+
+
+def _extract_pull_request_number_if_present(event: Mapping[str, Any]) -> int | None:
+    pull_request = event.get("pull_request")
+    if isinstance(pull_request, Mapping) and pull_request.get("number") is not None:
+        return int(pull_request["number"])
+    if event.get("number") is not None:
         return int(event["number"])
-    raise ValueError("Unable to determine pull request number from event payload.")
+    return None
+
+
+def _extract_pull_request_number(event: Mapping[str, Any]) -> int:
+    number = _extract_pull_request_number_if_present(event)
+    if number is None:
+        raise ValueError("Unable to determine pull request number from event payload.")
+    return number
+
+
+def _extract_shas_from_pull_request_mapping(
+    pull_request: Mapping[str, Any],
+) -> tuple[str | None, str | None]:
+    base = pull_request.get("base")
+    head = pull_request.get("head")
+    if not isinstance(base, Mapping) or not isinstance(head, Mapping):
+        return None, None
+    base_sha = str(base.get("sha") or "").strip() or None
+    head_sha = str(head.get("sha") or "").strip() or None
+    return base_sha, head_sha
 
 
 def _extract_pull_request_shas(event: Mapping[str, Any]) -> tuple[str, str]:
-    pull_request = event.get("pull_request")
-    if not isinstance(pull_request, Mapping):
+    pull_request = _extract_pull_request_mapping(event)
+    if pull_request is None:
         raise ValueError("Unable to determine pull request SHAs from event payload.")
     base = pull_request.get("base")
     head = pull_request.get("head")
     if not isinstance(base, Mapping) or not isinstance(head, Mapping):
         raise ValueError("Unable to determine pull request SHAs from event payload.")
-    base_sha = str(base.get("sha") or "").strip()
-    head_sha = str(head.get("sha") or "").strip()
+    base_sha, head_sha = _extract_shas_from_pull_request_mapping(pull_request)
     if not base_sha or not head_sha:
         raise ValueError("Pull request event is missing base/head SHAs.")
     return base_sha, head_sha
+
+
+def _extract_is_fork(pull_request: Mapping[str, Any]) -> bool | None:
+    head = pull_request.get("head")
+    if not isinstance(head, Mapping):
+        return None
+    repo = head.get("repo")
+    if not isinstance(repo, Mapping):
+        return None
+    if repo.get("fork") is None:
+        return None
+    return bool(repo["fork"])
+
+
+def _resolve_execution_mode(
+    requested_mode: str,
+    event_name: str,
+) -> ResolvedExecutionMode:
+    normalized = requested_mode.strip().lower()
+    if normalized not in {"auto", "ci", "refresh"}:
+        raise ValueError(f"Unsupported execution mode: {requested_mode}")
+    if normalized == "ci":
+        return "ci"
+    if normalized == "refresh":
+        return "refresh"
+    if event_name in {
+        "pull_request_review",
+        "pull_request_review_comment",
+        "workflow_run",
+        "status",
+        "check_run",
+        "check_suite",
+    }:
+        return "refresh"
+    return "ci"
+
+
+def _build_trigger_source(event_name: str, action: str | None) -> str:
+    if action:
+        return f"{event_name}:{action}"
+    return event_name
+
+
+def _parse_publish_mode(value: str | None) -> PublishMode:
+    normalized = (value or DEFAULT_PUBLISH_MODE).strip()
+    if normalized not in {"append", "update_latest_managed", "update_matching"}:
+        raise ValueError(f"Unsupported publish mode: {value}")
+    return normalized  # type: ignore[return-value]
+
+
+def _parse_coverage_selection_strategy(value: str | None) -> CoverageSelectionStrategy:
+    normalized = (value or DEFAULT_COVERAGE_SELECTION_STRATEGY).strip()
+    if normalized != "latest_successful":
+        raise ValueError(f"Unsupported coverage selection strategy: {value}")
+    return normalized
+
+
+def _parse_fork_behavior(value: str | None) -> ForkBehavior:
+    normalized = (value or DEFAULT_FORK_BEHAVIOR).strip()
+    if normalized != "best_effort":
+        raise ValueError(f"Unsupported fork behavior: {value}")
+    return normalized
 
 
 def _parse_copilot_author_patterns(value: str | None) -> CopilotAuthorMatcherConfig:

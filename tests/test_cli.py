@@ -28,6 +28,10 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
         github_output_path = tmp_path / "github-output.txt"
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
 
         class pull_request:
             owner = "shaypal5"
@@ -57,6 +61,9 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         run_attempt,
         head_sha,
         tool_ref,
+        trigger_event_name,
+        publish_mode,
+        generated_at,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -69,6 +76,9 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["run_attempt"] = run_attempt
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
+        captured["trigger_event_name"] = trigger_event_name
+        captured["publish_mode"] = publish_mode
+        captured["generated_at"] = generated_at
         return PublicationResult(
             comment_id=500,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/15#issuecomment-500",
@@ -89,7 +99,8 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "skipped_reason" not in comment_sync_event
     assert "error_status_code" not in comment_sync_event
     assert captured["body"].startswith(
-        "<!-- pr-agent-context:managed-comment; schema=v3; pr=15; run_id=123; "
+        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; "
+        "pr=15; head_sha=deadbeef; trigger_event=pull_request; generated_at="
     )
     assert "\npr-agent-context report:\n```markdown\n" in captured["body"]
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
@@ -98,6 +109,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2
+    assert captured["generated_at"] is not None
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=500" in outputs
@@ -110,6 +122,10 @@ def test_cli_run_returns_zero_when_failure_comment_sync_fails(monkeypatch, capsy
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
         github_output_path = None
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
 
         class pull_request:
             owner = "shaypal5"
@@ -184,6 +200,9 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         run_attempt,
         head_sha,
         tool_ref,
+        trigger_event_name,
+        publish_mode,
+        generated_at,
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
@@ -197,6 +216,9 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["run_attempt"] = run_attempt
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
+        captured["trigger_event_name"] = trigger_event_name
+        captured["publish_mode"] = publish_mode
+        captured["generated_at"] = generated_at
         return PublicationResult(
             comment_id=777,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",
@@ -220,6 +242,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert captured["skip_comment_on_readonly_token"] is False
     assert captured["run_id"] == 321
     assert captured["run_attempt"] == 4
+    assert captured["generated_at"] is not None
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=777" in outputs
@@ -330,3 +353,105 @@ def test_resolve_failure_context_returns_none_for_invalid_event_payload(tmp_path
     )
 
     assert context is None
+
+
+def test_resolve_failure_context_falls_back_to_env_when_config_pull_request_is_none(
+    monkeypatch,
+    tmp_path,
+):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "action": "submitted",
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeConfig:
+        pull_request = None
+        tool_ref = "v3"
+        github_token = "token"
+        github_api_url = "https://api.github.com"
+        skip_comment_on_readonly_token = True
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request_review"
+
+        run_id = 123
+        run_attempt = 2
+
+    context = _resolve_failure_context(
+        config=FakeConfig(),
+        env={
+            "GITHUB_REPOSITORY": "shaypal5/pr-agent-context",
+            "GITHUB_TOKEN": "token",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request_review",
+            "GITHUB_RUN_ID": "321",
+            "GITHUB_RUN_ATTEMPT": "4",
+            "PR_AGENT_CONTEXT_TOOL_REF": "v3",
+        },
+    )
+
+    assert context is not None
+    assert context["pull_request_number"] == 17
+    assert context["head_sha"] == "def456"
+    assert context["trigger_event_name"] == "pull_request_review"
+
+
+def test_resolve_failure_context_prefers_config_pull_request(tmp_path):
+    from pr_agent_context.cli import _resolve_failure_context
+
+    class FakeConfig:
+        tool_ref = "v3"
+        github_token = "token"
+        github_api_url = "https://api.github.com"
+        skip_comment_on_readonly_token = False
+        publish_mode = "append"
+
+        class trigger:
+            event_name = "pull_request"
+
+        class pull_request:
+            owner = "shaypal5"
+            repo = "pr-agent-context"
+            number = 17
+            head_sha = "def456"
+
+        run_id = 123
+        run_attempt = 2
+
+    context = _resolve_failure_context(
+        config=FakeConfig(),
+        env={"GITHUB_REPOSITORY": "ignored/repo", "GITHUB_TOKEN": "token"},
+    )
+
+    assert context is not None
+    assert context["repository"] == "shaypal5/pr-agent-context"
+    assert context["head_sha"] == "def456"
+    assert context["skip_comment_on_readonly_token"] is False
+
+
+def test_build_failure_markdown_omits_run_url_when_run_id_missing():
+    from pr_agent_context.cli import _build_failure_markdown
+
+    markdown = _build_failure_markdown(
+        context={
+            "repository": "shaypal5/pr-agent-context",
+            "pull_request_number": 17,
+            "run_id": 0,
+        },
+        error=RuntimeError("boom"),
+    )
+
+    assert "Run:" not in markdown
