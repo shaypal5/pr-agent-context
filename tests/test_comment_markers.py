@@ -94,3 +94,20 @@ def test_parse_managed_comment_marker_rejects_missing_terminator():
     )
 
     assert parse_managed_comment_marker(body) is None
+
+
+def test_parse_managed_comment_marker_rejects_empty_payload_after_prefix():
+    assert parse_managed_comment_marker("<!-- pr-agent-context:managed-comment; -->") is None
+
+
+def test_parse_managed_comment_marker_accepts_payload_without_leading_semicolon():
+    body = (
+        "<!-- pr-agent-context:managed-comment schema=v4; publish_mode=append; pr=17; "
+        "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; "
+        "tool_ref=v3 -->"
+    )
+
+    parsed = parse_managed_comment_marker(body)
+
+    assert parsed is not None
+    assert parsed.pull_request_number == 17

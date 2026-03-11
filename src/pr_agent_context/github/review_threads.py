@@ -173,16 +173,6 @@ def wait_for_review_threads_to_settle(
             }
         remaining = max(timeout_seconds - elapsed_seconds, 0.0)
         sleep_seconds = min(poll_interval_seconds, remaining)
-        if sleep_seconds <= 0:
-            return latest_threads, {
-                "enabled": True,
-                "settled": False,
-                "timed_out": True,
-                "skipped_reason": "",
-                "poll_count": poll_count,
-                "elapsed_seconds": round(elapsed_seconds, 3),
-                "thread_count": len(latest_threads),
-            }
         _sleep(sleep_seconds)
 
 

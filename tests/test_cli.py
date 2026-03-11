@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from pr_agent_context.cli import main
+from pr_agent_context.cli import _handle_run_failure, _resolve_failure_context, main
+from pr_agent_context.config import PullRequestRef
 from pr_agent_context.domain.models import PublicationResult
 
 
@@ -455,3 +456,55 @@ def test_build_failure_markdown_omits_run_url_when_run_id_missing():
     )
 
     assert "Run:" not in markdown
+
+
+def test_handle_run_failure_skips_comment_sync_without_context(monkeypatch, capsys):
+    monkeypatch.setattr("pr_agent_context.cli.traceback.print_exc", lambda: None)
+    monkeypatch.setattr("pr_agent_context.cli.os.environ", {}, raising=False)
+
+    _handle_run_failure(RuntimeError("boom"), config=None)
+
+    stdout = capsys.readouterr().out
+    assert '"event": "fatal_error"' in stdout
+    assert "fatal_error_comment_sync" not in stdout
+
+
+def test_resolve_failure_context_falls_back_to_resolving_pull_request_from_trigger(
+    monkeypatch,
+    tmp_path,
+):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps({"workflow_run": {"head_sha": "def456", "pull_requests": []}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.cli.resolve_pull_request_ref",
+        lambda client, owner, repo, trigger: (  # noqa: ARG005
+            PullRequestRef(
+                owner=owner,
+                repo=repo,
+                number=17,
+                base_sha="abc123",
+                head_sha="def456",
+            ),
+            {},
+        ),
+    )
+    monkeypatch.setattr("pr_agent_context.cli.GitHubApiClient", lambda token, api_url: object())
+
+    context = _resolve_failure_context(
+        config=None,
+        env={
+            "GITHUB_REPOSITORY": "shaypal5/pr-agent-context",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "workflow_run",
+            "GITHUB_RUN_ID": "321",
+            "GITHUB_RUN_ATTEMPT": "4",
+            "GITHUB_TOKEN": "token",
+        },
+    )
+
+    assert context is not None
+    assert context["pull_request_number"] == 17
+    assert context["head_sha"] == "def456"

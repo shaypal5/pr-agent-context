@@ -443,3 +443,19 @@ def test_wait_for_review_threads_to_settle_times_out(monkeypatch):
     assert debug["settled"] is False
     assert debug["timed_out"] is True
     assert sleeps == [0.8]
+
+
+def test_collect_unresolved_review_threads_returns_empty_when_max_threads_is_zero():
+    client = _PagedReviewThreadsClient([])
+
+    threads = collect_unresolved_review_threads(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        max_threads=0,
+        copilot_matcher=CopilotAuthorMatcherConfig(exact_logins=("copilot",)),
+    )
+
+    assert threads == []
+    assert client.calls == 0
