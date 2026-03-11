@@ -5,10 +5,10 @@ import pytest
 from pr_agent_context.github.api import GitHubApiError
 from pr_agent_context.github.issue_comments import (
     _matching_run_comments,
+    _select_primary_comment,
     _selection_reason,
     _unchanged_action_for_mode,
     _update_action_for_mode,
-    _select_primary_comment,
     is_managed_comment,
     list_issue_comments,
     managed_comments_only,

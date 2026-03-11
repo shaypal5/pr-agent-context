@@ -42,7 +42,10 @@ def test_request_json_sends_headers_params_and_payload(monkeypatch):
 
     request = captured["request"]
     assert response == {"ok": True}
-    assert request.full_url == "https://api.github.com/repos/shaypal5/example/issues?per_page=10&page=2"
+    assert (
+        request.full_url
+        == "https://api.github.com/repos/shaypal5/example/issues?per_page=10&page=2"
+    )
     assert request.get_method() == "POST"
     assert request.headers["Authorization"] == "Bearer secret"
     assert request.headers["Content-type"] == "application/json"
@@ -81,7 +84,9 @@ def test_graphql_returns_data_and_raises_for_graphql_errors(monkeypatch):
         "request_json",
         lambda method, path, payload=None: {"data": {"viewer": {"login": "octocat"}}},  # noqa: ARG005
     )
-    assert client.graphql("query Viewer { viewer { login } }", {}) == {"viewer": {"login": "octocat"}}
+    assert client.graphql("query Viewer { viewer { login } }", {}) == {
+        "viewer": {"login": "octocat"}
+    }
 
     monkeypatch.setattr(
         client,

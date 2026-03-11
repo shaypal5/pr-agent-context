@@ -72,7 +72,10 @@ def test_list_run_artifacts_handles_pagination_and_empty_pages():
     assert len(artifacts) == 101
 
     empty_client = _ArtifactsClient([{"artifacts": []}])
-    assert _list_run_artifacts(empty_client, owner="shaypal5", repo="example", run_id=17, warnings=[]) == []
+    assert (
+        _list_run_artifacts(empty_client, owner="shaypal5", repo="example", run_id=17, warnings=[])
+        == []
+    )
 
 
 def test_select_coverage_source_run_keeps_first_accepted_run_and_records_later_matches():
@@ -95,8 +98,16 @@ def test_select_coverage_source_run_keeps_first_accepted_run_and_records_later_m
                     },
                 ]
             },
-            {"artifacts": [{"id": 200, "name": "pr-agent-context-coverage-py312", "size_in_bytes": 1}]},
-            {"artifacts": [{"id": 100, "name": "pr-agent-context-coverage-py311", "size_in_bytes": 1}]},
+            {
+                "artifacts": [
+                    {"id": 200, "name": "pr-agent-context-coverage-py312", "size_in_bytes": 1}
+                ]
+            },
+            {
+                "artifacts": [
+                    {"id": 100, "name": "pr-agent-context-coverage-py311", "size_in_bytes": 1}
+                ]
+            },
         ]
     )
 
@@ -143,5 +154,8 @@ def test_list_run_artifacts_returns_empty_when_pages_cannot_be_fetched():
     warnings = []
     client = _ArtifactsClient([GitHubApiError(502, "Bad Gateway", "oops")])
 
-    assert _list_run_artifacts(client, owner="shaypal5", repo="example", run_id=17, warnings=warnings) == []
+    assert (
+        _list_run_artifacts(client, owner="shaypal5", repo="example", run_id=17, warnings=warnings)
+        == []
+    )
     assert warnings

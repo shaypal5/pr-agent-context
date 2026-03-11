@@ -347,32 +347,45 @@ def test_patch_helper_functions_cover_edge_cases(tmp_path):
     parts = ("src", "pkg", "module.py")
 
     assert _matches_inferred_measured_roots("", {"src/pkg/module.py": "value"}) is False
-    assert _matches_inferred_measured_roots("src/pkg/module.py", {"": "value", ".": "value"}) is True
+    assert (
+        _matches_inferred_measured_roots("src/pkg/module.py", {"": "value", ".": "value"}) is True
+    )
     assert _matches_any_pattern(relative_path, ["src/*"]) is True
     assert _matches_source_entry(module_path, relative_path, parts, repo, "") is False
-    assert _matches_source_entry(
-        module_path,
-        relative_path,
-        parts,
-        repo,
-        str((repo / "src").resolve()),
-    ) is True
-    assert _matches_source_entry(
-        module_path,
-        relative_path,
-        parts,
-        repo,
-        str((repo.parent / "outside").resolve()),
-    ) is False
-    assert _matches_source_entry(module_path, relative_path, parts, repo, "src/pkg/module.py") is True
+    assert (
+        _matches_source_entry(
+            module_path,
+            relative_path,
+            parts,
+            repo,
+            str((repo / "src").resolve()),
+        )
+        is True
+    )
+    assert (
+        _matches_source_entry(
+            module_path,
+            relative_path,
+            parts,
+            repo,
+            str((repo.parent / "outside").resolve()),
+        )
+        is False
+    )
+    assert (
+        _matches_source_entry(module_path, relative_path, parts, repo, "src/pkg/module.py") is True
+    )
     assert _matches_source_entry(module_path, relative_path, parts, repo, "pkg") is True
-    assert _matches_source_entry(
-        module_path,
-        str((repo / "src" / "pkg" / "module.py").resolve()),
-        parts,
-        repo,
-        "src/pkg",
-    ) is True
+    assert (
+        _matches_source_entry(
+            module_path,
+            str((repo / "src" / "pkg" / "module.py").resolve()),
+            parts,
+            repo,
+            "src/pkg",
+        )
+        is True
+    )
     assert _matches_source_entry(module_path, relative_path, parts, repo, "module.py") is False
     assert _normalize_compare_path(str(repo.resolve()), repo) == "."
     assert _normalize_compare_path("/tmp/elsewhere/module.py", repo) == "/tmp/elsewhere/module.py"

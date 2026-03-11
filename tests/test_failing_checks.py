@@ -1014,9 +1014,42 @@ class FakeSuccessfulRunWithoutJobsClient:
 def test_wait_for_check_settlement_repolls_without_sleep_when_poll_interval_is_zero(monkeypatch):
     snapshots = iter(
         [
-            ({"fingerprint": ["pending"], "pending_count": 1, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
-            ({"fingerprint": ["stable"], "pending_count": 0, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
-            ({"fingerprint": ["stable"], "pending_count": 0, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
+            (
+                {
+                    "fingerprint": ["pending"],
+                    "pending_count": 1,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
         ]
     )
     monkeypatch.setattr(
@@ -1052,9 +1085,42 @@ def test_wait_for_check_settlement_repolls_without_sleep_when_poll_interval_is_z
 def test_wait_for_check_settlement_repolls_without_sleep_when_timeout_is_zero(monkeypatch):
     snapshots = iter(
         [
-            ({"fingerprint": ["pending"], "pending_count": 1, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
-            ({"fingerprint": ["stable"], "pending_count": 0, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
-            ({"fingerprint": ["stable"], "pending_count": 0, "snapshot_count": 1, "actions_run_count": 0, "external_check_run_count": 0, "commit_status_count": 0, "pending_source_counts": {}}, []),
+            (
+                {
+                    "fingerprint": ["pending"],
+                    "pending_count": 1,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
+            (
+                {
+                    "fingerprint": ["stable"],
+                    "pending_count": 0,
+                    "snapshot_count": 1,
+                    "actions_run_count": 0,
+                    "external_check_run_count": 0,
+                    "commit_status_count": 0,
+                    "pending_source_counts": {},
+                },
+                [],
+            ),
         ]
     )
     monkeypatch.setattr(

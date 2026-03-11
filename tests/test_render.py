@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from conftest import load_json_fixture, load_text_fixture
-from pr_agent_context.domain.models import FailingCheck, PatchCoverageSummary, ReviewThread, TruncationNote
+from pr_agent_context.domain.models import (
+    FailingCheck,
+    PatchCoverageSummary,
+    ReviewThread,
+    TruncationNote,
+)
 from pr_agent_context.prompt import render as render_module
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
@@ -271,7 +276,12 @@ def test_render_helpers_append_truncation_notes(monkeypatch):
     monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20)
 
     assert note in _render_review_thread(thread, max_chars=20)[1]
-    assert note in _render_review_threads_section("Review threads", [thread], section_key="review_threads_section")[1]
+    assert (
+        note
+        in _render_review_threads_section(
+            "Review threads", [thread], section_key="review_threads_section"
+        )[1]
+    )
     assert note in _render_failing_check(failure, max_chars=20)[1]
     assert note in _render_failing_checks_section([failure])[1]
 
@@ -314,9 +324,18 @@ def test_render_helpers_skip_none_truncation_notes(monkeypatch):
         }
     )
 
-    assert all(note.message != "truncated" for note in _render_review_thread(thread, max_chars=20)[1])
-    assert _render_review_threads_section("Review threads", [thread], section_key="review_threads_section")[1] == []
-    assert all(note.message != "truncated" for note in _render_failing_check(failure, max_chars=20)[1])
+    assert all(
+        note.message != "truncated" for note in _render_review_thread(thread, max_chars=20)[1]
+    )
+    assert (
+        _render_review_threads_section(
+            "Review threads", [thread], section_key="review_threads_section"
+        )[1]
+        == []
+    )
+    assert all(
+        note.message != "truncated" for note in _render_failing_check(failure, max_chars=20)[1]
+    )
     assert _render_failing_checks_section([failure])[1] == []
 
 

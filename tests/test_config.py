@@ -8,8 +8,8 @@ from pr_agent_context.config import (
     PullRequestRef,
     RunConfig,
     _extract_is_fork,
-    _extract_pull_request_number_if_present,
     _extract_pull_request_number,
+    _extract_pull_request_number_if_present,
     _extract_pull_request_shas,
     _extract_shas_from_pull_request_mapping,
     _extract_trigger_context,
@@ -585,12 +585,9 @@ def test_config_private_helpers_cover_sparse_pull_request_mappings():
     assert _extract_is_fork({"head": "oops"}) is None
     assert _extract_is_fork({"head": {"repo": "oops"}}) is None
     assert _extract_is_fork({"head": {"repo": {"fork": None}}}) is None
-    assert (
-        _extract_pull_request_shas(
-            {"pull_request": {"base": {"sha": "abc123"}, "head": {"sha": "def456"}}}
-        )
-        == ("abc123", "def456")
-    )
+    assert _extract_pull_request_shas(
+        {"pull_request": {"base": {"sha": "abc123"}, "head": {"sha": "def456"}}}
+    ) == ("abc123", "def456")
 
 
 def test_extract_trigger_context_falls_back_when_refresh_payloads_are_not_mappings():
