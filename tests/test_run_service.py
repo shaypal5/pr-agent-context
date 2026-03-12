@@ -175,7 +175,7 @@ def _zip_bytes(text: str) -> bytes:
 def _build_config(tmp_path, **overrides):
     config = RunConfig(
         github_token="token",
-        tool_ref="v3",
+        tool_ref="v4",
         pull_request=PullRequestRef(
             owner="shaypal5",
             repo="example",
@@ -263,7 +263,10 @@ def _build_coverage_data(script_path: Path, data_file: Path, invocation: str) ->
     coverage = Coverage(config_file=False, data_file=str(data_file))
     coverage.start()
     globals_dict = {"__name__": "__main__"}
-    exec(compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"), globals_dict)
+    exec(
+        compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"),
+        globals_dict,
+    )
     exec(invocation, globals_dict)
     coverage.stop()
     coverage.save()
@@ -410,7 +413,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_
     )
     config = RunConfig(
         github_token="token",
-        tool_ref="v3",
+        tool_ref="v4",
         pull_request=PullRequestRef(
             owner="shaypal5",
             repo="example",
@@ -665,7 +668,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
     comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
 
-    assert summary["tool_ref"] == "v3"
+    assert summary["tool_ref"] == "v4"
     assert summary["unresolved_thread_count"] == 2
     assert summary["failing_check_source_counts"] == {}
     assert "template_diagnostics" in summary
@@ -679,7 +682,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
         "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append;"
     )
     assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
-    assert "\nRun metadata:\n```\nTool ref: v3\n" in comment_body
+    assert "\nRun metadata:\n```\nTool ref: v4\n" in comment_body
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()

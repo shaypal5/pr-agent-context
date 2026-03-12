@@ -57,7 +57,7 @@ jobs:
       contents: read
       actions: read
       pull-requests: write
-    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v3
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
     with:
       target_patch_coverage: "100"
       include_patch_coverage: true
@@ -68,24 +68,24 @@ jobs:
 
 Versioning guidance:
 
-- use `@v3` in downstream repositories for the stable major line
-- publish fixed release tags such as `v3.0.0` for exact version pinning
-- this repository includes [`.github/workflows/release-tags.yml`](/.github/workflows/release-tags.yml), which automatically moves `v3` when a `v3.x.y` tag is pushed
+- use `@v4` in downstream repositories for the stable major line
+- publish fixed release tags such as `v4.0.0` for exact version pinning
+- this repository includes [`.github/workflows/release-tags.yml`](/.github/workflows/release-tags.yml), which automatically moves `v4` when a `v4.x.y` tag is pushed
 
 Example release flow in this repository:
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag v3.0.1
-git push origin v3.0.1
+git tag v4.0.1
+git push origin v4.0.1
 ```
 
 After the version tag push completes, the workflow force-updates the matching major tag to the same commit.
 
 The reusable workflow inputs are:
 
-- `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v3"`
+- `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v4"`
 - `execution_mode`: `ci`, `refresh`, or `auto`, default `auto`
 - `publish_mode`: `append`, `update_latest_managed`, or `update_matching`, default `append`
 - `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`

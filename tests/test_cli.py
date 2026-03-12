@@ -24,7 +24,7 @@ def test_cli_run_invokes_service(monkeypatch):
 
 def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_path, capsys):
     class FakeConfig:
-        tool_ref = "v3"
+        tool_ref = "v4"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
@@ -105,7 +105,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     )
     assert "\npr-agent-context report:\n```markdown\n" in captured["body"]
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
-    assert "\nRun metadata:\n```\nTool ref: v3\nTool version:" in captured["body"]
+    assert "\nRun metadata:\n```\nTool ref: v4\nTool version:" in captured["body"]
     assert "Workflow run: 123 attempt 2" in captured["body"]
     assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
@@ -118,7 +118,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
 
 def test_cli_run_returns_zero_when_failure_comment_sync_fails(monkeypatch, capsys):
     class FakeConfig:
-        tool_ref = "v3"
+        tool_ref = "v4"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
@@ -186,7 +186,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "4")
     monkeypatch.setenv("GITHUB_TOKEN", "token")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
-    monkeypatch.setenv("PR_AGENT_CONTEXT_TOOL_REF", "v3")
+    monkeypatch.setenv("PR_AGENT_CONTEXT_TOOL_REF", "v4")
     monkeypatch.setenv("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN", "false")
 
     captured = {}
@@ -379,7 +379,7 @@ def test_resolve_failure_context_falls_back_to_env_when_config_pull_request_is_n
 
     class FakeConfig:
         pull_request = None
-        tool_ref = "v3"
+        tool_ref = "v4"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
@@ -400,7 +400,7 @@ def test_resolve_failure_context_falls_back_to_env_when_config_pull_request_is_n
             "GITHUB_EVENT_NAME": "pull_request_review",
             "GITHUB_RUN_ID": "321",
             "GITHUB_RUN_ATTEMPT": "4",
-            "PR_AGENT_CONTEXT_TOOL_REF": "v3",
+            "PR_AGENT_CONTEXT_TOOL_REF": "v4",
         },
     )
 
@@ -414,7 +414,7 @@ def test_resolve_failure_context_prefers_config_pull_request(tmp_path):
     from pr_agent_context.cli import _resolve_failure_context
 
     class FakeConfig:
-        tool_ref = "v3"
+        tool_ref = "v4"
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = False

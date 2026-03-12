@@ -14,7 +14,7 @@ from pr_agent_context.domain.models import (
 )
 
 
-def test_run_scoped_constants_expose_v3_marker_contract():
+def test_run_scoped_constants_expose_v4_marker_contract():
     assert MANAGED_COMMENT_MARKER_PREFIX == "<!-- pr-agent-context:managed-comment"
     assert MANAGED_COMMENT_SCHEMA_VERSION == "v4"
     assert "{run_id}" not in DEFAULT_PROMPT_OPENING
@@ -34,7 +34,7 @@ def test_run_scoped_models_preserve_marker_and_publication_metadata():
         head_sha="deadbeef",
         trigger_event_name="pull_request",
         generated_at="2026-03-10T10:00:00+00:00",
-        tool_ref="v3",
+        tool_ref="v4",
     )
     comment = ManagedComment(
         comment_id=9,
