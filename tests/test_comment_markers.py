@@ -26,10 +26,7 @@ def test_format_and_parse_managed_comment_marker_round_trip():
 
 
 def test_parse_managed_comment_marker_rejects_legacy_marker():
-    assert (
-        parse_managed_comment_marker("<!-- pr-agent-context:managed-comment -->")
-        is None
-    )
+    assert parse_managed_comment_marker("<!-- pr-agent-context:managed-comment -->") is None
 
 
 def test_parse_managed_comment_marker_rejects_missing_fields():
@@ -100,10 +97,7 @@ def test_parse_managed_comment_marker_rejects_missing_terminator():
 
 
 def test_parse_managed_comment_marker_rejects_empty_payload_after_prefix():
-    assert (
-        parse_managed_comment_marker("<!-- pr-agent-context:managed-comment; -->")
-        is None
-    )
+    assert parse_managed_comment_marker("<!-- pr-agent-context:managed-comment; -->") is None
 
 
 def test_parse_managed_comment_marker_accepts_payload_without_leading_semicolon():

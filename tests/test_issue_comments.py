@@ -30,9 +30,7 @@ class FakeIssueCommentClient:
         if method == "DELETE":
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
             self.deleted_ids.append(comment_id)
-            self.comments = [
-                comment for comment in self.comments if comment["id"] != comment_id
-            ]
+            self.comments = [comment for comment in self.comments if comment["id"] != comment_id]
             return {}
         if method == "PATCH":
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
@@ -305,9 +303,7 @@ def test_sync_managed_comment_noops_without_comment_when_body_missing(
 
 
 def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
-    client = ForbiddenIssueCommentClient(
-        [issue_comments_payload[0]], fail_method="POST"
-    )
+    client = ForbiddenIssueCommentClient([issue_comments_payload[0]], fail_method="POST")
 
     result = sync_managed_comment(
         client,
@@ -502,10 +498,7 @@ def test_sync_managed_comment_uses_supplied_generated_at_in_current_identity(
     )
 
     assert result.action == "created"
-    assert (
-        result.sync_debug["current_identity"]["generated_at"]
-        == "2026-03-08T10:11:12+00:00"
-    )
+    assert result.sync_debug["current_identity"]["generated_at"] == "2026-03-08T10:11:12+00:00"
 
 
 def test_is_managed_comment_requires_bot_author():
@@ -618,10 +611,7 @@ def test_issue_comment_helper_functions_cover_unmatched_and_unknown_paths(
     )
 
     assert [comment.comment_id for comment in matches] == [4]
-    assert (
-        _selection_reason(publish_mode="mystery", primary_comment=comments[-1])
-        == "unknown"
-    )
+    assert _selection_reason(publish_mode="mystery", primary_comment=comments[-1]) == "unknown"
     assert _update_action_for_mode("append") == "created"
     assert _unchanged_action_for_mode("append") == "noop_no_comment"
 

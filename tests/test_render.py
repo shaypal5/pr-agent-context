@@ -36,12 +36,8 @@ from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 def test_render_prompt_matches_expected_snapshots():
     payload = load_json_fixture("prompts/collected_context.json")
-    review_threads = [
-        ReviewThread.model_validate(item) for item in payload["review_threads"]
-    ]
-    failing_checks = [
-        FailingCheck.model_validate(item) for item in payload["failing_checks"]
-    ]
+    review_threads = [ReviewThread.model_validate(item) for item in payload["review_threads"]]
+    failing_checks = [FailingCheck.model_validate(item) for item in payload["failing_checks"]]
 
     rendered = render_prompt(
         pull_request_number=payload["pull_request_number"],
@@ -51,14 +47,8 @@ def test_render_prompt_matches_expected_snapshots():
         prompt_preamble=payload["prompt_preamble"],
     )
 
-    assert (
-        rendered.prompt_markdown
-        == load_text_fixture("prompts/expected_prompt.md").strip()
-    )
-    assert (
-        rendered.comment_body
-        == load_text_fixture("prompts/expected_comment.md").strip()
-    )
+    assert rendered.prompt_markdown == load_text_fixture("prompts/expected_prompt.md").strip()
+    assert rendered.comment_body == load_text_fixture("prompts/expected_comment.md").strip()
     assert len(rendered.prompt_sha256) == 64
     assert rendered.template_diagnostics.template_source == "built_in"
 
@@ -84,10 +74,7 @@ def test_wrap_markdown_prose_wraps_plain_text_only():
         "wrapped by the renderer because it is plain narrative text\n"
         "and exceeds the configured width."
     ) in wrapped
-    assert (
-        "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long"
-        in wrapped
-    )
+    assert "URL: https://example.com/this/should/not/wrap/even/if/it/is/very/long" in wrapped
     assert "- src/example.py: 1, 2, 3, 4, 5, 6, 7, 8" in wrapped
     assert (
         "    indented code line that should stay exactly as-is even when it is very very very long"
@@ -253,9 +240,7 @@ def test_render_helpers_append_truncation_notes(monkeypatch):
         original_size=100,
         truncated_size=20,
     )
-    monkeypatch.setattr(
-        render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", note)
-    )
+    monkeypatch.setattr(render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", note))
 
     thread = ReviewThread.model_validate(
         {
@@ -290,12 +275,8 @@ def test_render_helpers_append_truncation_notes(monkeypatch):
         }
     )
 
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20
-    )
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20
-    )
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20)
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20)
 
     assert note in _render_review_thread(thread, max_chars=20)[1]
     assert (
@@ -309,15 +290,9 @@ def test_render_helpers_append_truncation_notes(monkeypatch):
 
 
 def test_render_helpers_skip_none_truncation_notes(monkeypatch):
-    monkeypatch.setattr(
-        render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", None)
-    )
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20
-    )
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20
-    )
+    monkeypatch.setattr(render_module, "truncate_text", lambda *args, **kwargs: ("trimmed", None))
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_threads_section", 20)
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 20)
 
     thread = ReviewThread.model_validate(
         {
@@ -353,8 +328,7 @@ def test_render_helpers_skip_none_truncation_notes(monkeypatch):
     )
 
     assert all(
-        note.message != "truncated"
-        for note in _render_review_thread(thread, max_chars=20)[1]
+        note.message != "truncated" for note in _render_review_thread(thread, max_chars=20)[1]
     )
     assert (
         _render_review_threads_section(
@@ -363,8 +337,7 @@ def test_render_helpers_skip_none_truncation_notes(monkeypatch):
         == []
     )
     assert all(
-        note.message != "truncated"
-        for note in _render_failing_check(failure, max_chars=20)[1]
+        note.message != "truncated" for note in _render_failing_check(failure, max_chars=20)[1]
     )
     assert _render_failing_checks_section([failure])[1] == []
 
@@ -422,10 +395,7 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
         include_patch_coverage=False,
     )
 
-    assert (
-        "No actionable items were found in the enabled checks"
-        in rendered.prompt_markdown
-    )
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
     assert "Skipped checks: review comments," in rendered.prompt_markdown
     assert "patch coverage." in rendered.prompt_markdown
@@ -495,10 +465,7 @@ def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():
     )
 
     assert rendered.has_actionable_items is False
-    assert (
-        "No actionable items were found in the enabled checks"
-        in rendered.prompt_markdown
-    )
+    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
     assert "Skipped checks: review comments," in rendered.prompt_markdown
     assert "failing checks, patch coverage." in rendered.prompt_markdown
 
@@ -590,9 +557,7 @@ def test_render_prompt_rejects_unknown_template_placeholders(tmp_path):
 
 def test_render_prompt_rejects_unsupported_placeholder_syntax_variants(tmp_path):
     template = tmp_path / "template.md"
-    template.write_text(
-        "{{ PR_NUMBER }} {{ pr-number }} {{ pr_number2 }}", encoding="utf-8"
-    )
+    template.write_text("{{ PR_NUMBER }} {{ pr-number }} {{ pr_number2 }}", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Unsupported prompt template placeholder"):
         render_prompt(
@@ -711,9 +676,7 @@ def test_render_prompt_template_allows_literal_braces_in_rendered_values():
 
 
 def test_render_prompt_template_rejects_missing_values():
-    with pytest.raises(
-        ValueError, match="Missing value\\(s\\) for prompt template placeholder"
-    ):
+    with pytest.raises(ValueError, match="Missing value\\(s\\) for prompt template placeholder"):
         render_prompt_template(
             template_text="{{ opening_instructions }}",
             template_source="file",
@@ -1063,9 +1026,7 @@ def test_render_review_section_hard_caps_total_budget():
     )
 
     assert len(rendered.prompt_markdown) < 20000
-    assert any(
-        note.strategy == "section_budget_cap" for note in rendered.truncation_notes
-    )
+    assert any(note.strategy == "section_budget_cap" for note in rendered.truncation_notes)
 
 
 def test_render_review_threads_section_breaks_when_budget_is_exhausted(monkeypatch):
@@ -1093,9 +1054,7 @@ def test_render_review_threads_section_breaks_when_budget_is_exhausted(monkeypat
         )
         for index in range(1, 4)
     ]
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "review_comments_section", 1
-    )
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "review_comments_section", 1)
     monkeypatch.setattr(
         render_module,
         "_render_review_thread",
@@ -1128,9 +1087,7 @@ def test_render_failing_checks_section_breaks_when_budget_is_exhausted(monkeypat
         )
         for index in range(1, 4)
     ]
-    monkeypatch.setitem(
-        render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 1
-    )
+    monkeypatch.setitem(render_module.DEFAULT_SECTION_BUDGETS, "failing_checks_section", 1)
 
     rendered, notes = _render_failing_checks_section(failures)
 
@@ -1256,9 +1213,7 @@ def test_render_helpers_handle_location_and_block_sanitation():
     assert _sanitize_block("```py\r\npass\r\n```") == "~~~py\npass\n~~~"
     assert _wrap_markdown_code_block("plain").startswith("```markdown")
     assert _wrap_markdown_code_block("contains ``` fence").startswith("~~~markdown")
-    assert _wrap_markdown_code_block("contains ``` and ~~~ fences").startswith(
-        "````markdown"
-    )
+    assert _wrap_markdown_code_block("contains ``` and ~~~ fences").startswith("````markdown")
 
 
 def test_render_format_percent_keeps_decimals_for_non_integral_values():

@@ -74,9 +74,7 @@ class FakeGitHubClient:
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
             self.deleted_ids.append(comment_id)
             self.issue_comments_payload = [
-                comment
-                for comment in self.issue_comments_payload
-                if comment["id"] != comment_id
+                comment for comment in self.issue_comments_payload if comment["id"] != comment_id
             ]
             return {}
         raise AssertionError(f"Unexpected call: {method} {path}")
@@ -164,9 +162,7 @@ class CrossRunGitHubClient(FakeGitHubClient):
             return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
         if job_id == 1202:
             return _zip_bytes(load_text_fixture("github/logs/pre_commit_failure.log"))
-        return super().request_bytes(
-            method, path, params=params, extra_headers=extra_headers
-        )
+        return super().request_bytes(method, path, params=params, extra_headers=extra_headers)
 
 
 def _zip_bytes(text: str) -> bytes:
@@ -323,10 +319,7 @@ def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
     outputs = _read_outputs(config.github_output_path)
     assert client.deleted_ids == []
     assert client.created_bodies
-    assert (
-        "No actionable items were found in the enabled checks"
-        in client.created_bodies[-1]
-    )
+    assert "No actionable items were found in the enabled checks" in client.created_bodies[-1]
     assert outputs["has_actionable_items"] == "false"
     assert outputs["comment_written"] == "true"
 
@@ -377,9 +370,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
     with redirect_stdout(stdout):
         assert run_service(config, client=client) == 0
 
-    events = {
-        event["event"]: event for event in _structured_log_lines(stdout.getvalue())
-    }
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
     assert events["start"]["version"]
     assert events["start"]["pull_request_number"] == 17
     assert events["start"]["head_sha"] == "def456"
@@ -403,9 +394,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
     assert events["summary"]["failing_check_count"] == 3
 
 
-def test_run_service_aggregates_pr_wide_failing_checks(
-    tmp_path, issue_comments_payload
-):
+def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_payload):
     empty_review_threads = {
         "data": {
             "repository": {
@@ -451,9 +440,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(
 
     outputs = _read_outputs(config.github_output_path)
     failing_debug = json.loads(
-        (config.debug_artifacts_dir / "failing-check-universe.json").read_text(
-            encoding="utf-8"
-        )
+        (config.debug_artifacts_dir / "failing-check-universe.json").read_text(encoding="utf-8")
     )
     prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
 
@@ -490,9 +477,7 @@ def test_run_service_updates_existing_same_run_comment_without_reordering(
     assert updated_body.index("## FAIL-1") < updated_body.index("## FAIL-2")
 
 
-def test_run_service_creates_new_comment_for_new_run_attempt(
-    tmp_path, issue_comments_payload
-):
+def test_run_service_creates_new_comment_for_new_run_attempt(tmp_path, issue_comments_payload):
     client = FakeGitHubClient(
         review_threads_payload=load_json_fixture("github/review_threads.json"),
         workflow_jobs_payload=load_json_fixture("github/workflow_jobs.json"),
@@ -657,9 +642,7 @@ def test_run_service_can_force_na_patch_coverage_section(
     assert outputs["patch_coverage_percent"] == ""
     assert client.created_bodies
     assert "no changed executable Python lines" in client.created_bodies[0]
-    events = {
-        event["event"]: event for event in _structured_log_lines(stdout.getvalue())
-    }
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
     assert events["patch_result"]["event"] == "patch_result"
     assert events["comment_sync"]["action"] == "created"
     assert "No actionable items were found" not in stdout.getvalue()
@@ -675,21 +658,15 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
 
     assert run_service(config, client=client) == 0
 
-    summary = json.loads(
-        (config.debug_artifacts_dir / "summary.json").read_text(encoding="utf-8")
-    )
+    summary = json.loads((config.debug_artifacts_dir / "summary.json").read_text(encoding="utf-8"))
     collected = json.loads(
-        (config.debug_artifacts_dir / "collected-context.json").read_text(
-            encoding="utf-8"
-        )
+        (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
     )
     comment_sync = json.loads(
         (config.debug_artifacts_dir / "comment-sync.json").read_text(encoding="utf-8")
     )
     prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
-    comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(
-        encoding="utf-8"
-    )
+    comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
 
     assert summary["tool_ref"] == "v4"
     assert summary["unresolved_thread_count"] == 2
@@ -699,25 +676,19 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert (config.debug_artifacts_dir / "failing-check-universe.json").exists()
     assert comment_sync["sync_debug"]["current_identity"]["run_id"] == 100
     assert comment_sync["sync_debug"]["matched_existing_comment"] is False
-    assert comment_sync["sync_debug"]["current_identity"]["generated_at"].endswith(
-        "+00:00"
-    )
+    assert comment_sync["sync_debug"]["current_identity"]["generated_at"].endswith("+00:00")
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith(
         "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append;"
     )
-    assert (
-        "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
-    )
+    assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
     assert "\nRun metadata:\n```\nTool ref: v4\n" in comment_body
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
 
 
-def test_run_service_refresh_mode_marks_review_wait_disabled(
-    tmp_path, issue_comments_payload
-):
+def test_run_service_refresh_mode_marks_review_wait_disabled(tmp_path, issue_comments_payload):
     client = FakeGitHubClient(
         review_threads_payload=load_json_fixture("github/review_threads.json"),
         workflow_jobs_payload={"jobs": []},
@@ -735,14 +706,9 @@ def test_run_service_refresh_mode_marks_review_wait_disabled(
     assert run_service(config, client=client) == 0
 
     collected = json.loads(
-        (config.debug_artifacts_dir / "collected-context.json").read_text(
-            encoding="utf-8"
-        )
+        (config.debug_artifacts_dir / "collected-context.json").read_text(encoding="utf-8")
     )
-    assert (
-        collected["review_settlement_debug"]["skipped_reason"]
-        == "refresh_wait_disabled"
-    )
+    assert collected["review_settlement_debug"]["skipped_reason"] == "refresh_wait_disabled"
 
 
 def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
@@ -773,16 +739,12 @@ def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
             "coverage_artifacts_dir": tmp_path / "missing-artifacts",
         }
     )
-    monkeypatch.setattr(
-        "pr_agent_context.services.run.collect_changed_lines", lambda *_, **__: {}
-    )
+    monkeypatch.setattr("pr_agent_context.services.run.collect_changed_lines", lambda *_, **__: {})
 
     assert run_service(config, client=client) == 0
 
     coverage_source = json.loads(
-        (config.debug_artifacts_dir / "coverage-source.json").read_text(
-            encoding="utf-8"
-        )
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
     )
     assert "resolution" in coverage_source
 

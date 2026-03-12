@@ -250,9 +250,7 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         _extract_pull_request_shas({})
 
     with pytest.raises(ValueError, match="Unable to determine pull request SHAs"):
-        _extract_pull_request_shas(
-            {"pull_request": {"base": {}, "head": "not-a-mapping"}}
-        )
+        _extract_pull_request_shas({"pull_request": {"base": {}, "head": "not-a-mapping"}})
 
     with pytest.raises(ValueError, match="missing base/head SHAs"):
         _extract_pull_request_shas(
@@ -384,9 +382,7 @@ def test_load_trigger_context_from_env_supports_refresh_events(
         {
             "GITHUB_EVENT_PATH": str(event_path),
             "GITHUB_EVENT_NAME": event_name,
-            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(
-                event_payload.get("action") or ""
-            ),
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(event_payload.get("action") or ""),
         }
     )
 
@@ -560,9 +556,7 @@ def test_extract_trigger_context_handles_sparse_refresh_payloads():
         "check_suite:completed",
         {"check_suite": {"head_sha": "feedface", "pull_requests": [{"number": None}]}},
     )
-    fallback = _extract_trigger_context(
-        "workflow_dispatch", None, "workflow_dispatch", {}
-    )
+    fallback = _extract_trigger_context("workflow_dispatch", None, "workflow_dispatch", {})
     pull_request = _extract_trigger_context(
         "pull_request",
         "opened",
@@ -593,9 +587,7 @@ def test_resolve_execution_mode_accepts_explicit_values():
 
 
 def test_config_private_helpers_cover_sparse_pull_request_mappings():
-    assert (
-        _extract_pull_request_number_if_present({"pull_request": {"number": 17}}) == 17
-    )
+    assert _extract_pull_request_number_if_present({"pull_request": {"number": 17}}) == 17
     assert _extract_pull_request_number_if_present({}) is None
     assert _extract_shas_from_pull_request_mapping({"base": {}, "head": "oops"}) == (
         None,
