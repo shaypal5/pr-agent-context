@@ -1,0 +1,33 @@
+name: pr-agent-context-refresh
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  check_run:
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  pr-agent-context:
+    # Ignore GitHub Actions check runs, including pr-agent-context's own check, to avoid loops.
+    if: >
+      github.event_name != 'check_run' ||
+      (
+        github.event.check_run.app.slug != 'github-actions' &&
+        github.event.check_run.name != 'PR agent context / PR agent context'
+      )
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
+    with:
+      tool_ref: v4
+      execution_mode: refresh
+      publish_mode: append
+      enable_cross_run_coverage_lookup: true
+      wait_for_reviews_to_settle: true
+      coverage_artifact_prefix: pr-agent-context-coverage
+      prompt_template_file: .github/pr-agent-context-template.md

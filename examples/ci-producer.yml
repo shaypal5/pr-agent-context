@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE_FILE: .coverage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest --cov=your_package --cov-report=term-missing --cov-report=
+      - name: Upload raw coverage data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-agent-context-coverage-py312
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  pr-agent-context:
+    if: ${{ always() }}
+    needs: [test]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
+    with:
+      tool_ref: v4
+      target_patch_coverage: "100"
+      include_patch_coverage: true
+      coverage_artifact_prefix: pr-agent-context-coverage
+      prompt_template_file: .github/pr-agent-context-template.md
+      debug_artifacts: true

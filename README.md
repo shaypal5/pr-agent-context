@@ -177,7 +177,11 @@ are wrapped to 100 characters, while semantically sensitive lines are left untou
 `pr-agent-context` now supports both CI producer runs and later refresh-style runs with the same
 reusable workflow.
 
-Recommended consumer patterns:
+Built-in settling only helps while a currently running invocation is still alive. If later PR
+signals arrive after that run finishes, the caller repository still needs a tiny refresh workflow
+to subscribe to those follow-up events and invoke the reusable workflow again in refresh mode.
+
+Recommended minimal caller-side pattern:
 
 1. CI producer workflow
 - trigger: `pull_request`
@@ -192,6 +196,50 @@ Recommended consumer patterns:
   - `publish_mode: append`
   - `enable_cross_run_coverage_lookup: true`
   - optional `wait_for_reviews_to_settle: true`
+
+Minimal refresh workflow example:
+
+```yaml
+name: pr-agent-context-refresh
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  check_run:
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  pr-agent-context:
+    if: >
+      github.event_name != 'check_run' ||
+      (
+        github.event.check_run.app.slug != 'github-actions' &&
+        github.event.check_run.name != 'PR agent context / PR agent context'
+      )
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
+    with:
+      tool_ref: v4
+      execution_mode: refresh
+      publish_mode: append
+      enable_cross_run_coverage_lookup: true
+      wait_for_reviews_to_settle: true
+      coverage_artifact_prefix: pr-agent-context-coverage
+      prompt_template_file: .github/pr-agent-context-template.md
+```
+
+Additional copy-pasteable examples live in [`examples/`](examples/):
+
+- [`examples/ci-producer.yml`](examples/ci-producer.yml): minimal PR CI + initial `pr-agent-context` invocation
+- [`examples/pr-agent-context-refresh.yml`](examples/pr-agent-context-refresh.yml): minimal refresh workflow for later review/check signals
+- [`examples/coverage-matrix-producer.yml`](examples/coverage-matrix-producer.yml): matrix coverage producer with raw `.coverage*` uploads
+- [`examples/pr-agent-context-template.md`](examples/pr-agent-context-template.md): simple custom prompt template
 
 Refresh mode is best-effort on forks. When write access, external checks, or artifact access are
 restricted, the tool records those degradations in debug artifacts instead of failing wholesale.
