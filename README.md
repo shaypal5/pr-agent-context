@@ -219,10 +219,7 @@ jobs:
   pr-agent-context:
     if: >
       github.event_name != 'check_run' ||
-      (
-        github.event.check_run.app.slug != 'github-actions' &&
-        github.event.check_run.name != 'PR agent context / PR agent context'
-      )
+      github.event.check_run.app.slug != 'github-actions'
     uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
     with:
       tool_ref: v4
