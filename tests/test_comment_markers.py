@@ -16,7 +16,7 @@ def test_format_and_parse_managed_comment_marker_round_trip():
         head_sha="def456",
         trigger_event_name="pull_request_review",
         generated_at="2026-03-10T10:00:00+00:00",
-        tool_ref="v3",
+        tool_ref="v4",
     )
 
     marker = format_managed_comment_marker(identity)
@@ -26,7 +26,10 @@ def test_format_and_parse_managed_comment_marker_round_trip():
 
 
 def test_parse_managed_comment_marker_rejects_legacy_marker():
-    assert parse_managed_comment_marker("<!-- pr-agent-context:managed-comment -->") is None
+    assert (
+        parse_managed_comment_marker("<!-- pr-agent-context:managed-comment -->")
+        is None
+    )
 
 
 def test_parse_managed_comment_marker_rejects_missing_fields():
@@ -42,7 +45,7 @@ def test_parse_managed_comment_marker_rejects_unknown_schema():
     body = (
         "<!-- pr-agent-context:managed-comment; schema=v999; publish_mode=append; pr=17; "
         "run_id=100; run_attempt=2; head_sha=def456; trigger_event=pull_request; "
-        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
+        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v4 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -52,7 +55,7 @@ def test_parse_managed_comment_marker_rejects_invalid_entries():
     body = (
         "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
         "bad-entry; run_id=100; run_attempt=2; head_sha=def456; "
-        "trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
+        "trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; tool_ref=v4 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -62,7 +65,7 @@ def test_parse_managed_comment_marker_rejects_non_integer_identity_fields():
     body = (
         "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=abc; "
         "run_id=100; run_attempt=two; head_sha=def456; trigger_event=pull_request; "
-        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v3 -->"
+        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v4 -->"
     )
 
     assert parse_managed_comment_marker(body) is None
@@ -75,7 +78,7 @@ def test_format_managed_comment_marker_omits_missing_run_identity():
         head_sha="def456",
         trigger_event_name="status",
         generated_at="2026-03-10T10:00:00+00:00",
-        tool_ref="v3",
+        tool_ref="v4",
         run_id=None,
         run_attempt=None,
     )
@@ -90,21 +93,24 @@ def test_parse_managed_comment_marker_rejects_missing_terminator():
     body = (
         "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
         "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; "
-        "tool_ref=v3"
+        "tool_ref=v4"
     )
 
     assert parse_managed_comment_marker(body) is None
 
 
 def test_parse_managed_comment_marker_rejects_empty_payload_after_prefix():
-    assert parse_managed_comment_marker("<!-- pr-agent-context:managed-comment; -->") is None
+    assert (
+        parse_managed_comment_marker("<!-- pr-agent-context:managed-comment; -->")
+        is None
+    )
 
 
 def test_parse_managed_comment_marker_accepts_payload_without_leading_semicolon():
     body = (
         "<!-- pr-agent-context:managed-comment schema=v4; publish_mode=append; pr=17; "
         "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-10T10:00:00+00:00; "
-        "tool_ref=v3 -->"
+        "tool_ref=v4 -->"
     )
 
     parsed = parse_managed_comment_marker(body)

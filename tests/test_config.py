@@ -51,7 +51,7 @@ def test_run_config_from_env(tmp_path):
             "GITHUB_RUN_ATTEMPT": "4",
             "GITHUB_TOKEN": "token",
             "GITHUB_OUTPUT": str(output_path),
-            "PR_AGENT_CONTEXT_TOOL_REF": "v3",
+            "PR_AGENT_CONTEXT_TOOL_REF": "v4",
             "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
             "PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS": "false",
             "PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS": "true",
@@ -82,7 +82,7 @@ def test_run_config_from_env(tmp_path):
         }
     )
 
-    assert config.tool_ref == "v3"
+    assert config.tool_ref == "v4"
     assert config.pull_request.owner == "shaypal5"
     assert config.pull_request.repo == "example"
     assert config.pull_request.number == 17
@@ -250,7 +250,9 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         _extract_pull_request_shas({})
 
     with pytest.raises(ValueError, match="Unable to determine pull request SHAs"):
-        _extract_pull_request_shas({"pull_request": {"base": {}, "head": "not-a-mapping"}})
+        _extract_pull_request_shas(
+            {"pull_request": {"base": {}, "head": "not-a-mapping"}}
+        )
 
     with pytest.raises(ValueError, match="missing base/head SHAs"):
         _extract_pull_request_shas(
@@ -287,7 +289,9 @@ def test_load_pull_request_context_from_env(tmp_path):
     assert pull_request.head_sha == "def456"
 
 
-def test_load_pull_request_context_from_env_rejects_missing_pull_request_context(tmp_path):
+def test_load_pull_request_context_from_env_rejects_missing_pull_request_context(
+    tmp_path,
+):
     event_path = tmp_path / "event.json"
     event_path.write_text(
         json.dumps({"workflow_run": {"head_sha": "deadbeef", "pull_requests": []}}),
@@ -305,7 +309,13 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
 
 
 @pytest.mark.parametrize(
-    ("event_name", "event_payload", "expected_source", "expected_number", "expected_head_sha"),
+    (
+        "event_name",
+        "event_payload",
+        "expected_source",
+        "expected_number",
+        "expected_head_sha",
+    ),
     [
         (
             "pull_request_review",
@@ -374,7 +384,9 @@ def test_load_trigger_context_from_env_supports_refresh_events(
         {
             "GITHUB_EVENT_PATH": str(event_path),
             "GITHUB_EVENT_NAME": event_name,
-            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(event_payload.get("action") or ""),
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": str(
+                event_payload.get("action") or ""
+            ),
         }
     )
 
@@ -474,7 +486,9 @@ def test_run_config_repository_property_falls_back_to_pull_request(tmp_path):
     assert config.repository == "shaypal5/example"
 
 
-def test_run_config_repository_property_returns_empty_without_repository_context(tmp_path):
+def test_run_config_repository_property_returns_empty_without_repository_context(
+    tmp_path,
+):
     config = RunConfig(
         github_token="token",
         run_id=1,
@@ -488,7 +502,11 @@ def test_run_config_repository_property_returns_empty_without_repository_context
 @pytest.mark.parametrize(
     ("parser", "value", "expected_message"),
     [
-        (_resolve_execution_mode, ("weird", "pull_request"), "Unsupported execution mode"),
+        (
+            _resolve_execution_mode,
+            ("weird", "pull_request"),
+            "Unsupported execution mode",
+        ),
         (_parse_publish_mode, ("weird",), "Unsupported publish mode"),
         (
             _parse_coverage_selection_strategy,
@@ -542,7 +560,9 @@ def test_extract_trigger_context_handles_sparse_refresh_payloads():
         "check_suite:completed",
         {"check_suite": {"head_sha": "feedface", "pull_requests": [{"number": None}]}},
     )
-    fallback = _extract_trigger_context("workflow_dispatch", None, "workflow_dispatch", {})
+    fallback = _extract_trigger_context(
+        "workflow_dispatch", None, "workflow_dispatch", {}
+    )
     pull_request = _extract_trigger_context(
         "pull_request",
         "opened",
@@ -573,9 +593,14 @@ def test_resolve_execution_mode_accepts_explicit_values():
 
 
 def test_config_private_helpers_cover_sparse_pull_request_mappings():
-    assert _extract_pull_request_number_if_present({"pull_request": {"number": 17}}) == 17
+    assert (
+        _extract_pull_request_number_if_present({"pull_request": {"number": 17}}) == 17
+    )
     assert _extract_pull_request_number_if_present({}) is None
-    assert _extract_shas_from_pull_request_mapping({"base": {}, "head": "oops"}) == (None, None)
+    assert _extract_shas_from_pull_request_mapping({"base": {}, "head": "oops"}) == (
+        None,
+        None,
+    )
 
     with pytest.raises(ValueError, match="missing base/head SHAs"):
         _extract_pull_request_shas(
