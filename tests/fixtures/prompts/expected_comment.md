@@ -77,7 +77,7 @@ Excerpt:
 Run metadata:
 ```
 Tool ref: v4
-Tool version: 3.0.0
+Tool version: 4.0.0
 Workflow run: 0 attempt 1
 PR head commit: def456
 ```
