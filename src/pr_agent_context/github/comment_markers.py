@@ -16,13 +16,14 @@ def format_managed_comment_marker(identity: ManagedCommentIdentity) -> str:
     parts = [
         f"schema={identity.schema_version}",
         f"publish_mode={identity.publish_mode}",
-        f"execution_mode={identity.execution_mode}",
         f"pr={identity.pull_request_number}",
         f"head_sha={identity.head_sha}",
         f"trigger_event={identity.trigger_event_name}",
         f"generated_at={identity.generated_at}",
         f"tool_ref={identity.tool_ref}",
     ]
+    if identity.schema_version == MANAGED_COMMENT_SCHEMA_VERSION:
+        parts.insert(2, f"execution_mode={identity.execution_mode}")
     if identity.run_id is not None:
         parts.append(f"run_id={identity.run_id}")
     if identity.run_attempt is not None:
@@ -65,13 +66,19 @@ def parse_managed_comment_marker(body: str) -> ManagedCommentIdentity | None:
         required = required | {"execution_mode"}
     if not required.issubset(fields):
         return None
+    if schema_version == MANAGED_COMMENT_SCHEMA_VERSION and not fields.get("execution_mode"):
+        return None
 
     try:
         return ManagedCommentIdentity(
             schema_version=schema_version,
             pull_request_number=int(fields["pr"]),
             publish_mode=fields["publish_mode"],  # type: ignore[arg-type]
-            execution_mode=(fields["execution_mode"] if fields.get("execution_mode") else None),  # type: ignore[arg-type]
+            execution_mode=(
+                fields["execution_mode"]
+                if schema_version == MANAGED_COMMENT_SCHEMA_VERSION
+                else None
+            ),  # type: ignore[arg-type]
             head_sha=fields["head_sha"],
             trigger_event_name=fields["trigger_event"],
             generated_at=fields["generated_at"],

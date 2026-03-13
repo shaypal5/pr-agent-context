@@ -81,6 +81,16 @@ def test_parse_managed_comment_marker_rejects_invalid_execution_mode():
     assert parse_managed_comment_marker(body) is None
 
 
+def test_parse_managed_comment_marker_rejects_empty_execution_mode_for_v5():
+    body = (
+        "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append; "
+        "execution_mode=; pr=17; head_sha=def456; trigger_event=pull_request; "
+        "generated_at=2026-03-10T10:00:00+00:00; tool_ref=v4 -->"
+    )
+
+    assert parse_managed_comment_marker(body) is None
+
+
 def test_format_managed_comment_marker_omits_missing_run_identity():
     identity = ManagedCommentIdentity(
         pull_request_number=17,
@@ -155,3 +165,21 @@ def test_parse_managed_comment_marker_accepts_legacy_v4_without_execution_mode()
     assert parsed is not None
     assert parsed.schema_version == "v4"
     assert parsed.execution_mode is None
+
+
+def test_format_managed_comment_marker_omits_execution_mode_for_v4():
+    identity = ManagedCommentIdentity(
+        schema_version="v4",
+        pull_request_number=17,
+        publish_mode="append",
+        execution_mode=None,
+        head_sha="def456",
+        trigger_event_name="pull_request",
+        generated_at="2026-03-10T10:00:00+00:00",
+        tool_ref="v4",
+    )
+
+    marker = format_managed_comment_marker(identity)
+
+    assert "execution_mode=" not in marker
+    assert parse_managed_comment_marker(marker) == identity
