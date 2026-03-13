@@ -65,9 +65,7 @@ def parse_managed_comment_marker(body: str) -> ManagedCommentIdentity | None:
             schema_version=schema_version,
             pull_request_number=int(fields["pr"]),
             publish_mode=fields["publish_mode"],  # type: ignore[arg-type]
-            execution_mode=(
-                fields["execution_mode"] if fields.get("execution_mode") else None
-            ),  # type: ignore[arg-type]
+            execution_mode=(fields["execution_mode"] if fields.get("execution_mode") else None),  # type: ignore[arg-type]
             head_sha=fields["head_sha"],
             trigger_event_name=fields["trigger_event"],
             generated_at=fields["generated_at"],
