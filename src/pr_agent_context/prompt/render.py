@@ -55,6 +55,7 @@ def render_prompt(
     include_failing_checks: bool = True,
     include_patch_coverage: bool = True,
     include_refresh_metadata: bool = True,
+    publish_all_clear_comments_in_refresh: bool = False,
     prompt_preamble: str = "",
     force_patch_coverage_section: bool = False,
     prompt_template_file: Path | None = None,
@@ -129,18 +130,22 @@ def render_prompt(
         run_id=run_id,
         run_attempt=run_attempt,
         trigger_event_name=trigger_event_name,
+        execution_mode=execution_mode,
         publish_mode=publish_mode,
         head_sha=head_sha or "unknown",
         tool_ref=tool_ref,
         tool_version=tool_version,
         generated_at=generated_at,
     )
+    should_publish_comment = has_actionable_items or (
+        execution_mode != "refresh" or publish_all_clear_comments_in_refresh
+    )
     return RenderedPrompt(
         prompt_markdown=prompt_markdown,
         comment_body=comment_body,
         prompt_sha256=prompt_sha256,
         has_actionable_items=has_actionable_items,
-        should_publish_comment=True,
+        should_publish_comment=should_publish_comment,
         truncation_notes=truncation_notes,
         template_diagnostics=diagnostics,
     )
@@ -153,6 +158,7 @@ def build_managed_comment_body(
     run_id: int,
     run_attempt: int,
     trigger_event_name: str,
+    execution_mode: str = "ci",
     publish_mode: str,
     head_sha: str,
     tool_ref: str,
@@ -163,6 +169,7 @@ def build_managed_comment_body(
         ManagedCommentIdentity(
             pull_request_number=pull_request_number,
             publish_mode=publish_mode,  # type: ignore[arg-type]
+            execution_mode=execution_mode,  # type: ignore[arg-type]
             head_sha=head_sha,
             trigger_event_name=trigger_event_name,
             generated_at=generated_at or "unknown",
@@ -177,6 +184,7 @@ def build_managed_comment_body(
         run_id=run_id,
         run_attempt=run_attempt,
         head_sha=head_sha,
+        generated_at=generated_at or "unknown",
     )
     return (
         f"{marker}\n"
@@ -586,12 +594,14 @@ def _render_run_metadata(
     run_id: int,
     run_attempt: int,
     head_sha: str,
+    generated_at: str,
 ) -> str:
     return "\n".join(
         [
             f"Tool ref: {tool_ref}",
             f"Tool version: {tool_version}",
             f"Workflow run: {run_id} attempt {run_attempt}",
+            f"Comment timestamp: {generated_at}",
             f"PR head commit: {head_sha}",
         ]
     )

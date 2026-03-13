@@ -70,6 +70,32 @@ class ForbiddenIssueCommentClient(FakeIssueCommentClient):
         )
 
 
+def _managed_comment_payload(
+    *,
+    comment_id: int,
+    publish_mode: str = "append",
+    execution_mode: str = "ci",
+    run_id: int = 100,
+    run_attempt: int = 1,
+    body_text: str = "body",
+):
+    return {
+        "id": comment_id,
+        "body": (
+            "<!-- pr-agent-context:managed-comment; schema=v5; "
+            f"publish_mode={publish_mode}; execution_mode={execution_mode}; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; "
+            "generated_at=2026-03-07T08:50:00+00:00; "
+            f"tool_ref=v4; run_id={run_id}; run_attempt={run_attempt} -->\n"
+            f"```markdown\n{body_text}\n```"
+        ),
+        "html_url": f"https://github.com/shaypal5/example/pull/17#issuecomment-{comment_id}",
+        "created_at": "2026-03-07T08:50:00Z",
+        "updated_at": "2026-03-07T08:50:00Z",
+        "user": {"login": "github-actions[bot]", "type": "Bot"},
+    }
+
+
 def _sync(client, *, body: str | None):
     return sync_managed_comment(
         client,
@@ -442,6 +468,123 @@ def test_sync_managed_comment_reports_unchanged_latest_managed_for_empty_body(
     assert result.sync_debug["action"] == "unchanged_latest_managed"
 
 
+def test_sync_managed_comment_updates_latest_scoped_comment_when_requested():
+    client = FakeIssueCommentClient(
+        [
+            _managed_comment_payload(comment_id=30, execution_mode="ci", body_text="ci body"),
+            _managed_comment_payload(
+                comment_id=31,
+                execution_mode="refresh",
+                run_id=200,
+                body_text="older refresh body",
+            ),
+            _managed_comment_payload(
+                comment_id=32,
+                execution_mode="refresh",
+                run_id=201,
+                body_text="newer refresh body",
+            ),
+        ]
+    )
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=999,
+        run_attempt=1,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request_review",
+        execution_mode="refresh",
+        publish_mode="update_latest_scoped",
+        generated_at="2026-03-07T09:10:00+00:00",
+        body=_managed_comment_payload(
+            comment_id=99,
+            publish_mode="update_latest_scoped",
+            execution_mode="refresh",
+            run_id=999,
+            body_text="latest refresh body",
+        )["body"],
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert client.updated_comment_id == 32
+    assert result.action == "updated_latest_scoped"
+    assert result.matched_existing_comment is True
+    assert result.sync_debug["matching_scoped_comment_ids"] == [31, 32]
+    assert _selection_reason(publish_mode="update_latest_scoped", primary_comment=None) == (
+        "no_existing_match"
+    )
+    assert _update_action_for_mode("update_latest_scoped") == "updated_latest_scoped"
+    assert _unchanged_action_for_mode("update_latest_scoped") == "unchanged_latest_scoped"
+
+
+def test_sync_managed_comment_deletes_only_refresh_scoped_comment_when_empty_body():
+    client = FakeIssueCommentClient(
+        [
+            _managed_comment_payload(comment_id=30, execution_mode="ci", body_text="ci body"),
+            _managed_comment_payload(
+                comment_id=31,
+                execution_mode="refresh",
+                run_id=201,
+                body_text="refresh body",
+            ),
+        ]
+    )
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=999,
+        run_attempt=1,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="check_run",
+        execution_mode="refresh",
+        publish_mode="update_latest_scoped",
+        generated_at="2026-03-07T09:10:00+00:00",
+        body=None,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert client.deleted_ids == [31]
+    assert result.action == "deleted"
+    assert client.comments[0]["id"] == 30
+
+
+def test_sync_managed_comment_scoped_empty_body_noops_when_only_ci_comment_exists():
+    client = FakeIssueCommentClient(
+        [_managed_comment_payload(comment_id=30, execution_mode="ci", body_text="ci body")]
+    )
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=999,
+        run_attempt=1,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="check_run",
+        execution_mode="refresh",
+        publish_mode="update_latest_scoped",
+        generated_at="2026-03-07T09:10:00+00:00",
+        body=None,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "noop_no_comment"
+    assert client.deleted_ids == []
+
+
 def test_sync_managed_comment_deletes_matching_comment_when_empty_body_requests_delete(
     issue_comments_payload,
 ):
@@ -625,5 +768,6 @@ def test_select_primary_comment_rejects_unknown_publish_mode(issue_comments_payl
         _select_primary_comment(
             managed_comments=comments,
             matching_run_comments=[],
+            matching_scoped_comments=[],
             publish_mode="weird",
         )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 MANAGED_COMMENT_MARKER_PREFIX = "<!-- pr-agent-context:managed-comment"
-MANAGED_COMMENT_SCHEMA_VERSION = "v4"
+MANAGED_COMMENT_SCHEMA_VERSION = "v5"
 
 DEFAULT_PROMPT_OPENING = (
     "Below are the details of possibly unresolved review comments and/or "
@@ -95,6 +95,7 @@ DEFAULT_TOOL_REF = "v4"
 DEFAULT_DEBUG_ARTIFACT_PREFIX = "pr-agent-context-debug"
 DEFAULT_EXECUTION_MODE = "auto"
 DEFAULT_PUBLISH_MODE = "append"
+DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH = False
 DEFAULT_COVERAGE_SELECTION_STRATEGY = "latest_successful"
 DEFAULT_FORK_BEHAVIOR = "best_effort"
 DEFAULT_COVERAGE_SOURCE_CONCLUSIONS = ("success",)

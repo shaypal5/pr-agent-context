@@ -29,7 +29,7 @@ update the latest managed comment or update the newest comment matching the curr
 The managed comment body shape is:
 
 ````markdown
-<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=<MODE>; pr=<PR>; head_sha=<HEAD_SHA>; trigger_event=<EVENT>; generated_at=<TIMESTAMP>; tool_ref=<TOOL_REF>; run_id=<RUN_ID>; run_attempt=<ATTEMPT> -->
+<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=<MODE>; execution_mode=<ci|refresh>; pr=<PR>; head_sha=<HEAD_SHA>; trigger_event=<EVENT>; generated_at=<TIMESTAMP>; tool_ref=<TOOL_REF>; run_id=<RUN_ID>; run_attempt=<ATTEMPT> -->
 pr-agent-context report:
 ```markdown
 <rendered prompt>
@@ -39,6 +39,7 @@ Run metadata:
 Tool ref: <TOOL_REF>
 Tool version: <TOOL_VERSION>
 Workflow run: <RUN_ID> attempt <ATTEMPT>
+Comment timestamp: <TIMESTAMP>
 PR head commit: <HEAD_SHA>
 ```
 ````
@@ -87,7 +88,8 @@ The reusable workflow inputs are:
 
 - `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v4"`
 - `execution_mode`: `ci`, `refresh`, or `auto`, default `auto`
-- `publish_mode`: `append`, `update_latest_managed`, or `update_matching`, default `append`
+- `publish_mode`: `append`, `update_latest_managed`, `update_matching`, or `update_latest_scoped`, default `append`
+- `publish_all_clear_comments_in_refresh`: in refresh mode, still publish no-op all-clear comments, default `false`
 - `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`
 - `include_review_comments`: include unresolved PR review threads, default `true`
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
@@ -193,9 +195,14 @@ Recommended minimal caller-side pattern:
 - optional additional triggers: `workflow_run`, `status`, `check_run`
 - invokes the same reusable workflow with:
   - `execution_mode: refresh`
-  - `publish_mode: append`
+  - `publish_mode: update_latest_scoped`
+  - `publish_all_clear_comments_in_refresh: false`
   - `enable_cross_run_coverage_lookup: true`
   - optional `wait_for_reviews_to_settle: true`
+
+With this lifecycle split, the initial CI run can publish an all-clear comment, while later refresh
+runs only create/update refresh-scoped comments when they have something actionable to report. A
+later no-op refresh can delete its own prior refresh comment without touching the CI-originated one.
 
 Minimal refresh workflow example:
 
@@ -224,7 +231,8 @@ jobs:
     with:
       tool_ref: v4
       execution_mode: refresh
-      publish_mode: append
+      publish_mode: update_latest_scoped
+      publish_all_clear_comments_in_refresh: false
       enable_cross_run_coverage_lookup: true
       wait_for_reviews_to_settle: true
       coverage_artifact_prefix: pr-agent-context-coverage
