@@ -14,7 +14,7 @@ on:
         default: auto
         type: string
       publish_mode:
-        description: append, update_latest_managed, or update_matching.
+        description: append, update_latest_managed, update_matching, or update_latest_scoped.
         required: false
         default: append
         type: string
@@ -50,6 +50,11 @@ on:
         type: boolean
       wait_for_reviews_to_settle:
         description: In refresh mode, briefly poll unresolved review threads before rendering.
+        required: false
+        default: false
+        type: boolean
+      publish_all_clear_comments_in_refresh:
+        description: In refresh mode, publish no-op all-clear comments instead of suppressing them.
         required: false
         default: false
         type: boolean
@@ -276,6 +281,7 @@ jobs:
           PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS: ${{ inputs.include_external_checks }}
           PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE: ${{ inputs.wait_for_checks_to_settle }}
           PR_AGENT_CONTEXT_WAIT_FOR_REVIEWS_TO_SETTLE: ${{ inputs.wait_for_reviews_to_settle }}
+          PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH: ${{ inputs.publish_all_clear_comments_in_refresh }}
           PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
           PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE: ${{ inputs.prompt_template_file }}
           PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}

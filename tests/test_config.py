@@ -78,6 +78,8 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_DEBUG_ARTIFACT_PREFIX": "debug-prefix",
             "PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY": "false",
             "PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN": "true",
+            "PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH": "true",
+            "PR_AGENT_CONTEXT_PUBLISH_MODE": "update_latest_scoped",
             "PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR": str(coverage_dir),
         }
     )
@@ -117,9 +119,39 @@ def test_run_config_from_env(tmp_path):
     assert config.debug_artifact_prefix == "debug-prefix"
     assert config.delete_comment_when_empty is False
     assert config.skip_comment_on_readonly_token is True
+    assert config.publish_all_clear_comments_in_refresh is True
+    assert config.publish_mode == "update_latest_scoped"
     assert config.coverage_artifacts_dir == coverage_dir
     assert config.debug_artifacts_dir == tmp_path / "pr-agent-context-debug"
     assert config.github_output_path == output_path
+
+
+def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+        }
+    )
+
+    assert config.publish_all_clear_comments_in_refresh is False
 
 
 def test_run_config_rejects_empty_regex_pattern(tmp_path):

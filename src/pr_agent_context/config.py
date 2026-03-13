@@ -26,6 +26,7 @@ from pr_agent_context.constants import (
     DEFAULT_MAX_FAILING_ITEMS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
+    DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH,
     DEFAULT_PUBLISH_MODE,
     DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS,
     DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS,
@@ -35,7 +36,7 @@ from pr_agent_context.constants import (
 
 ExecutionMode = Literal["ci", "refresh", "auto"]
 ResolvedExecutionMode = Literal["ci", "refresh"]
-PublishMode = Literal["append", "update_latest_managed", "update_matching"]
+PublishMode = Literal["append", "update_latest_managed", "update_matching", "update_latest_scoped"]
 CoverageSelectionStrategy = Literal["latest_successful"]
 ForkBehavior = Literal["best_effort"]
 
@@ -116,6 +117,7 @@ class RunConfig(BaseModel):
     include_external_checks: bool = True
     wait_for_checks_to_settle: bool = True
     wait_for_reviews_to_settle: bool = False
+    publish_all_clear_comments_in_refresh: bool = DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH
     include_patch_coverage: bool = True
     enable_cross_run_coverage_lookup: bool = True
     force_patch_coverage_section: bool = False
@@ -232,6 +234,10 @@ class RunConfig(BaseModel):
             wait_for_reviews_to_settle=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_REVIEWS_TO_SETTLE"),
                 default=False,
+            ),
+            publish_all_clear_comments_in_refresh=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH"),
+                default=DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH,
             ),
             include_patch_coverage=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE"),
@@ -581,7 +587,12 @@ def _build_trigger_source(event_name: str, action: str | None) -> str:
 
 def _parse_publish_mode(value: str | None) -> PublishMode:
     normalized = (value or DEFAULT_PUBLISH_MODE).strip()
-    if normalized not in {"append", "update_latest_managed", "update_matching"}:
+    if normalized not in {
+        "append",
+        "update_latest_managed",
+        "update_matching",
+        "update_latest_scoped",
+    }:
         raise ValueError(f"Unsupported publish mode: {value}")
     return normalized  # type: ignore[return-value]
 

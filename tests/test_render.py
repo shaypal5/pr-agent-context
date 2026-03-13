@@ -383,6 +383,35 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
     assert rendered.should_publish_comment is True
 
 
+def test_render_prompt_suppresses_all_clear_comment_in_refresh_mode_by_default():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        failing_checks=[],
+        execution_mode="refresh",
+        patch_coverage=None,
+    )
+
+    assert rendered.has_actionable_items is False
+    assert rendered.should_publish_comment is False
+
+
+def test_render_prompt_can_publish_all_clear_comment_in_refresh_mode_when_enabled():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        failing_checks=[],
+        execution_mode="refresh",
+        publish_all_clear_comments_in_refresh=True,
+        patch_coverage=None,
+    )
+
+    assert rendered.has_actionable_items is False
+    assert rendered.should_publish_comment is True
+
+
 def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
     rendered = render_prompt(
         pull_request_number=17,
@@ -704,7 +733,7 @@ def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tm
     )
 
     assert rendered.comment_body.startswith(
-        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append;"
+        "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append;"
     )
     assert "pr-agent-context report:\n" in rendered.comment_body
     assert "\n~~~markdown" in rendered.comment_body
@@ -726,8 +755,9 @@ def test_build_managed_comment_body_includes_run_scoped_marker():
 
     assert (
         body.splitlines()[0]
-        == "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
-        "head_sha=deadbeef; trigger_event=pull_request_review; generated_at=unknown; tool_ref=v4; "
+        == "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append; "
+        "execution_mode=ci; pr=17; head_sha=deadbeef; trigger_event=pull_request_review; "
+        "generated_at=unknown; tool_ref=v4; "
         "run_id=123; run_attempt=4 -->"
     )
     assert body.splitlines()[1] == "pr-agent-context report:"

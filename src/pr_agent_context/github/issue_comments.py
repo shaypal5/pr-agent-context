@@ -57,6 +57,7 @@ def sync_managed_comment(
     head_sha: str,
     tool_ref: str,
     trigger_event_name: str,
+    execution_mode: str = "ci",
     publish_mode: str,
     generated_at: str | None,
     body: str | None,
@@ -67,6 +68,7 @@ def sync_managed_comment(
     current_identity = ManagedCommentIdentity(
         pull_request_number=pull_request_number,
         publish_mode=publish_mode,  # type: ignore[arg-type]
+        execution_mode=execution_mode,  # type: ignore[arg-type]
         head_sha=head_sha,
         trigger_event_name=trigger_event_name,
         generated_at=generated_at,
@@ -84,10 +86,12 @@ def sync_managed_comment(
         managed_comments_only(comments), key=lambda comment: comment.comment_id
     )
     matching_run_comments = _matching_run_comments(managed_comments, current_identity)
+    matching_scoped_comments = _matching_scoped_comments(managed_comments, current_identity)
     latest_managed_comment = managed_comments[-1] if managed_comments else None
     primary_comment = _select_primary_comment(
         managed_comments=managed_comments,
         matching_run_comments=matching_run_comments,
+        matching_scoped_comments=matching_scoped_comments,
         publish_mode=publish_mode,
     )
     managed_comment_count = len(managed_comments)
@@ -106,6 +110,7 @@ def sync_managed_comment(
             latest_managed_comment.comment_id if latest_managed_comment else None
         ),
         "matching_comment_ids": [comment.comment_id for comment in matching_run_comments],
+        "matching_scoped_comment_ids": [comment.comment_id for comment in matching_scoped_comments],
         "duplicate_match_count": max(len(matching_run_comments) - 1, 0),
         "matched_comment_id": primary_comment.comment_id if primary_comment else None,
         "matched_existing_comment": primary_comment is not None,
@@ -328,6 +333,7 @@ def _select_primary_comment(
     *,
     managed_comments: list[ManagedComment],
     matching_run_comments: list[ManagedComment],
+    matching_scoped_comments: list[ManagedComment],
     publish_mode: str,
 ) -> ManagedComment | None:
     if publish_mode == "append":
@@ -336,6 +342,8 @@ def _select_primary_comment(
         return managed_comments[-1] if managed_comments else None
     if publish_mode == "update_matching":
         return matching_run_comments[-1] if matching_run_comments else None
+    if publish_mode == "update_latest_scoped":
+        return matching_scoped_comments[-1] if matching_scoped_comments else None
     raise ValueError(f"Unsupported publish mode: {publish_mode}")
 
 
@@ -348,6 +356,8 @@ def _selection_reason(*, publish_mode: str, primary_comment: ManagedComment | No
         return "selected_latest_managed"
     if publish_mode == "update_matching":
         return "selected_matching_run"
+    if publish_mode == "update_latest_scoped":
+        return "selected_latest_scoped"
     return "unknown"
 
 
@@ -356,6 +366,8 @@ def _update_action_for_mode(publish_mode: str) -> str:
         return "updated_latest_managed"
     if publish_mode == "update_matching":
         return "updated_matching"
+    if publish_mode == "update_latest_scoped":
+        return "updated_latest_scoped"
     return "created"
 
 
@@ -364,7 +376,25 @@ def _unchanged_action_for_mode(publish_mode: str) -> str:
         return "unchanged_latest_managed"
     if publish_mode == "update_matching":
         return "unchanged_matching"
+    if publish_mode == "update_latest_scoped":
+        return "unchanged_latest_scoped"
     return "noop_no_comment"
+
+
+def _matching_scoped_comments(
+    comments: Iterable[ManagedComment],
+    identity: ManagedCommentIdentity,
+) -> list[ManagedComment]:
+    matches: list[ManagedComment] = []
+    for comment in comments:
+        if comment.marker is None or comment.marker.execution_mode is None:
+            continue
+        if (
+            comment.marker.pull_request_number == identity.pull_request_number
+            and comment.marker.execution_mode == identity.execution_mode
+        ):
+            matches.append(comment)
+    return matches
 
 
 def _is_bot_author(author_login: str, author_type: str | None) -> bool:

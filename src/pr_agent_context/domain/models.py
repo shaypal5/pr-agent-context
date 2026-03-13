@@ -159,9 +159,12 @@ class ManagedComment(BaseModel):
 class ManagedCommentIdentity(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    schema_version: str = "v4"
+    schema_version: str = "v5"
     pull_request_number: int
-    publish_mode: Literal["append", "update_latest_managed", "update_matching"] = "append"
+    publish_mode: Literal[
+        "append", "update_latest_managed", "update_matching", "update_latest_scoped"
+    ] = "append"
+    execution_mode: Literal["ci", "refresh"] | None = None
     head_sha: str
     trigger_event_name: str = "pull_request"
     generated_at: str = "unknown"
@@ -176,8 +179,10 @@ PublicationAction = Literal[
     "noop_no_comment",
     "created",
     "updated_latest_managed",
+    "updated_latest_scoped",
     "updated_matching",
     "unchanged_latest_managed",
+    "unchanged_latest_scoped",
     "unchanged_matching",
     "skipped_forbidden",
 ]
@@ -232,7 +237,9 @@ class PublicationResult(BaseModel):
     body_changed: bool = False
     skipped_reason: str | None = None
     error_status_code: int | None = None
-    publish_mode: Literal["append", "update_latest_managed", "update_matching"] = "append"
+    publish_mode: Literal[
+        "append", "update_latest_managed", "update_matching", "update_latest_scoped"
+    ] = "append"
     run_id: int | None = None
     run_attempt: int | None = None
     head_sha: str | None = None

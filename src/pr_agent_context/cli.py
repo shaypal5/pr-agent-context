@@ -11,6 +11,7 @@ from pathlib import Path
 from pr_agent_context import __version__
 from pr_agent_context.config import (
     RunConfig,
+    _resolve_execution_mode,
     load_trigger_context_from_env,
     parse_bool_env,
 )
@@ -79,6 +80,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 run_id=int(context["run_id"]),
                 run_attempt=int(context["run_attempt"]),
                 trigger_event_name=str(context.get("trigger_event_name") or "unknown"),
+                execution_mode=str(context.get("execution_mode") or "ci"),
                 publish_mode=str(context.get("publish_mode") or "append"),
                 head_sha=str(context["head_sha"]),
                 tool_ref=str(context.get("tool_ref") or "unknown"),
@@ -94,6 +96,7 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 head_sha=context["head_sha"],
                 tool_ref=context.get("tool_ref") or "unknown",
                 trigger_event_name=context.get("trigger_event_name") or "unknown",
+                execution_mode=context.get("execution_mode") or "ci",
                 publish_mode=context.get("publish_mode") or "append",
                 generated_at=generated_at,
                 body=body,
@@ -151,6 +154,7 @@ def _resolve_failure_context(
                 "run_attempt": config.run_attempt,
                 "tool_ref": config.tool_ref,
                 "trigger_event_name": getattr(trigger, "event_name", "unknown"),
+                "execution_mode": getattr(config, "execution_mode", "ci"),
                 "publish_mode": getattr(config, "publish_mode", "append"),
                 "github_token": config.github_token,
                 "github_api_url": config.github_api_url,
@@ -176,6 +180,7 @@ def _resolve_failure_context(
                 "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
                 "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
                 "trigger_event_name": trigger.event_name,
+                "execution_mode": _resolve_execution_mode_from_env(env, trigger.event_name),
                 "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
                 "github_token": github_token,
                 "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
@@ -206,6 +211,7 @@ def _resolve_failure_context(
         "run_attempt": int(env.get("GITHUB_RUN_ATTEMPT", "1") or "1"),
         "tool_ref": env.get("PR_AGENT_CONTEXT_TOOL_REF", ""),
         "trigger_event_name": trigger.event_name,
+        "execution_mode": _resolve_execution_mode_from_env(env, trigger.event_name),
         "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
         "github_token": github_token,
         "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
@@ -238,6 +244,13 @@ def _build_failure_markdown(*, context: dict[str, object], error: Exception) -> 
         ]
     )
     return "\n".join(lines)
+
+
+def _resolve_execution_mode_from_env(env: dict[str, str], event_name: str) -> str:
+    return _resolve_execution_mode(
+        env.get("PR_AGENT_CONTEXT_EXECUTION_MODE", "auto") or "auto",
+        event_name,
+    )
 
 
 def _write_failure_outputs(

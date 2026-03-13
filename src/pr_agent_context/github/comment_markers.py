@@ -10,6 +10,7 @@ def format_managed_comment_marker(identity: ManagedCommentIdentity) -> str:
     parts = [
         f"schema={identity.schema_version}",
         f"publish_mode={identity.publish_mode}",
+        f"execution_mode={identity.execution_mode or 'unknown'}",
         f"pr={identity.pull_request_number}",
         f"head_sha={identity.head_sha}",
         f"trigger_event={identity.trigger_event_name}",
@@ -32,9 +33,10 @@ def parse_managed_comment_marker(body: str) -> ManagedCommentIdentity | None:
     if not first_line.endswith("-->"):
         return None
 
-    marker_payload = (
-        first_line.removeprefix(MANAGED_COMMENT_MARKER_PREFIX).removesuffix("-->").strip()
-    )
+    marker_payload = first_line.removeprefix(MANAGED_COMMENT_MARKER_PREFIX)
+    if marker_payload.startswith(" "):
+        marker_payload = marker_payload[1:]
+    marker_payload = marker_payload.removesuffix("-->").strip()
     if marker_payload.startswith(";"):
         marker_payload = marker_payload[1:].strip()
     if not marker_payload:
@@ -48,18 +50,24 @@ def parse_managed_comment_marker(body: str) -> ManagedCommentIdentity | None:
         key, value = item.split("=", maxsplit=1)
         fields[key.strip()] = value.strip()
 
-    if fields.get("schema") != MANAGED_COMMENT_SCHEMA_VERSION:
+    schema_version = fields.get("schema")
+    if schema_version not in {MANAGED_COMMENT_SCHEMA_VERSION, "v4"}:
         return None
 
     required = {"pr", "publish_mode", "head_sha", "trigger_event", "generated_at", "tool_ref"}
+    if schema_version == MANAGED_COMMENT_SCHEMA_VERSION:
+        required = required | {"execution_mode"}
     if not required.issubset(fields):
         return None
 
     try:
         return ManagedCommentIdentity(
-            schema_version=fields["schema"],
+            schema_version=schema_version,
             pull_request_number=int(fields["pr"]),
             publish_mode=fields["publish_mode"],  # type: ignore[arg-type]
+            execution_mode=(
+                fields["execution_mode"] if fields.get("execution_mode") else None
+            ),  # type: ignore[arg-type]
             head_sha=fields["head_sha"],
             trigger_event_name=fields["trigger_event"],
             generated_at=fields["generated_at"],

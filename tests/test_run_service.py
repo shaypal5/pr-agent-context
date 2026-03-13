@@ -679,7 +679,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert comment_sync["sync_debug"]["current_identity"]["generated_at"].endswith("+00:00")
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith(
-        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append;"
+        "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append;"
     )
     assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
     assert "\nRun metadata:\n```\nTool ref: v4\n" in comment_body
@@ -793,3 +793,110 @@ def test_run_service_uses_review_settlement_and_skips_debug_artifacts_when_disab
 
     assert run_service(config, client=client) == 0
     assert review_settle_called["value"] is True
+
+
+def test_run_service_refresh_mode_suppresses_noop_comment_by_default(tmp_path):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[],
+    )
+    config = _build_config(
+        tmp_path,
+        execution_mode="refresh",
+        publish_mode="update_latest_scoped",
+        include_failing_checks=False,
+        include_patch_coverage=False,
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
+
+    assert outputs["comment_written"] == "false"
+    assert client.created_bodies == []
+    assert events["render"]["should_publish_comment"] is False
+    assert events["comment_sync"]["action"] == "noop_no_comment"
+
+
+def test_run_service_refresh_mode_deletes_only_refresh_scoped_comment_when_empty(tmp_path):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    issue_comments_payload = [
+        {
+            "id": 30,
+            "body": (
+                "<!-- pr-agent-context:managed-comment; schema=v5; "
+                "publish_mode=append; execution_mode=ci; pr=17; "
+                "head_sha=def456; trigger_event=pull_request; "
+                "generated_at=2026-03-07T08:50:00+00:00; tool_ref=v4; run_id=100; "
+                "run_attempt=1 -->\n```markdown\nci body\n```"
+            ),
+            "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-30",
+            "created_at": "2026-03-07T08:50:00Z",
+            "updated_at": "2026-03-07T08:50:00Z",
+            "user": {"login": "github-actions[bot]", "type": "Bot"},
+        },
+        {
+            "id": 31,
+            "body": (
+                "<!-- pr-agent-context:managed-comment; schema=v5; "
+                "publish_mode=append; execution_mode=refresh; pr=17; "
+                "head_sha=def456; trigger_event=check_run; "
+                "generated_at=2026-03-07T08:51:00+00:00; tool_ref=v4; run_id=101; "
+                "run_attempt=1 -->\n```markdown\nrefresh body\n```"
+            ),
+            "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-31",
+            "created_at": "2026-03-07T08:51:00Z",
+            "updated_at": "2026-03-07T08:51:00Z",
+            "user": {"login": "github-actions[bot]", "type": "Bot"},
+        },
+    ]
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=issue_comments_payload,
+    )
+    config = _build_config(
+        tmp_path,
+        execution_mode="refresh",
+        publish_mode="update_latest_scoped",
+        include_failing_checks=False,
+        include_patch_coverage=False,
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    events = {event["event"]: event for event in _structured_log_lines(stdout.getvalue())}
+
+    assert client.deleted_ids == [31]
+    assert outputs["comment_written"] == "false"
+    assert events["comment_sync"]["action"] == "deleted"

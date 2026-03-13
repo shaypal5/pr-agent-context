@@ -63,6 +63,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         head_sha,
         tool_ref,
         trigger_event_name,
+        execution_mode,
         publish_mode,
         generated_at,
         body,
@@ -78,6 +79,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
         captured["trigger_event_name"] = trigger_event_name
+        captured["execution_mode"] = execution_mode
         captured["publish_mode"] = publish_mode
         captured["generated_at"] = generated_at
         return PublicationResult(
@@ -100,8 +102,8 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "skipped_reason" not in comment_sync_event
     assert "error_status_code" not in comment_sync_event
     assert captured["body"].startswith(
-        "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; "
-        "pr=15; head_sha=deadbeef; trigger_event=pull_request; generated_at="
+        "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append; "
+        "execution_mode=ci; pr=15; head_sha=deadbeef; trigger_event=pull_request; generated_at="
     )
     assert "\npr-agent-context report:\n```markdown\n" in captured["body"]
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
@@ -110,6 +112,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2
+    assert captured["execution_mode"] == "ci"
     assert captured["generated_at"] is not None
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
@@ -202,6 +205,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         head_sha,
         tool_ref,
         trigger_event_name,
+        execution_mode,
         publish_mode,
         generated_at,
         body,
@@ -218,6 +222,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["head_sha"] = head_sha
         captured["tool_ref"] = tool_ref
         captured["trigger_event_name"] = trigger_event_name
+        captured["execution_mode"] = execution_mode
         captured["publish_mode"] = publish_mode
         captured["generated_at"] = generated_at
         return PublicationResult(
@@ -243,10 +248,15 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert captured["skip_comment_on_readonly_token"] is False
     assert captured["run_id"] == 321
     assert captured["run_attempt"] == 4
+    assert captured["execution_mode"] == "ci"
     assert captured["generated_at"] is not None
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
     assert "comment_id=777" in outputs
+    assert captured["body"].startswith(
+        "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append; "
+        "execution_mode=ci; pr=17;"
+    )
 
 
 def test_cli_run_ignores_output_write_failure_in_fallback_path(monkeypatch, tmp_path, capsys):
