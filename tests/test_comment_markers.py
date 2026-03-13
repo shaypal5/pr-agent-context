@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from pr_agent_context.domain.models import ManagedCommentIdentity
 from pr_agent_context.github.comment_markers import (
     format_managed_comment_marker,
@@ -96,6 +98,21 @@ def test_format_managed_comment_marker_omits_missing_run_identity():
 
     assert "run_id=" not in marker
     assert "run_attempt=" not in marker
+
+
+def test_format_managed_comment_marker_rejects_missing_execution_mode_for_v5():
+    identity = ManagedCommentIdentity(
+        pull_request_number=17,
+        publish_mode="append",
+        execution_mode=None,
+        head_sha="def456",
+        trigger_event_name="pull_request",
+        generated_at="2026-03-10T10:00:00+00:00",
+        tool_ref="v4",
+    )
+
+    with pytest.raises(ValueError, match="execution_mode is required"):
+        format_managed_comment_marker(identity)
 
 
 def test_parse_managed_comment_marker_rejects_missing_terminator():

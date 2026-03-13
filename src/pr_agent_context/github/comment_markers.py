@@ -7,10 +7,13 @@ from pr_agent_context.domain.models import ManagedCommentIdentity
 
 
 def format_managed_comment_marker(identity: ManagedCommentIdentity) -> str:
+    if identity.schema_version == MANAGED_COMMENT_SCHEMA_VERSION and identity.execution_mode is None:
+        raise ValueError("execution_mode is required when formatting v5 managed comments")
+
     parts = [
         f"schema={identity.schema_version}",
         f"publish_mode={identity.publish_mode}",
-        f"execution_mode={identity.execution_mode or 'unknown'}",
+        f"execution_mode={identity.execution_mode}",
         f"pr={identity.pull_request_number}",
         f"head_sha={identity.head_sha}",
         f"trigger_event={identity.trigger_event_name}",
