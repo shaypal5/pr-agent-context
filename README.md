@@ -39,6 +39,7 @@ Run metadata:
 Tool ref: <TOOL_REF>
 Tool version: <TOOL_VERSION>
 Workflow run: <RUN_ID> attempt <ATTEMPT>
+Comment timestamp: <TIMESTAMP>
 PR head commit: <HEAD_SHA>
 ```
 ````

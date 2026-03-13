@@ -109,6 +109,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert "🚨 `pr-agent-context` failed while preparing PR context." in captured["body"]
     assert "\nRun metadata:\n```\nTool ref: v4\nTool version:" in captured["body"]
     assert "Workflow run: 123 attempt 2" in captured["body"]
+    assert f"Comment timestamp: {captured['generated_at']}" in captured["body"]
     assert "PR head commit: deadbeef" in captured["body"]
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2

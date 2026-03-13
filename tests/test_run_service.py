@@ -683,6 +683,10 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     )
     assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
     assert "\nRun metadata:\n```\nTool ref: v4\n" in comment_body
+    assert (
+        f"Comment timestamp: {comment_sync['sync_debug']['current_identity']['generated_at']}"
+        in comment_body
+    )
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()

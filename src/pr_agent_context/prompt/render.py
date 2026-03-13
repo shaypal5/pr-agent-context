@@ -184,6 +184,7 @@ def build_managed_comment_body(
         run_id=run_id,
         run_attempt=run_attempt,
         head_sha=head_sha,
+        generated_at=generated_at or "unknown",
     )
     return (
         f"{marker}\n"
@@ -593,12 +594,14 @@ def _render_run_metadata(
     run_id: int,
     run_attempt: int,
     head_sha: str,
+    generated_at: str,
 ) -> str:
     return "\n".join(
         [
             f"Tool ref: {tool_ref}",
             f"Tool version: {tool_version}",
             f"Workflow run: {run_id} attempt {run_attempt}",
+            f"Comment timestamp: {generated_at}",
             f"PR head commit: {head_sha}",
         ]
     )
