@@ -7,7 +7,10 @@ from pr_agent_context.domain.models import ManagedCommentIdentity
 
 
 def format_managed_comment_marker(identity: ManagedCommentIdentity) -> str:
-    if identity.schema_version == MANAGED_COMMENT_SCHEMA_VERSION and identity.execution_mode is None:
+    if (
+        identity.schema_version == MANAGED_COMMENT_SCHEMA_VERSION
+        and identity.execution_mode is None
+    ):
         raise ValueError("execution_mode is required when formatting v5 managed comments")
 
     parts = [
