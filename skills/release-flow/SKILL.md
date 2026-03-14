@@ -15,7 +15,7 @@ Use this playbook for version bump PRs and post-merge release tagging in `pr-age
    - `tests/fixtures/prompts/expected_comment.md`
 4. Validate with:
    - `pytest tests/test_version.py tests/test_render.py -q`
-   - `ruff check pyproject.toml tests/test_version.py tests/fixtures/prompts/expected_comment.md`
+   - `ruff check tests/test_version.py`
 5. Open the PR with title `Bump version to X.Y.Z`.
 
 ## Post-Merge Tagging
