@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import io
+import zipfile
+
 from pr_agent_context.coverage.artifacts import (
+    _download_artifact_zip,
     _list_run_artifacts,
     _safe_request_json,
     _select_coverage_source_run,
@@ -34,6 +38,16 @@ class _ArtifactsClient:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+class _ArtifactDownloadClient:
+    def __init__(self, zip_bytes: bytes) -> None:
+        self.zip_bytes = zip_bytes
+        self.calls: list[tuple[str, str]] = []
+
+    def request_bytes_following_redirect_without_auth(self, method, path):
+        self.calls.append((method, path))
+        return self.zip_bytes
 
 
 def test_safe_request_json_records_warning_for_api_errors():
@@ -159,3 +173,24 @@ def test_list_run_artifacts_returns_empty_when_pages_cannot_be_fetched():
         == []
     )
     assert warnings
+
+
+def test_download_artifact_zip_uses_redirect_aware_bytes_request(tmp_path):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(".coverage.py312", b"coverage-bytes")
+
+    destination = tmp_path / "artifact"
+    destination.mkdir()
+    client = _ArtifactDownloadClient(buffer.getvalue())
+
+    _download_artifact_zip(
+        client,
+        owner="shaypal5",
+        repo="example",
+        artifact_id=17,
+        destination=destination,
+    )
+
+    assert client.calls == [("GET", "/repos/shaypal5/example/actions/artifacts/17/zip")]
+    assert (destination / ".coverage.py312").read_bytes() == b"coverage-bytes"

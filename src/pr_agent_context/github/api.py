@@ -92,6 +92,41 @@ class GitHubApiClient:
             extra_headers=extra_headers,
         )
 
+    def request_bytes_following_redirect_without_auth(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> bytes:
+        if method != "GET":
+            raise ValueError(
+                "request_bytes_following_redirect_without_auth only supports GET requests"
+            )
+        request, headers = self._build_request(
+            method,
+            path,
+            params=params,
+            payload=None,
+            extra_headers=extra_headers,
+        )
+        redirect_location = self._request_redirect_location(request)
+        if redirect_location is None:
+            return self._open_request(request)
+
+        redirect_headers = self._build_redirect_headers(
+            source_url=request.full_url,
+            destination_url=redirect_location,
+            headers=headers,
+        )
+        redirect_request = urllib.request.Request(
+            redirect_location,
+            headers=redirect_headers,
+            method=method,
+        )
+        return self._open_request(redirect_request)
+
     def _request(
         self,
         method: str,
@@ -101,6 +136,24 @@ class GitHubApiClient:
         payload: dict[str, Any] | list[Any] | None,
         extra_headers: dict[str, str] | None,
     ) -> bytes:
+        request, _headers = self._build_request(
+            method,
+            path,
+            params=params,
+            payload=payload,
+            extra_headers=extra_headers,
+        )
+        return self._open_request(request)
+
+    def _build_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None,
+        payload: dict[str, Any] | list[Any] | None,
+        extra_headers: dict[str, str] | None,
+    ) -> tuple[urllib.request.Request, dict[str, str]]:
         encoded_params = ""
         if params:
             encoded_params = "?" + urllib.parse.urlencode(params)
@@ -125,9 +178,56 @@ class GitHubApiClient:
             headers=headers,
             method=method,
         )
+        return request, headers
+
+    def _request_redirect_location(self, request: urllib.request.Request) -> str | None:
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        try:
+            with opener.open(request):
+                return None
+        except urllib.error.HTTPError as exc:
+            try:
+                headers = exc.headers or {}
+                if exc.code in {301, 302, 303, 307, 308}:
+                    location = headers.get("Location")
+                    if location:
+                        return urllib.parse.urljoin(request.full_url, location)
+                body = exc.read().decode("utf-8", errors="replace")
+                raise GitHubApiError(exc.code, exc.reason, body) from exc
+            finally:
+                close = getattr(exc, "close", None)
+                if callable(close):
+                    close()
+
+    def _build_redirect_headers(
+        self,
+        *,
+        source_url: str,
+        destination_url: str,
+        headers: dict[str, str],
+    ) -> dict[str, str]:
+        source_host = urllib.parse.urlparse(source_url).netloc
+        destination_host = urllib.parse.urlparse(destination_url).netloc
+        if source_host == destination_host:
+            return dict(headers)
+
+        filtered_headers = {
+            name: value
+            for name, value in headers.items()
+            if name not in {"Authorization", "Accept", "X-GitHub-Api-Version"}
+        }
+        filtered_headers.setdefault("User-Agent", self._user_agent)
+        return filtered_headers
+
+    def _open_request(self, request: urllib.request.Request) -> bytes:
         try:
             with urllib.request.urlopen(request) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise GitHubApiError(exc.code, exc.reason, body) from exc
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ARG002
+        return None
