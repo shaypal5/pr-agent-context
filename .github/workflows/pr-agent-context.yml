@@ -133,10 +133,25 @@ on:
         required: false
         default: true
         type: boolean
+      patch_coverage_source_mode:
+        description: Source mode for patch coverage inputs.
+        required: false
+        default: raw_coverage_artifacts
+        type: string
       coverage_artifact_prefix:
         description: Artifact name prefix used for raw coverage.py data uploads.
         required: false
         default: pr-agent-context-coverage
+        type: string
+      coverage_report_artifact_name:
+        description: Exact artifact name for a combined coverage XML report.
+        required: false
+        default: ""
+        type: string
+      coverage_report_filename:
+        description: Path inside the combined coverage report artifact.
+        required: false
+        default: coverage.xml
         type: string
       enable_cross_run_coverage_lookup:
         description: Allow refresh-mode runs to reuse coverage artifacts from prior producer runs on the same head SHA.
@@ -257,14 +272,22 @@ jobs:
       - name: Install pr-agent-context
         run: python -m pip install ./pr-agent-context
 
-      - name: Download coverage artifacts
-        if: ${{ inputs.include_patch_coverage }}
+      - name: Download raw coverage artifacts
+        if: ${{ inputs.include_patch_coverage && inputs.patch_coverage_source_mode == 'raw_coverage_artifacts' }}
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: ${{ inputs.coverage_artifact_prefix }}*
           path: coverage-artifacts
           merge-multiple: true
+
+      - name: Download combined coverage report artifact
+        if: ${{ inputs.include_patch_coverage && inputs.patch_coverage_source_mode == 'coverage_xml_artifact' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.coverage_report_artifact_name }}
+          path: coverage-artifacts
 
       - name: Run pr-agent-context
         id: run_tool
@@ -298,7 +321,10 @@ jobs:
           PR_AGENT_CONTEXT_CHARACTERS_PER_LINE: ${{ inputs.characters_per_line }}
           PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE: ${{ inputs.target_patch_coverage }}
           PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE: ${{ inputs.include_patch_coverage }}
+          PR_AGENT_CONTEXT_PATCH_COVERAGE_SOURCE_MODE: ${{ inputs.patch_coverage_source_mode }}
           PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX: ${{ inputs.coverage_artifact_prefix }}
+          PR_AGENT_CONTEXT_COVERAGE_REPORT_ARTIFACT_NAME: ${{ inputs.coverage_report_artifact_name }}
+          PR_AGENT_CONTEXT_COVERAGE_REPORT_FILENAME: ${{ inputs.coverage_report_filename }}
           PR_AGENT_CONTEXT_ENABLE_CROSS_RUN_COVERAGE_LOOKUP: ${{ inputs.enable_cross_run_coverage_lookup }}
           PR_AGENT_CONTEXT_COVERAGE_SOURCE_WORKFLOWS: ${{ inputs.coverage_source_workflows }}
           PR_AGENT_CONTEXT_COVERAGE_SOURCE_CONCLUSIONS: ${{ inputs.coverage_source_conclusions }}

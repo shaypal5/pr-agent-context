@@ -42,6 +42,7 @@ def collect_failing_checks(
     max_log_lines_per_job: int,
     check_settle_timeout_seconds: int,
     check_settle_poll_interval_seconds: int,
+    suppress_codecov_checks: bool = False,
 ) -> tuple[list[FailingCheck], dict[str, object]]:
     warnings: list[str] = []
     raw_failures: list[FailingCheck] = []
@@ -82,6 +83,7 @@ def collect_failing_checks(
             max_external_checks=max_external_checks,
             timeout_seconds=check_settle_timeout_seconds,
             poll_interval_seconds=check_settle_poll_interval_seconds,
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         warnings.extend(settlement_warnings)
     elif wait_for_checks_to_settle:
@@ -127,6 +129,7 @@ def collect_failing_checks(
             repo=repo,
             head_sha=head_sha,
             max_external_checks=max_external_checks,
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         external_failures.extend(check_runs)
         warnings.extend(check_warnings)
@@ -138,6 +141,7 @@ def collect_failing_checks(
             head_sha=head_sha,
             max_external_checks=max_external_checks,
             existing_names={failure.job_name for failure in external_failures},
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         external_failures.extend(statuses)
         warnings.extend(status_warnings)
@@ -169,6 +173,7 @@ def _wait_for_check_settlement(
     max_external_checks: int,
     timeout_seconds: int,
     poll_interval_seconds: int,
+    suppress_codecov_checks: bool = False,
 ) -> tuple[dict[str, object], list[str]]:
     warnings: list[str] = []
     start = _monotonic()
@@ -193,6 +198,7 @@ def _wait_for_check_settlement(
             include_external_checks=include_external_checks,
             max_actions_runs=max_actions_runs,
             max_external_checks=max_external_checks,
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         for warning in snapshot_warnings:
             if warning not in warnings:
@@ -250,6 +256,7 @@ def _collect_check_settlement_snapshot(
     include_external_checks: bool,
     max_actions_runs: int,
     max_external_checks: int,
+    suppress_codecov_checks: bool = False,
 ) -> tuple[dict[str, object], list[str]]:
     warnings: list[str] = []
     fingerprint: list[str] = []
@@ -289,6 +296,7 @@ def _collect_check_settlement_snapshot(
             head_sha=head_sha,
             max_external_checks=max_external_checks,
             warnings=warnings,
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         for raw in check_runs:
             app = raw.get("app") or {}
@@ -307,6 +315,7 @@ def _collect_check_settlement_snapshot(
             head_sha=head_sha,
             max_external_checks=max_external_checks,
             warnings=warnings,
+            suppress_codecov_checks=suppress_codecov_checks,
         )
         for raw in statuses:
             context = str(raw.get("context") or "status")
@@ -499,6 +508,7 @@ def _collect_external_check_runs(
     repo: str,
     head_sha: str,
     max_external_checks: int,
+    suppress_codecov_checks: bool = False,
 ) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     check_runs: list[FailingCheck] = []
@@ -520,7 +530,10 @@ def _collect_external_check_runs(
         check_runs.extend(
             _normalize_external_check_run(raw, head_sha=head_sha)
             for raw in raw_page
-            if _is_relevant_external_check_run(raw)
+            if _is_relevant_external_check_run(
+                raw,
+                suppress_codecov_checks=suppress_codecov_checks,
+            )
         )
         if len(raw_page) < 100:
             break
@@ -540,6 +553,7 @@ def _collect_commit_status_failures(
     head_sha: str,
     max_external_checks: int,
     existing_names: set[str],
+    suppress_codecov_checks: bool = False,
 ) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     payload = _safe_request_json(
@@ -556,6 +570,7 @@ def _collect_commit_status_failures(
         _normalize_commit_status(raw, head_sha=head_sha)
         for raw in payload.get("statuses", [])
         if str(raw.get("context") or "") not in existing_names
+        and not (suppress_codecov_checks and _is_codecov_commit_status(raw))
     ]
     latest = _latest_by_key(statuses)
     failures = [failure for failure in latest.values() if failure.status in FAILED_STATUS_STATES]
@@ -609,6 +624,7 @@ def _fetch_external_check_run_snapshots(
     head_sha: str,
     max_external_checks: int,
     warnings: list[str],
+    suppress_codecov_checks: bool = False,
 ) -> list[dict[str, object]]:
     collected: list[dict[str, object]] = []
     page = 1
@@ -626,7 +642,14 @@ def _fetch_external_check_run_snapshots(
         raw_page = payload.get("check_runs", [])
         if not raw_page:
             break
-        collected.extend(raw for raw in raw_page if _is_relevant_settlement_check_run(raw))
+        collected.extend(
+            raw
+            for raw in raw_page
+            if _is_relevant_settlement_check_run(
+                raw,
+                suppress_codecov_checks=suppress_codecov_checks,
+            )
+        )
         if len(raw_page) < 100:
             break
         page += 1
@@ -649,6 +672,7 @@ def _fetch_commit_status_snapshots(
     head_sha: str,
     max_external_checks: int,
     warnings: list[str],
+    suppress_codecov_checks: bool = False,
 ) -> list[dict[str, object]]:
     payload = _safe_request_json(
         client,
@@ -659,7 +683,10 @@ def _fetch_commit_status_snapshots(
     )
     if not payload:
         return []
-    return list(payload.get("statuses", []))[:max_external_checks]
+    statuses = list(payload.get("statuses", []))
+    if suppress_codecov_checks:
+        statuses = [raw for raw in statuses if not _is_codecov_commit_status(raw)]
+    return statuses[:max_external_checks]
 
 
 def _fetch_workflow_runs_for_head_sha(
@@ -959,21 +986,43 @@ def _fallback_dedupe_key(failure: FailingCheck) -> str:
     )
 
 
-def _is_relevant_external_check_run(raw: dict[str, object]) -> bool:
+def _is_relevant_external_check_run(
+    raw: dict[str, object],
+    *,
+    suppress_codecov_checks: bool = False,
+) -> bool:
     app = raw.get("app") or {}
     app_name = str(app.get("slug") or app.get("name") or "")
     status = str(raw.get("status") or "")
     conclusion = str(raw.get("conclusion") or "")
     if app_name in ACTIONS_APP_NAMES:
         return False
+    if suppress_codecov_checks and _is_codecov_check_run(raw):
+        return False
     if status != "completed":
         return False
     return conclusion in FAILED_CHECK_CONCLUSIONS
 
 
-def _is_relevant_settlement_check_run(raw: dict[str, object]) -> bool:
+def _is_relevant_settlement_check_run(
+    raw: dict[str, object],
+    *,
+    suppress_codecov_checks: bool = False,
+) -> bool:
     app = raw.get("app") or {}
     app_name = str(app.get("slug") or app.get("name") or "")
     if app_name in ACTIONS_APP_NAMES:
         return False
+    if suppress_codecov_checks and _is_codecov_check_run(raw):
+        return False
     return True
+
+
+def _is_codecov_check_run(raw: dict[str, object]) -> bool:
+    app = raw.get("app") or {}
+    app_name = str(app.get("slug") or app.get("name") or "")
+    return app_name.lower() == "codecov"
+
+
+def _is_codecov_commit_status(raw: dict[str, object]) -> bool:
+    return str(raw.get("context") or "").lower().startswith("codecov/")

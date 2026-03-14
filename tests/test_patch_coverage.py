@@ -10,9 +10,14 @@ from coverage import Coverage
 from coverage.exceptions import DataError, NoSource
 
 from pr_agent_context.coverage import combine as combine_module
-from pr_agent_context.coverage.artifacts import discover_coverage_files, resolve_coverage_files
+from pr_agent_context.coverage.artifacts import (
+    discover_coverage_files,
+    discover_coverage_report_files,
+    resolve_coverage_files,
+)
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import (
+    _discover_executable_lines_without_data,
     _infer_measured_source_roots,
     _infer_source_root,
     _is_in_coverage_scope,
@@ -20,8 +25,12 @@ from pr_agent_context.coverage.patch import (
     _matches_inferred_measured_roots,
     _matches_source_entry,
     _normalize_compare_path,
+    _normalize_report_file_path,
+    _parse_xml_coverage_reports,
     compute_patch_coverage,
+    compute_patch_coverage_from_xml_reports,
     describe_patch_coverage_scope,
+    describe_patch_coverage_scope_from_xml_reports,
 )
 
 
@@ -73,6 +82,44 @@ def _coverage_zip_bytes(source_file: Path) -> bytes:
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr(".coverage.py312", source_file.read_bytes())
     return buffer.getvalue()
+
+
+def _coverage_report_zip_bytes(content: str, *, report_filename: str = "coverage.xml") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(report_filename, content)
+    return buffer.getvalue()
+
+
+def _coverage_xml_text(
+    *,
+    filename: str,
+    covered_lines: list[int],
+    uncovered_lines: list[int],
+) -> str:
+    line_nodes = "\n".join(
+        f'          <line number="{line}" hits="{1 if line in covered_lines else 0}"/>'
+        for line in [*covered_lines, *uncovered_lines]
+    )
+    return (
+        '<?xml version="1.0" ?>\n'
+        '<coverage version="7.6">\n'
+        "  <sources>\n"
+        "    <source>src</source>\n"
+        "  </sources>\n"
+        "  <packages>\n"
+        '    <package name="pkg">\n'
+        "      <classes>\n"
+        f'        <class name="module" filename="{filename}">\n'
+        "          <lines>\n"
+        f"{line_nodes}\n"
+        "          </lines>\n"
+        "        </class>\n"
+        "      </classes>\n"
+        "    </package>\n"
+        "  </packages>\n"
+        "</coverage>\n"
+    )
 
 
 class CoverageSourceClient:
@@ -273,6 +320,385 @@ def test_compute_patch_coverage_is_na_when_only_non_executable_lines_changed(tmp
     assert summary.is_na is True
     assert summary.actual_percent is None
     assert summary.files == []
+
+
+def test_compute_patch_coverage_from_xml_reports_excludes_changed_tests(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "denbust" / "sources" / "mako.py"
+    test_path = repo / "tests" / "integration" / "test_scrapers.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n"
+        "    if flag:\n"
+        "        value = 1\n"
+        "    else:\n"
+        "        value = 2\n"
+        "    return value\n",
+    )
+    _write_file(test_path, "def test_scraper():\n    assert True\n")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="denbust/sources/mako.py",
+            covered_lines=[1, 2, 3],
+            uncovered_lines=[5],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={
+            "src/denbust/sources/mako.py": [1, 2, 3, 4, 5, 6],
+            "tests/integration/test_scrapers.py": [1, 2],
+        },
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.actual_percent == 75
+    assert summary.total_changed_executable_lines == 4
+    assert summary.files[0].path == "src/denbust/sources/mako.py"
+    assert summary.files[0].uncovered_changed_executable_lines == [5]
+    assert all(file_gap.path != "tests/integration/test_scrapers.py" for file_gap in summary.files)
+    assert debug["scope_strategy"] == "measured_root_inference"
+    assert debug["inferred_source_roots"] == ["src/denbust"]
+
+
+def test_compute_patch_coverage_from_xml_reports_treats_missing_changed_source_as_uncovered(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    measured_path = repo / "src" / "pkg" / "module.py"
+    new_path = repo / "src" / "pkg" / "new_file.py"
+    _write_file(measured_path, "def covered():\n    return 1\n")
+    _write_file(new_path, "def added(flag):\n    if flag:\n        return 1\n    return 2\n")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1, 2],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/new_file.py": [1, 2, 3, 4]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.actual_percent == 0
+    assert summary.files[0].path == "src/pkg/new_file.py"
+    assert summary.files[0].has_measured_data is False
+    assert summary.files[0].uncovered_changed_executable_lines == [1, 2, 3, 4]
+
+
+def test_compute_patch_coverage_from_xml_reports_returns_na_for_unusable_xml(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text("<coverage><broken></coverage>", encoding="utf-8")
+
+    summary, debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": [1]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert summary.actual_percent is None
+    assert debug["resolution"] == "report_parse_error"
+    assert debug["warnings"]
+
+
+def test_compute_patch_coverage_from_xml_reports_returns_na_when_only_non_python_files_change(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"README.md": [1]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+    assert debug["resolution"] == "report_loaded"
+
+
+def test_compute_patch_coverage_from_xml_reports_skips_missing_changed_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/missing.py": [1, 2]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+
+
+def test_compute_patch_coverage_from_xml_reports_skips_empty_changed_line_sets(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def parse(flag):\n    return 1 if flag else 2\n")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1, 2],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": []},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+
+
+def test_compute_patch_coverage_from_xml_reports_skips_non_executable_unmeasured_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    measured_path = repo / "src" / "pkg" / "module.py"
+    comments_only_path = repo / "src" / "pkg" / "notes.py"
+    _write_file(measured_path, "def parse(flag):\n    return 1 if flag else 2\n")
+    _write_file(comments_only_path, "# comment one\n# comment two\n")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1, 2],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/notes.py": [1, 2]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+
+
+def test_compute_patch_coverage_from_xml_reports_skips_files_without_changed_executable_lines(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def parse(flag):\n    if flag:\n        return 1\n    return 2\n")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1, 2, 3, 4],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": [99]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is True
+
+
+def test_describe_patch_coverage_scope_from_xml_reports_handles_no_reports(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    debug = describe_patch_coverage_scope_from_xml_reports(
+        workspace=repo,
+        report_files=[],
+    )
+
+    assert debug["resolution"] == "no_report_files"
+
+
+def test_parse_xml_coverage_reports_records_multiple_reports_and_unmappable_paths(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    first = tmp_path / "a.xml"
+    second = tmp_path / "b.xml"
+    xml = (
+        '<?xml version="1.0" ?>\n'
+        '<coverage version="7.6">\n'
+        "  <sources>\n"
+        f"    <source>{(tmp_path / 'outside').resolve()}</source>\n"
+        "  </sources>\n"
+        "  <packages>\n"
+        '    <package name="pkg">\n'
+        "      <classes>\n"
+        '        <class name="skip" filename="">\n'
+        "          <lines><line number=\"0\" hits=\"0\"/></lines>\n"
+        "        </class>\n"
+        '        <class name="missing" filename="pkg/module.py">\n'
+        "          <lines><line number=\"0\" hits=\"0\"/></lines>\n"
+        "        </class>\n"
+        "      </classes>\n"
+        "    </package>\n"
+        "  </packages>\n"
+        "</coverage>\n"
+    )
+    first.write_text(xml, encoding="utf-8")
+    second.write_text(xml, encoding="utf-8")
+
+    parsed, debug = _parse_xml_coverage_reports(workspace=repo, report_files=[first, second])
+
+    assert parsed == {}
+    assert debug["resolution"] == "report_without_measured_files"
+    assert any("Multiple coverage reports were found" in warning for warning in debug["warnings"])
+
+
+def test_normalize_report_file_path_handles_absolute_and_relative_fallbacks(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def covered():\n    return 1\n")
+
+    assert _normalize_report_file_path(
+        filename=str(source_path.resolve()),
+        source_entries=[],
+        workspace=repo,
+    ) == "src/pkg/module.py"
+    assert _normalize_report_file_path(
+        filename="pkg/missing.py",
+        source_entries=[str((repo / "src").resolve())],
+        workspace=repo,
+    ) == "pkg/missing.py"
+
+
+def test_normalize_report_file_path_returns_none_for_absolute_path_outside_workspace(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("def covered():\n    return 1\n", encoding="utf-8")
+
+    assert (
+        _normalize_report_file_path(
+            filename=str(outside.resolve()),
+            source_entries=[],
+            workspace=repo,
+        )
+        is None
+    )
+
+
+def test_normalize_report_file_path_skips_resolve_errors(monkeypatch, tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def covered():\n    return 1\n")
+
+    original_resolve = Path.resolve
+
+    def flaky_resolve(self: Path, *args, **kwargs):
+        if self == source_path:
+            raise OSError("boom")
+        return original_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", flaky_resolve)
+
+    assert (
+        _normalize_report_file_path(
+            filename="src/pkg/module.py",
+            source_entries=[],
+            workspace=repo,
+        )
+        == "src/pkg/module.py"
+    )
+
+
+def test_parse_xml_coverage_reports_warns_for_unmappable_absolute_paths(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("def covered():\n    return 1\n", encoding="utf-8")
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        (
+            '<?xml version="1.0" ?>\n'
+            '<coverage version="7.6">\n'
+            "  <packages>\n"
+            '    <package name="pkg">\n'
+            "      <classes>\n"
+            f'        <class name="module" filename="{outside.resolve()}">\n'
+            "          <lines>\n"
+            '            <line number="1" hits="1"/>\n'
+            "          </lines>\n"
+            "        </class>\n"
+            "      </classes>\n"
+            "    </package>\n"
+            "  </packages>\n"
+            "</coverage>\n"
+        ),
+        encoding="utf-8",
+    )
+
+    parsed, debug = _parse_xml_coverage_reports(workspace=repo, report_files=[report_file])
+
+    assert parsed == {}
+    assert debug["resolution"] == "report_without_measured_files"
+    assert debug["warnings"] == [
+        f"Unable to map coverage report path to workspace: {outside.resolve()}"
+    ]
+
+
+def test_discover_executable_lines_without_data_handles_missing_source(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    coverage = Coverage(config_file=False)
+
+    executable_lines = _discover_executable_lines_without_data(
+        coverage=coverage,
+        absolute_path=repo / "missing.py",
+        changed_added_lines=[1, 2],
+        workspace=repo,
+    )
+
+    assert executable_lines == []
 
 
 def test_compute_patch_coverage_ignores_changed_python_files_outside_measured_roots(tmp_path):
@@ -816,6 +1242,19 @@ def test_discover_coverage_files_ignores_transient_sqlite_sidecars(tmp_path):
     assert files == [artifacts / ".coverage"]
 
 
+def test_discover_coverage_report_files_ignores_non_matching_files(tmp_path):
+    artifacts = tmp_path / "artifacts"
+    nested = artifacts / "nested"
+    nested.mkdir(parents=True)
+    matching = nested / "coverage.xml"
+    matching.write_text("<coverage />", encoding="utf-8")
+    (artifacts / "notes.txt").write_text("ignore me", encoding="utf-8")
+
+    files = discover_coverage_report_files(artifacts, report_filename="coverage.xml")
+
+    assert files == [matching]
+
+
 def test_resolve_coverage_files_prefers_local_ci_artifacts_when_present(tmp_path):
     local_dir = tmp_path / "artifacts"
     local_dir.mkdir()
@@ -941,6 +1380,95 @@ def test_resolve_coverage_files_reports_selected_run_without_coverage_files(tmp_
 
     assert files == []
     assert debug["resolution"] == "selected_run_without_coverage_files"
+
+
+def test_resolve_coverage_files_selects_configured_xml_report_artifact(tmp_path):
+    client = CoverageSourceClient(
+        workflow_runs={
+            "workflow_runs": [
+                {
+                    "id": 30,
+                    "name": "CI",
+                    "conclusion": "success",
+                    "updated_at": "2026-03-10T12:00:00Z",
+                }
+            ]
+        },
+        artifacts_by_run={30: {"artifacts": [{"id": 3001, "name": "coverage-xml"}]}},
+        zip_bytes_by_artifact={
+            3001: _coverage_report_zip_bytes(
+                _coverage_xml_text(
+                    filename="pkg/module.py",
+                    covered_lines=[1, 2],
+                    uncovered_lines=[],
+                )
+            )
+        },
+    )
+
+    files, debug = resolve_coverage_files(
+        client=client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=tmp_path / "downloaded",
+        patch_coverage_source_mode="coverage_xml_artifact",
+        artifact_prefix="pr-agent-context-coverage",
+        coverage_report_artifact_name="coverage-xml",
+        coverage_report_filename="coverage.xml",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=("CI",),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert len(files) == 1
+    assert files[0].name == "coverage.xml"
+    assert debug["resolution"] == "cross_run_downloaded"
+    assert debug["selected_artifacts"] == [
+        {"id": 3001, "name": "coverage-xml", "size_in_bytes": 0}
+    ]
+
+
+def test_resolve_coverage_files_prefers_local_xml_report_in_ci_mode(tmp_path):
+    local_dir = tmp_path / "artifacts"
+    local_dir.mkdir()
+    report_file = local_dir / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1],
+            uncovered_lines=[],
+        ),
+        encoding="utf-8",
+    )
+
+    files, debug = resolve_coverage_files(
+        client=CoverageSourceClient(
+            workflow_runs={"workflow_runs": []},
+            artifacts_by_run={},
+            zip_bytes_by_artifact={},
+        ),
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=local_dir,
+        patch_coverage_source_mode="coverage_xml_artifact",
+        artifact_prefix="pr-agent-context-coverage",
+        coverage_report_artifact_name="coverage-xml",
+        coverage_report_filename="coverage.xml",
+        enable_cross_run_lookup=True,
+        execution_mode="ci",
+        workflow_names=(),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == [report_file]
+    assert debug["resolution"] == "local_current_run_artifacts"
 
 
 def test_resolve_coverage_files_rejects_unsupported_selection_strategy(tmp_path):

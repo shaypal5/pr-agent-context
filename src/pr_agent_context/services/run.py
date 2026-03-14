@@ -11,6 +11,7 @@ from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.git_diff import collect_changed_lines
 from pr_agent_context.coverage.patch import (
     compute_patch_coverage,
+    compute_patch_coverage_from_xml_reports,
     describe_patch_coverage_scope,
 )
 from pr_agent_context.domain.models import (
@@ -75,6 +76,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         wait_for_reviews_to_settle=config.wait_for_reviews_to_settle,
         publish_all_clear_comments_in_refresh=config.publish_all_clear_comments_in_refresh,
         include_patch_coverage=config.include_patch_coverage,
+        patch_coverage_source_mode=config.patch_coverage_source_mode,
+        coverage_report_artifact_name=config.coverage_report_artifact_name,
+        coverage_report_filename=config.coverage_report_filename,
         enable_cross_run_coverage_lookup=config.enable_cross_run_coverage_lookup,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
@@ -168,6 +172,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             include_cross_run_failures=config.include_cross_run_failures,
             include_external_checks=config.include_external_checks,
             wait_for_checks_to_settle=config.wait_for_checks_to_settle,
+            suppress_codecov_checks=(
+                config.patch_coverage_source_mode == "coverage_xml_artifact"
+            ),
             max_actions_runs=config.max_actions_runs,
             max_actions_jobs=config.max_actions_jobs,
             max_external_checks=config.max_external_checks,
@@ -213,7 +220,10 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             repo=pull_request.repo,
             head_sha=pull_request.head_sha,
             local_artifacts_dir=config.coverage_artifacts_dir,
+            patch_coverage_source_mode=config.patch_coverage_source_mode,
             artifact_prefix=config.coverage_artifact_prefix,
+            coverage_report_artifact_name=config.coverage_report_artifact_name,
+            coverage_report_filename=config.coverage_report_filename,
             enable_cross_run_lookup=config.enable_cross_run_coverage_lookup,
             execution_mode=config.execution_mode,
             workflow_names=config.coverage_source_workflows,
@@ -225,6 +235,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         _log(
             "patch_inputs",
             enabled=config.include_patch_coverage,
+            patch_coverage_source_mode=config.patch_coverage_source_mode,
             changed_files=len(changed_lines),
             changed_python_files=sum(1 for path in changed_lines if path.endswith(".py")),
             coverage_artifact_files=len(coverage_files),
@@ -239,16 +250,32 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             ),
             warning_count=len((coverage_source_debug or {}).get("warnings", [])),
         )
-        combined_coverage = build_combined_coverage(
-            workspace=config.workspace,
-            coverage_files=coverage_files,
-        )
-        patch_scope_debug = describe_patch_coverage_scope(
-            workspace=config.workspace,
-            coverage=combined_coverage,
-            has_coverage_artifacts=bool(coverage_files),
-            coverage_source_pending=coverage_source_pending,
-        )
+        if config.patch_coverage_source_mode == "coverage_xml_artifact":
+            patch_coverage, patch_scope_debug = compute_patch_coverage_from_xml_reports(
+                workspace=config.workspace,
+                changed_lines_by_file=changed_lines,
+                report_files=coverage_files,
+                target_percent=config.target_patch_coverage,
+            )
+        else:
+            combined_coverage = build_combined_coverage(
+                workspace=config.workspace,
+                coverage_files=coverage_files,
+            )
+            patch_scope_debug = describe_patch_coverage_scope(
+                workspace=config.workspace,
+                coverage=combined_coverage,
+                has_coverage_artifacts=bool(coverage_files),
+                coverage_source_pending=coverage_source_pending,
+            )
+            patch_coverage = compute_patch_coverage(
+                workspace=config.workspace,
+                changed_lines_by_file=changed_lines,
+                coverage=combined_coverage,
+                target_percent=config.target_patch_coverage,
+                has_coverage_artifacts=bool(coverage_files),
+                coverage_source_pending=coverage_source_pending,
+            )
         coverage_source_debug = {
             **(coverage_source_debug or {}),
             "coverage_working_directory": coverage_working_directory,
@@ -260,21 +287,20 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             "process_cwd": process_cwd,
             "combined_measured_file_count": patch_scope_debug["measured_file_count"],
             "combined_measured_file_sample": patch_scope_debug["measured_file_sample"],
-            "coverage_source_pending": patch_scope_debug["coverage_source_pending"],
+            "coverage_source_pending": patch_scope_debug.get(
+                "coverage_source_pending",
+                coverage_source_pending,
+            ),
             "inferred_source_roots": patch_scope_debug["inferred_source_roots"],
             "patch_scope_strategy": patch_scope_debug["scope_strategy"],
             "explicit_source": patch_scope_debug["explicit_source"],
             "explicit_source_pkgs": patch_scope_debug["explicit_source_pkgs"],
-            "patch_scope_warnings": patch_scope_debug["warnings"],
+            "patch_scope_warnings": patch_scope_debug.get(
+                "warnings",
+                patch_scope_debug.get("scope_warnings", []),
+            ),
+            "codecov_suppressed": config.patch_coverage_source_mode == "coverage_xml_artifact",
         }
-        patch_coverage = compute_patch_coverage(
-            workspace=config.workspace,
-            changed_lines_by_file=changed_lines,
-            coverage=combined_coverage,
-            target_percent=config.target_patch_coverage,
-            has_coverage_artifacts=bool(coverage_files),
-            coverage_source_pending=coverage_source_pending,
-        )
         _log(
             "patch_result",
             is_na=patch_coverage.is_na,

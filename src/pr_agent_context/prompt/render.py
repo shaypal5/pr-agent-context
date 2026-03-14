@@ -537,7 +537,7 @@ def _render_patch_coverage_section(
             f"# {PATCH_COVERAGE_SECTION}",
             "",
             (
-                "Codecov shows patch test coverage is "
+                "Patch test coverage is "
                 f"{_format_percent(patch_coverage.actual_percent)}; "
                 f"please raise it to {_format_percent(patch_coverage.target_percent)}. "
                 "These are the uncovered code lines:"

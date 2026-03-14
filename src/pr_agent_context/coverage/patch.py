@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -8,7 +9,10 @@ from pathlib import Path, PurePosixPath
 from coverage import Coverage
 from coverage.exceptions import NoSource
 
-from pr_agent_context.coverage.combine import coverage_working_directory
+from pr_agent_context.coverage.combine import (
+    _find_coverage_config_file,
+    coverage_working_directory,
+)
 from pr_agent_context.coverage.git_diff import normalize_repo_path
 from pr_agent_context.domain.models import CoverageFileGap, PatchCoverageSummary
 
@@ -26,6 +30,12 @@ class _CoverageScopeContext:
     coverage_source_pending: bool
     scope_strategy: str
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _XmlCoveredFile:
+    executable_lines: frozenset[int]
+    covered_lines: frozenset[int]
 
 
 def compute_patch_coverage(
@@ -136,6 +146,149 @@ def compute_patch_coverage(
     )
 
 
+def compute_patch_coverage_from_xml_reports(
+    *,
+    workspace: Path,
+    changed_lines_by_file: Mapping[str, list[int]],
+    report_files: list[Path],
+    target_percent: float,
+) -> tuple[PatchCoverageSummary, dict[str, object]]:
+    report_data, debug = _parse_xml_coverage_reports(
+        workspace=workspace,
+        report_files=report_files,
+    )
+    coverage = Coverage(
+        config_file=(
+            str(config_file)
+            if (config_file := _find_coverage_config_file(workspace)) is not None
+            else False
+        )
+    )
+    scope_context = _build_scope_context_from_measured_map(
+        coverage=coverage,
+        workspace=workspace,
+        measured_map={path: path for path in report_data},
+        has_coverage_artifacts=bool(report_files),
+        coverage_source_pending=False,
+    )
+    debug.update(
+        {
+            "measured_file_count": len(scope_context.measured_paths),
+            "measured_file_sample": list(scope_context.measured_paths[:10]),
+            "inferred_source_roots": list(scope_context.inferred_source_roots),
+            "explicit_source": list(scope_context.source_entries),
+            "explicit_source_pkgs": list(scope_context.source_packages),
+            "scope_strategy": scope_context.scope_strategy,
+            "scope_warnings": list(scope_context.warnings),
+        }
+    )
+    if not report_data:
+        return (
+            PatchCoverageSummary(
+                target_percent=target_percent,
+                actual_percent=None,
+                total_changed_executable_lines=0,
+                covered_changed_executable_lines=0,
+                files=[],
+                actionable=False,
+                is_na=True,
+            ),
+            debug,
+        )
+
+    file_gaps: list[CoverageFileGap] = []
+    total_executable = 0
+    total_covered = 0
+
+    for path in sorted(changed_lines_by_file):
+        if not path.endswith(".py"):
+            continue
+        relative_path = normalize_repo_path(path)
+        absolute_path = workspace / relative_path
+        if not absolute_path.exists():
+            continue
+        if not _is_in_coverage_scope(
+            coverage,
+            absolute_path,
+            workspace,
+            scope_context.measured_map,
+            inferred_source_roots=scope_context.inferred_source_roots,
+            has_coverage_artifacts=scope_context.has_coverage_artifacts,
+        ):
+            continue
+
+        changed_added_lines = sorted(set(changed_lines_by_file[path]))
+        if not changed_added_lines:
+            continue
+
+        reported = report_data.get(relative_path)
+        if reported is not None:
+            executable_lines = sorted(reported.executable_lines.intersection(changed_added_lines))
+            if not executable_lines:
+                continue
+            covered_lines = sorted(reported.covered_lines.intersection(executable_lines))
+            uncovered_lines = [
+                line for line in executable_lines if line not in reported.covered_lines
+            ]
+            has_measured_data = True
+        else:
+            executable_lines = _discover_executable_lines_without_data(
+                coverage=coverage,
+                absolute_path=absolute_path,
+                changed_added_lines=changed_added_lines,
+                workspace=workspace,
+            )
+            if not executable_lines:
+                continue
+            covered_lines = []
+            uncovered_lines = executable_lines
+            has_measured_data = False
+
+        total_executable += len(executable_lines)
+        total_covered += len(covered_lines)
+        file_gaps.append(
+            CoverageFileGap(
+                path=relative_path,
+                changed_added_lines=changed_added_lines,
+                changed_executable_lines=executable_lines,
+                covered_changed_executable_lines=covered_lines,
+                uncovered_changed_executable_lines=uncovered_lines,
+                has_measured_data=has_measured_data,
+            )
+        )
+
+    if total_executable == 0:
+        return (
+            PatchCoverageSummary(
+                target_percent=target_percent,
+                actual_percent=None,
+                total_changed_executable_lines=0,
+                covered_changed_executable_lines=0,
+                files=[],
+                actionable=False,
+                is_na=True,
+            ),
+            debug,
+        )
+
+    actual_percent = (total_covered / total_executable) * 100
+    files_with_gaps = [
+        file_gap for file_gap in file_gaps if file_gap.uncovered_changed_executable_lines
+    ]
+    return (
+        PatchCoverageSummary(
+            target_percent=target_percent,
+            actual_percent=actual_percent,
+            total_changed_executable_lines=total_executable,
+            covered_changed_executable_lines=total_covered,
+            files=files_with_gaps,
+            actionable=actual_percent < target_percent,
+            is_na=False,
+        ),
+        debug,
+    )
+
+
 def describe_patch_coverage_scope(
     *,
     workspace: Path,
@@ -160,6 +313,20 @@ def describe_patch_coverage_scope(
         "explicit_source_pkgs": list(scope_context.source_packages),
         "warnings": list(scope_context.warnings),
     }
+
+
+def describe_patch_coverage_scope_from_xml_reports(
+    *,
+    workspace: Path,
+    report_files: list[Path],
+) -> dict[str, object]:
+    _summary, debug = compute_patch_coverage_from_xml_reports(
+        workspace=workspace,
+        changed_lines_by_file={},
+        report_files=report_files,
+        target_percent=100.0,
+    )
+    return debug
 
 
 def _is_in_coverage_scope(
@@ -197,6 +364,23 @@ def _is_in_coverage_scope(
     return False
 
 
+def _discover_executable_lines_without_data(
+    *,
+    coverage: Coverage,
+    absolute_path: Path,
+    changed_added_lines: list[int],
+    workspace: Path,
+) -> list[int]:
+    try:
+        with coverage_working_directory(workspace):
+            _filename, statements, _excluded, _missing, _missing_formatted = coverage.analysis2(
+                str(absolute_path)
+            )
+    except NoSource:
+        return []
+    return sorted(set(statements).intersection(changed_added_lines))
+
+
 def _build_scope_context(
     *,
     coverage: Coverage,
@@ -206,6 +390,23 @@ def _build_scope_context(
 ) -> _CoverageScopeContext:
     measured_files = set(coverage.get_data().measured_files())
     measured_map = {_normalize_compare_path(path, workspace): path for path in measured_files}
+    return _build_scope_context_from_measured_map(
+        coverage=coverage,
+        workspace=workspace,
+        measured_map=measured_map,
+        has_coverage_artifacts=has_coverage_artifacts,
+        coverage_source_pending=coverage_source_pending,
+    )
+
+
+def _build_scope_context_from_measured_map(
+    *,
+    coverage: Coverage,
+    workspace: Path,
+    measured_map: Mapping[str, str],
+    has_coverage_artifacts: bool,
+    coverage_source_pending: bool,
+) -> _CoverageScopeContext:
     measured_paths = tuple(sorted(path for path in measured_map if path not in {"", "."}))
     inferred_source_roots = _infer_measured_source_roots(measured_map)
     source_entries = tuple(
@@ -253,6 +454,111 @@ def _build_scope_context(
         scope_strategy=scope_strategy,
         warnings=tuple(warnings),
     )
+
+
+def _parse_xml_coverage_reports(
+    *,
+    workspace: Path,
+    report_files: list[Path],
+) -> tuple[dict[str, _XmlCoveredFile], dict[str, object]]:
+    debug: dict[str, object] = {
+        "parser_format": "coverage.py_xml",
+        "report_files": [str(path) for path in report_files],
+        "selected_report": None,
+        "normalized_report_file_sample": [],
+        "warnings": [],
+    }
+    warnings: list[str] = debug["warnings"]
+    if not report_files:
+        debug["resolution"] = "no_report_files"
+        return {}, debug
+    if len(report_files) > 1:
+        warnings.append("Multiple coverage reports were found; using the first matching file.")
+
+    report_file = sorted(report_files)[0]
+    debug["selected_report"] = str(report_file)
+    try:
+        root = ET.parse(report_file).getroot()
+    except (ET.ParseError, OSError) as error:
+        warnings.append(f"Unable to parse coverage XML report: {error}")
+        debug["resolution"] = "report_parse_error"
+        return {}, debug
+
+    source_entries = [
+        text.strip()
+        for source in root.findall(".//sources/source")
+        if (text := source.text or "").strip()
+    ]
+    line_map: dict[str, tuple[set[int], set[int]]] = {}
+    for class_node in root.findall(".//class"):
+        filename = str(class_node.get("filename") or "").strip()
+        if not filename:
+            continue
+        normalized_path = _normalize_report_file_path(
+            filename=filename,
+            source_entries=source_entries,
+            workspace=workspace,
+        )
+        if normalized_path is None:
+            warnings.append(f"Unable to map coverage report path to workspace: {filename}")
+            continue
+
+        executable_lines, covered_lines = line_map.setdefault(normalized_path, (set(), set()))
+        for line_node in class_node.findall("./lines/line"):
+            line_number = int(line_node.get("number") or 0)
+            if line_number <= 0:
+                continue
+            executable_lines.add(line_number)
+            if int(line_node.get("hits") or 0) > 0:
+                covered_lines.add(line_number)
+
+    parsed = {
+        path: _XmlCoveredFile(
+            executable_lines=frozenset(executable_lines),
+            covered_lines=frozenset(covered_lines),
+        )
+        for path, (executable_lines, covered_lines) in line_map.items()
+        if executable_lines
+    }
+    debug["normalized_report_file_sample"] = list(sorted(parsed)[:10])
+    debug["source_entries"] = source_entries
+    debug["resolution"] = "report_loaded" if parsed else "report_without_measured_files"
+    return parsed, debug
+
+
+def _normalize_report_file_path(
+    *,
+    filename: str,
+    source_entries: list[str],
+    workspace: Path,
+) -> str | None:
+    file_path = Path(filename)
+    candidates: list[Path] = []
+    if file_path.is_absolute():
+        candidates.append(file_path)
+    else:
+        candidates.append(workspace / file_path)
+        for source_entry in source_entries:
+            source_path = Path(source_entry)
+            if source_path.is_absolute():
+                candidates.append(source_path / file_path)
+            else:
+                candidates.append(workspace / source_path / file_path)
+
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            relative_candidate = candidate.resolve().relative_to(workspace.resolve()).as_posix()
+            return normalize_repo_path(relative_candidate)
+        except ValueError:
+            continue
+        except OSError:
+            continue
+
+    if not file_path.is_absolute():
+        return normalize_repo_path(file_path.as_posix())
+    return None
 
 
 def _infer_measured_source_roots(measured_map: Mapping[str, str]) -> tuple[str, ...]:
