@@ -44,6 +44,7 @@ def render_prompt(
     run_id: int = 0,
     run_attempt: int = 1,
     trigger_event_name: str = "pull_request",
+    trigger_label: str = "pull request updated",
     execution_mode: str = "ci",
     publish_mode: str = "append",
     tool_ref: str = DEFAULT_TOOL_REF,
@@ -130,6 +131,7 @@ def render_prompt(
         run_id=run_id,
         run_attempt=run_attempt,
         trigger_event_name=trigger_event_name,
+        trigger_label=trigger_label,
         execution_mode=execution_mode,
         publish_mode=publish_mode,
         head_sha=head_sha or "unknown",
@@ -158,6 +160,7 @@ def build_managed_comment_body(
     run_id: int,
     run_attempt: int,
     trigger_event_name: str,
+    trigger_label: str,
     execution_mode: str = "ci",
     publish_mode: str,
     head_sha: str,
@@ -183,6 +186,7 @@ def build_managed_comment_body(
         tool_version=tool_version,
         run_id=run_id,
         run_attempt=run_attempt,
+        trigger_label=trigger_label,
         head_sha=head_sha,
         generated_at=generated_at or "unknown",
     )
@@ -593,6 +597,7 @@ def _render_run_metadata(
     tool_version: str,
     run_id: int,
     run_attempt: int,
+    trigger_label: str,
     head_sha: str,
     generated_at: str,
 ) -> str:
@@ -600,6 +605,7 @@ def _render_run_metadata(
         [
             f"Tool ref: {tool_ref}",
             f"Tool version: {tool_version}",
+            f"Trigger: {trigger_label}",
             f"Workflow run: {run_id} attempt {run_attempt}",
             f"Comment timestamp: {generated_at}",
             f"PR head commit: {head_sha}",

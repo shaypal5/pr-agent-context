@@ -738,6 +738,7 @@ def test_render_prompt_uses_safe_outer_fence_when_markdown_contains_backticks(tm
     assert "pr-agent-context report:\n" in rendered.comment_body
     assert "\n~~~markdown" in rendered.comment_body
     assert "\nRun metadata:\n```\nTool ref: v4\n" in rendered.comment_body
+    assert "Trigger: pull request updated" in rendered.comment_body
     assert "Comment timestamp: unknown" in rendered.comment_body
     assert rendered.comment_body.endswith("\n```")
 
@@ -749,6 +750,7 @@ def test_build_managed_comment_body_includes_run_scoped_marker():
         run_id=123,
         run_attempt=4,
         trigger_event_name="pull_request_review",
+        trigger_label="review posted",
         publish_mode="append",
         head_sha="deadbeef",
         tool_ref="v4",
@@ -763,6 +765,7 @@ def test_build_managed_comment_body_includes_run_scoped_marker():
     )
     assert body.splitlines()[1] == "pr-agent-context report:"
     assert "Run metadata:\n```\nTool ref: v4" in body
+    assert "Trigger: review posted" in body
     assert "Comment timestamp: unknown" in body
 
 
