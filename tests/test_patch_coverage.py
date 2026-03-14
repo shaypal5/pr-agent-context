@@ -12,12 +12,15 @@ from pr_agent_context.coverage import combine as combine_module
 from pr_agent_context.coverage.artifacts import discover_coverage_files, resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import (
+    _infer_source_root,
     _is_in_coverage_scope,
     _matches_any_pattern,
+    _infer_measured_source_roots,
     _matches_inferred_measured_roots,
     _matches_source_entry,
     _normalize_compare_path,
     compute_patch_coverage,
+    describe_patch_coverage_scope,
 )
 
 
@@ -216,6 +219,7 @@ def test_compute_patch_coverage_treats_unmeasured_changed_files_as_uncovered(tmp
         changed_lines_by_file={"src/pkg/missing.py": [1, 2, 3, 4]},
         coverage=combined,
         target_percent=100,
+        has_coverage_artifacts=True,
     )
 
     assert summary.actual_percent == 0
@@ -346,10 +350,16 @@ def test_patch_helper_functions_cover_edge_cases(tmp_path):
     relative_path = "src/pkg/module.py"
     parts = ("src", "pkg", "module.py")
 
-    assert _matches_inferred_measured_roots("", {"src/pkg/module.py": "value"}) is False
-    assert (
-        _matches_inferred_measured_roots("src/pkg/module.py", {"": "value", ".": "value"}) is True
-    )
+    assert _matches_inferred_measured_roots("", ("src/pkg",)) is False
+    assert _matches_inferred_measured_roots("src/pkg/module.py", ()) is True
+    assert _infer_measured_source_roots({"src/pkg/module.py": "value"}) == ("src/pkg",)
+    assert _infer_measured_source_roots({"pkg/module.py": "value"}) == ("pkg",)
+    assert _infer_measured_source_roots({"tests/test_module.py": "value"}) == ()
+    assert _infer_source_root(()) is None
+    assert _infer_source_root((".", "pkg", "module.py")) is None
+    assert _infer_source_root(("src", "tests", "test_module.py")) is None
+    assert _infer_source_root(("src", "main.py")) == "src"
+    assert _infer_source_root(("pkg.py",)) == "pkg.py"
     assert _matches_any_pattern(relative_path, ["src/*"]) is True
     assert _matches_source_entry(module_path, relative_path, parts, repo, "") is False
     assert (
@@ -389,6 +399,132 @@ def test_patch_helper_functions_cover_edge_cases(tmp_path):
     assert _matches_source_entry(module_path, relative_path, parts, repo, "module.py") is False
     assert _normalize_compare_path(str(repo.resolve()), repo) == "."
     assert _normalize_compare_path("/tmp/elsewhere/module.py", repo) == "/tmp/elsewhere/module.py"
+
+
+def test_patch_scope_helper_builds_inferred_roots_when_not_precomputed(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    sibling_path = repo / "src" / "pkg" / "sibling.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+    _write_file(sibling_path, "def other():\n    return 2\n")
+    combined = build_combined_coverage(workspace=repo, coverage_files=[])
+
+    assert (
+        _is_in_coverage_scope(
+            combined,
+            sibling_path,
+            repo,
+            {"src/pkg/module.py": "value"},
+            has_coverage_artifacts=True,
+        )
+        is True
+    )
+
+
+def test_describe_patch_coverage_scope_reports_explicit_config_and_test_only_measured_files(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    module_path = repo / "src" / "pkg" / "module.py"
+    test_path = repo / "tests" / "test_module.py"
+    _write_file(module_path, "def covered():\n    return 1\n")
+    _write_file(test_path, "def test_case():\n    assert True\n")
+
+    coverage_file = tmp_path / ".coverage"
+    _build_coverage_data(coverage_file, [(test_path, "test_case()")])
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+
+    combined.config.source = ["src"]
+    explicit_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+    assert explicit_debug["scope_strategy"] == "explicit_config"
+    assert explicit_debug["explicit_source"] == ["src"]
+
+    combined.config.source = []
+    test_only_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+    assert test_only_debug["scope_strategy"] == "measured_files_without_inferred_roots"
+    assert test_only_debug["warnings"] == [
+        "Measured coverage files were loaded, but no non-test source roots could be inferred."
+    ]
+
+
+def test_compute_patch_coverage_cli_only_src_layout_excludes_changed_tests(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "denbust" / "sources" / "mako.py"
+    test_path = repo / "tests" / "integration" / "test_scrapers.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n"
+        "    if flag:\n"
+        "        return 1\n"
+        "    return 2\n",
+    )
+    _write_file(test_path, "def test_scraper():\n    assert True\n")
+
+    coverage_file = tmp_path / ".coverage"
+    _build_coverage_data(coverage_file, [(source_path, "parse(True)")])
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={
+            "src/denbust/sources/mako.py": [1, 2, 3, 4],
+            "tests/integration/test_scrapers.py": [1, 2],
+        },
+        coverage=combined,
+        target_percent=100,
+        has_coverage_artifacts=True,
+    )
+    scope_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+
+    assert summary.actual_percent == 75
+    assert summary.total_changed_executable_lines == 4
+    assert [file_gap.path for file_gap in summary.files] == ["src/denbust/sources/mako.py"]
+    assert scope_debug["scope_strategy"] == "measured_root_inference"
+    assert scope_debug["inferred_source_roots"] == ["src/denbust"]
+
+
+def test_compute_patch_coverage_is_na_when_artifacts_have_no_measured_files(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def branch(flag):\n    if flag:\n        return 1\n    return 2\n")
+    combined = build_combined_coverage(workspace=repo, coverage_files=[])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": [1, 2, 3, 4]},
+        coverage=combined,
+        target_percent=100,
+        has_coverage_artifacts=True,
+    )
+    scope_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+
+    assert summary.is_na is True
+    assert summary.actual_percent is None
+    assert scope_debug["scope_strategy"] == "artifacts_without_measured_files"
+    assert scope_debug["warnings"] == [
+        "Coverage artifacts were found, but the combined coverage data contained no measured files. "
+        "Patch coverage was treated as N/A instead of 0%."
+    ]
 
 
 def test_find_coverage_config_file_prefers_existing_project_config(tmp_path):
