@@ -572,10 +572,10 @@ def test_parse_xml_coverage_reports_records_multiple_reports_and_unmappable_path
         '    <package name="pkg">\n'
         "      <classes>\n"
         '        <class name="skip" filename="">\n'
-        "          <lines><line number=\"0\" hits=\"0\"/></lines>\n"
+        '          <lines><line number="0" hits="0"/></lines>\n'
         "        </class>\n"
         '        <class name="missing" filename="pkg/module.py">\n'
-        "          <lines><line number=\"0\" hits=\"0\"/></lines>\n"
+        '          <lines><line number="0" hits="0"/></lines>\n'
         "        </class>\n"
         "      </classes>\n"
         "    </package>\n"
@@ -598,16 +598,22 @@ def test_normalize_report_file_path_handles_absolute_and_relative_fallbacks(tmp_
     source_path = repo / "src" / "pkg" / "module.py"
     _write_file(source_path, "def covered():\n    return 1\n")
 
-    assert _normalize_report_file_path(
-        filename=str(source_path.resolve()),
-        source_entries=[],
-        workspace=repo,
-    ) == "src/pkg/module.py"
-    assert _normalize_report_file_path(
-        filename="pkg/missing.py",
-        source_entries=[str((repo / "src").resolve())],
-        workspace=repo,
-    ) == "pkg/missing.py"
+    assert (
+        _normalize_report_file_path(
+            filename=str(source_path.resolve()),
+            source_entries=[],
+            workspace=repo,
+        )
+        == "src/pkg/module.py"
+    )
+    assert (
+        _normalize_report_file_path(
+            filename="pkg/missing.py",
+            source_entries=[str((repo / "src").resolve())],
+            workspace=repo,
+        )
+        == "pkg/missing.py"
+    )
 
 
 def test_normalize_report_file_path_returns_none_for_absolute_path_outside_workspace(tmp_path):
@@ -1427,9 +1433,7 @@ def test_resolve_coverage_files_selects_configured_xml_report_artifact(tmp_path)
     assert len(files) == 1
     assert files[0].name == "coverage.xml"
     assert debug["resolution"] == "cross_run_downloaded"
-    assert debug["selected_artifacts"] == [
-        {"id": 3001, "name": "coverage-xml", "size_in_bytes": 0}
-    ]
+    assert debug["selected_artifacts"] == [{"id": 3001, "name": "coverage-xml", "size_in_bytes": 0}]
 
 
 def test_resolve_coverage_files_prefers_local_xml_report_in_ci_mode(tmp_path):

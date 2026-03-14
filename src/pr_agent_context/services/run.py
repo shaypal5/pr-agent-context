@@ -172,9 +172,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             include_cross_run_failures=config.include_cross_run_failures,
             include_external_checks=config.include_external_checks,
             wait_for_checks_to_settle=config.wait_for_checks_to_settle,
-            suppress_codecov_checks=(
-                config.patch_coverage_source_mode == "coverage_xml_artifact"
-            ),
+            suppress_codecov_checks=(config.patch_coverage_source_mode == "coverage_xml_artifact"),
             max_actions_runs=config.max_actions_runs,
             max_actions_jobs=config.max_actions_jobs,
             max_external_checks=config.max_external_checks,
