@@ -209,7 +209,8 @@ def _build_scope_context(
     elif has_coverage_artifacts:
         scope_strategy = "artifacts_without_measured_files"
         warnings.append(
-            "Coverage artifacts were found, but the combined coverage data contained no measured files. "
+            "Coverage artifacts were found, but the combined coverage data "
+            "contained no measured files. "
             "Patch coverage was treated as N/A instead of 0%."
         )
     else:

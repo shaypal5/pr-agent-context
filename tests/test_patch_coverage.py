@@ -519,7 +519,8 @@ def test_compute_patch_coverage_is_na_when_artifacts_have_no_measured_files(tmp_
     assert summary.actual_percent is None
     assert scope_debug["scope_strategy"] == "artifacts_without_measured_files"
     assert scope_debug["warnings"] == [
-        "Coverage artifacts were found, but the combined coverage data contained no measured files. "
+        "Coverage artifacts were found, but the combined coverage data "
+        "contained no measured files. "
         "Patch coverage was treated as N/A instead of 0%."
     ]
 
