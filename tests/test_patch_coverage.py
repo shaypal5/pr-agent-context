@@ -570,10 +570,7 @@ def test_build_combined_coverage_honors_relative_files_from_workspace_root(tmp_p
     test_path = repo / "tests" / "integration" / "test_scrapers.py"
     _write_file(
         source_path,
-        "def parse(flag):\n"
-        "    if flag:\n"
-        "        return 1\n"
-        "    return 2\n",
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
     )
     _write_file(test_path, "def test_scraper():\n    assert True\n")
 
