@@ -183,6 +183,19 @@ def test_request_bytes_following_redirect_returns_direct_response_when_not_redir
     )
 
 
+def test_request_bytes_following_redirect_rejects_non_get_methods():
+    client = GitHubApiClient(token="secret")
+
+    with pytest.raises(
+        ValueError,
+        match="only supports GET requests",
+    ):
+        client.request_bytes_following_redirect_without_auth(
+            "POST",
+            "/repos/shaypal5/example/actions/artifacts/17/zip",
+        )
+
+
 def test_request_redirect_location_raises_for_non_redirect_http_errors(monkeypatch):
     error = urllib.error.HTTPError(
         url="https://api.github.com/repos/shaypal5/example/actions/artifacts/17/zip",
@@ -208,6 +221,34 @@ def test_request_redirect_location_raises_for_non_redirect_http_errors(monkeypat
     )
 
     with pytest.raises(GitHubApiError, match="Unauthorized"):
+        client._request_redirect_location(request)  # noqa: SLF001
+
+
+def test_request_redirect_location_handles_missing_headers_without_attribute_error(monkeypatch):
+    error = urllib.error.HTTPError(
+        url="https://api.github.com/repos/shaypal5/example/actions/artifacts/17/zip",
+        code=302,
+        msg="Found",
+        hdrs=None,
+        fp=io.BytesIO(b"missing location"),
+    )
+
+    class _FakeOpener:
+        def open(self, request):  # noqa: ARG002
+            raise error
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *handlers: _FakeOpener())
+
+    client = GitHubApiClient(token="secret")
+    request, _headers = client._build_request(  # noqa: SLF001
+        "GET",
+        "/repos/shaypal5/example/actions/artifacts/17/zip",
+        params=None,
+        payload=None,
+        extra_headers=None,
+    )
+
+    with pytest.raises(GitHubApiError, match="Found"):
         client._request_redirect_location(request)  # noqa: SLF001
 
 
@@ -282,3 +323,40 @@ def test_no_redirect_handler_returns_none():
     handler = _NoRedirectHandler()
 
     assert handler.redirect_request(None, None, 302, "Found", {}, "https://example.com") is None
+
+
+def test_request_redirect_location_closes_http_error_when_location_is_present(monkeypatch):
+    closed = {"value": False}
+
+    class _ClosableRedirectError(urllib.error.HTTPError):
+        def close(self):
+            closed["value"] = True
+            return super().close()
+
+    error = _ClosableRedirectError(
+        url="https://api.github.com/repos/shaypal5/example/actions/artifacts/17/zip",
+        code=302,
+        msg="Found",
+        hdrs={"Location": "https://artifactcache.actions.githubusercontent.com/blob.zip?sig=123"},
+        fp=io.BytesIO(b""),
+    )
+
+    class _FakeOpener:
+        def open(self, request):  # noqa: ARG002
+            raise error
+
+    monkeypatch.setattr("urllib.request.build_opener", lambda *handlers: _FakeOpener())
+
+    client = GitHubApiClient(token="secret")
+    request, _headers = client._build_request(  # noqa: SLF001
+        "GET",
+        "/repos/shaypal5/example/actions/artifacts/17/zip",
+        params=None,
+        payload=None,
+        extra_headers=None,
+    )
+
+    assert client._request_redirect_location(request) == (
+        "https://artifactcache.actions.githubusercontent.com/blob.zip?sig=123"
+    )
+    assert closed["value"] is True

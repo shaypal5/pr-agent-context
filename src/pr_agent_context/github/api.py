@@ -100,6 +100,10 @@ class GitHubApiClient:
         params: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
     ) -> bytes:
+        if method != "GET":
+            raise ValueError(
+                "request_bytes_following_redirect_without_auth only supports GET requests"
+            )
         request, headers = self._build_request(
             method,
             path,
@@ -182,12 +186,18 @@ class GitHubApiClient:
             with opener.open(request):
                 return None
         except urllib.error.HTTPError as exc:
-            if exc.code in {301, 302, 303, 307, 308}:
-                location = exc.headers.get("Location")
-                if location:
-                    return urllib.parse.urljoin(request.full_url, location)
-            body = exc.read().decode("utf-8", errors="replace")
-            raise GitHubApiError(exc.code, exc.reason, body) from exc
+            try:
+                headers = exc.headers or {}
+                if exc.code in {301, 302, 303, 307, 308}:
+                    location = headers.get("Location")
+                    if location:
+                        return urllib.parse.urljoin(request.full_url, location)
+                body = exc.read().decode("utf-8", errors="replace")
+                raise GitHubApiError(exc.code, exc.reason, body) from exc
+            finally:
+                close = getattr(exc, "close", None)
+                if callable(close):
+                    close()
 
     def _build_redirect_headers(
         self,
