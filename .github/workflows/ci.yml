@@ -6,6 +6,18 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package and dev dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check .
+
   test:
     runs-on: ubuntu-latest
     env:
@@ -21,8 +33,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install package and dev dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Ruff
-        run: ruff check .
       - name: Pytest
         run: pytest --cov=src/pr_agent_context --cov-branch --cov-report=xml --cov-report=term
       - name: Verify raw coverage data exists
@@ -54,7 +64,7 @@ jobs:
   pr-agent-context:
     name: PR agent context
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [test]
+    needs: [lint, test]
     permissions:
       contents: read
       actions: read
