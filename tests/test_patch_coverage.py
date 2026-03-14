@@ -103,6 +103,9 @@ class CoverageSourceClient:
             return self.zip_bytes_by_artifact[artifact_id]
         raise AssertionError(f"Unexpected bytes request: {path}")
 
+    def request_bytes_following_redirect_without_auth(self, method: str, path: str) -> bytes:
+        return self.request_bytes(method, path)
+
 
 def test_build_combined_coverage_merges_multiple_data_files(tmp_path):
     repo = tmp_path / "repo"

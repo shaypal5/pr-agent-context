@@ -256,7 +256,7 @@ def _download_artifact_zip(
     artifact_id: int,
     destination: Path,
 ) -> None:
-    zip_bytes = client.request_bytes(
+    zip_bytes = client.request_bytes_following_redirect_without_auth(
         "GET",
         f"/repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip",
     )
