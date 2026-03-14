@@ -23,6 +23,7 @@ class _CoverageScopeContext:
     source_entries: tuple[str, ...]
     source_packages: tuple[str, ...]
     has_coverage_artifacts: bool
+    coverage_source_pending: bool
     scope_strategy: str
     warnings: tuple[str, ...]
 
@@ -34,12 +35,25 @@ def compute_patch_coverage(
     coverage: Coverage,
     target_percent: float,
     has_coverage_artifacts: bool = False,
+    coverage_source_pending: bool = False,
 ) -> PatchCoverageSummary:
     scope_context = _build_scope_context(
         coverage=coverage,
         workspace=workspace,
         has_coverage_artifacts=has_coverage_artifacts,
+        coverage_source_pending=coverage_source_pending,
     )
+
+    if scope_context.coverage_source_pending:
+        return PatchCoverageSummary(
+            target_percent=target_percent,
+            actual_percent=None,
+            total_changed_executable_lines=0,
+            covered_changed_executable_lines=0,
+            files=[],
+            actionable=False,
+            is_na=True,
+        )
 
     file_gaps: list[CoverageFileGap] = []
     total_executable = 0
@@ -127,14 +141,17 @@ def describe_patch_coverage_scope(
     workspace: Path,
     coverage: Coverage,
     has_coverage_artifacts: bool,
+    coverage_source_pending: bool = False,
 ) -> dict[str, object]:
     scope_context = _build_scope_context(
         coverage=coverage,
         workspace=workspace,
         has_coverage_artifacts=has_coverage_artifacts,
+        coverage_source_pending=coverage_source_pending,
     )
     return {
         "has_coverage_artifacts": scope_context.has_coverage_artifacts,
+        "coverage_source_pending": scope_context.coverage_source_pending,
         "scope_strategy": scope_context.scope_strategy,
         "measured_file_count": len(scope_context.measured_paths),
         "measured_file_sample": list(scope_context.measured_paths[:10]),
@@ -185,6 +202,7 @@ def _build_scope_context(
     coverage: Coverage,
     workspace: Path,
     has_coverage_artifacts: bool,
+    coverage_source_pending: bool,
 ) -> _CoverageScopeContext:
     measured_files = set(coverage.get_data().measured_files())
     measured_map = {_normalize_compare_path(path, workspace): path for path in measured_files}
@@ -199,7 +217,13 @@ def _build_scope_context(
     )
     warnings: list[str] = []
 
-    if source_entries or source_packages:
+    if coverage_source_pending and not measured_paths:
+        scope_strategy = "coverage_source_pending"
+        warnings.append(
+            "Coverage for this head SHA is not available yet. "
+            "Patch coverage was treated as N/A instead of 0%."
+        )
+    elif source_entries or source_packages:
         scope_strategy = "explicit_config"
     elif inferred_source_roots:
         scope_strategy = "measured_root_inference"
@@ -225,6 +249,7 @@ def _build_scope_context(
         source_entries=source_entries,
         source_packages=source_packages,
         has_coverage_artifacts=has_coverage_artifacts,
+        coverage_source_pending=coverage_source_pending,
         scope_strategy=scope_strategy,
         warnings=tuple(warnings),
     )

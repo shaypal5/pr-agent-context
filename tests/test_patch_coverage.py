@@ -553,6 +553,39 @@ def test_compute_patch_coverage_is_na_when_artifacts_have_no_measured_files(tmp_
     ]
 
 
+def test_compute_patch_coverage_is_na_when_coverage_source_is_pending(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def branch(flag):\n    if flag:\n        return 1\n    return 2\n")
+    combined = build_combined_coverage(workspace=repo, coverage_files=[])
+
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={"src/pkg/module.py": [1, 2, 3, 4]},
+        coverage=combined,
+        target_percent=100,
+        has_coverage_artifacts=False,
+        coverage_source_pending=True,
+    )
+    scope_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=False,
+        coverage_source_pending=True,
+    )
+
+    assert summary.is_na is True
+    assert summary.actual_percent is None
+    assert summary.actionable is False
+    assert scope_debug["coverage_source_pending"] is True
+    assert scope_debug["scope_strategy"] == "coverage_source_pending"
+    assert scope_debug["warnings"] == [
+        "Coverage for this head SHA is not available yet. "
+        "Patch coverage was treated as N/A instead of 0%."
+    ]
+
+
 def test_build_combined_coverage_honors_relative_files_from_workspace_root(tmp_path, monkeypatch):
     job_workspace = tmp_path / "workspace"
     repo = job_workspace / "caller-repo"
@@ -685,6 +718,7 @@ def test_resolve_coverage_files_selects_latest_successful_matching_workflow(tmp_
     assert debug["selected_run"] == {
         "id": 30,
         "name": "CI",
+        "status": "",
         "conclusion": "success",
         "updated_at": "2026-03-10T12:00:00Z",
     }
@@ -728,6 +762,45 @@ def test_resolve_coverage_files_reports_missing_suitable_producer_run(tmp_path):
     assert debug["resolution"] == "no_suitable_coverage_source"
     assert debug["selected_run"] is None
     assert debug["candidate_runs"][0]["reasons"] == ["no_matching_artifacts"]
+
+
+def test_resolve_coverage_files_reports_pending_matching_producer_run(tmp_path):
+    client = CoverageSourceClient(
+        workflow_runs={
+            "workflow_runs": [
+                {
+                    "id": 30,
+                    "name": "CI",
+                    "status": "in_progress",
+                    "conclusion": None,
+                    "updated_at": "2026-03-10T12:00:00Z",
+                }
+            ]
+        },
+        artifacts_by_run={},
+        zip_bytes_by_artifact={},
+    )
+
+    files, debug = resolve_coverage_files(
+        client=client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=None,
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=("CI",),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == []
+    assert debug["resolution"] == "coverage_source_pending"
+    assert debug["coverage_source_pending"] is True
+    assert debug["selected_run"] is None
+    assert debug["candidate_runs"][0]["reasons"] == ["not_completed_yet"]
 
 
 def test_discover_coverage_files_ignores_transient_sqlite_sidecars(tmp_path):
@@ -799,6 +872,35 @@ def test_resolve_coverage_files_returns_local_files_when_cross_run_lookup_disabl
 
     assert files == [local_file]
     assert debug["resolution"] == "cross_run_lookup_disabled"
+
+
+def test_resolve_coverage_files_falls_back_to_local_files_when_no_cross_run_source_exists(tmp_path):
+    local_dir = tmp_path / "artifacts"
+    local_dir.mkdir()
+    local_file = local_dir / ".coverage.py312"
+    local_file.write_text("local", encoding="utf-8")
+
+    files, debug = resolve_coverage_files(
+        client=CoverageSourceClient(
+            workflow_runs={"workflow_runs": []},
+            artifacts_by_run={},
+            zip_bytes_by_artifact={},
+        ),
+        owner="shaypal5",
+        repo="example",
+        head_sha="deadbeef",
+        local_artifacts_dir=local_dir,
+        artifact_prefix="pr-agent-context-coverage",
+        enable_cross_run_lookup=True,
+        execution_mode="refresh",
+        workflow_names=("CI",),
+        allowed_conclusions=("success",),
+        selection_strategy="latest_successful",
+        max_candidate_runs=20,
+    )
+
+    assert files == [local_file]
+    assert debug["resolution"] == "local_current_run_artifacts_fallback"
 
 
 def test_resolve_coverage_files_reports_selected_run_without_coverage_files(tmp_path):

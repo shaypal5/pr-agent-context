@@ -48,6 +48,7 @@ def resolve_coverage_files(
         "selected_run": None,
         "selected_artifacts": [],
         "resolution": "",
+        "coverage_source_pending": False,
         "warnings": [],
     }
 
@@ -72,9 +73,12 @@ def resolve_coverage_files(
         debug=debug,
     )
     if selected_run is None:
-        debug["resolution"] = (
-            "local_current_run_artifacts_fallback" if local_files else "no_suitable_coverage_source"
-        )
+        if local_files:
+            debug["resolution"] = "local_current_run_artifacts_fallback"
+        elif debug["coverage_source_pending"]:
+            debug["resolution"] = "coverage_source_pending"
+        else:
+            debug["resolution"] = "no_suitable_coverage_source"
         return local_files, debug
 
     destination_root = local_artifacts_dir or Path(
@@ -101,6 +105,7 @@ def resolve_coverage_files(
     debug["selected_run"] = {
         "id": selected_run["id"],
         "name": selected_run["name"],
+        "status": selected_run["status"],
         "conclusion": selected_run["conclusion"],
         "updated_at": selected_run["updated_at"],
     }
@@ -158,12 +163,15 @@ def _select_coverage_source_run(
     )[:max_candidate_runs]
 
     selected: dict[str, object] | None = None
+    pending_candidate_found = False
     for run in sorted_runs:
         run_name = str(run.get("name") or "")
+        status = str(run.get("status") or "")
         conclusion = str(run.get("conclusion") or "")
         record = {
             "id": int(run.get("id") or 0),
             "name": run_name,
+            "status": status,
             "conclusion": conclusion,
             "updated_at": str(run.get("updated_at") or ""),
             "accepted": False,
@@ -173,6 +181,11 @@ def _select_coverage_source_run(
         if workflow_names and run_name not in workflow_names:
             record["reasons"].append("workflow_name_filtered")
             debug["candidate_runs"].append(record)
+            continue
+        if status and status != "completed":
+            record["reasons"].append("not_completed_yet")
+            debug["candidate_runs"].append(record)
+            pending_candidate_found = True
             continue
         if conclusion not in allowed_conclusions:
             record["reasons"].append("conclusion_filtered")
@@ -210,10 +223,12 @@ def _select_coverage_source_run(
             selected = {
                 "id": int(run["id"]),
                 "name": run_name,
+                "status": status,
                 "conclusion": conclusion,
                 "updated_at": str(run.get("updated_at") or ""),
                 "matching_artifacts": record["matching_artifacts"],
             }
+    debug["coverage_source_pending"] = pending_candidate_found
     return selected
 
 

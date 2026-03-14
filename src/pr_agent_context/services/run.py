@@ -221,6 +221,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             selection_strategy=config.coverage_selection_strategy,
             max_candidate_runs=config.max_actions_runs,
         )
+        coverage_source_pending = bool((coverage_source_debug or {}).get("coverage_source_pending"))
         _log(
             "patch_inputs",
             enabled=config.include_patch_coverage,
@@ -246,6 +247,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             workspace=config.workspace,
             coverage=combined_coverage,
             has_coverage_artifacts=bool(coverage_files),
+            coverage_source_pending=coverage_source_pending,
         )
         coverage_source_debug = {
             **(coverage_source_debug or {}),
@@ -258,6 +260,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             "process_cwd": process_cwd,
             "combined_measured_file_count": patch_scope_debug["measured_file_count"],
             "combined_measured_file_sample": patch_scope_debug["measured_file_sample"],
+            "coverage_source_pending": patch_scope_debug["coverage_source_pending"],
             "inferred_source_roots": patch_scope_debug["inferred_source_roots"],
             "patch_scope_strategy": patch_scope_debug["scope_strategy"],
             "explicit_source": patch_scope_debug["explicit_source"],
@@ -270,6 +273,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             coverage=combined_coverage,
             target_percent=config.target_patch_coverage,
             has_coverage_artifacts=bool(coverage_files),
+            coverage_source_pending=coverage_source_pending,
         )
         _log(
             "patch_result",
