@@ -1,0 +1,45 @@
+name: codecov-yaml-validate
+
+on:
+  pull_request:
+    # Keep this workflow dormant unless the PR touches a Codecov config file.
+    paths:
+      - codecov.yml
+      - .codecov.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Codecov YAML
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Codecov config file
+        id: select-config
+        shell: bash
+        run: |
+          for file in codecov.yml .codecov.yml; do
+            if [[ -f "$file" ]]; then
+              echo "path=$file" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+
+          echo "No Codecov YAML file found after PR path filter matched; nothing to validate."
+          exit 0
+
+      - name: Validate Codecov YAML
+        if: ${{ steps.select-config.outputs.path != '' }}
+        env:
+          CODECOV_YAML_PATH: ${{ steps.select-config.outputs.path }}
+        run: |
+          curl --fail-with-body \
+            --header "Content-Type: text/plain" \
+            --data-binary "@${CODECOV_YAML_PATH}" \
+            https://codecov.io/validate
