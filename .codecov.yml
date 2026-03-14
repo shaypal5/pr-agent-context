@@ -22,7 +22,7 @@ coverage:
     project: # overall coverage
       default:
         informational: true
-        target: auto # fail on any drop
+        target: auto # non-blocking; reports any drop in coverage
         threshold: 0% # or 0.5 % if you want slack
     patch: # changed lines
       default:
