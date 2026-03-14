@@ -14,7 +14,7 @@ Current behavior includes:
 - PR-wide failing-check aggregation for the PR head SHA
 - failed GitHub Actions workflow runs/jobs with trimmed log excerpts
 - failed external check runs and commit statuses when GitHub exposes useful metadata
-- patch coverage analysis from raw `coverage.py` artifacts
+- patch coverage analysis from raw `coverage.py` artifacts or a combined `coverage.xml` artifact
 - uncovered changed executable Python lines for the PR diff
 - configurable prompt templating from the caller repository
 - structured debug artifacts for inspection and downstream automation
@@ -99,13 +99,16 @@ The reusable workflow inputs are:
 - `wait_for_reviews_to_settle`: in refresh mode, briefly poll unresolved review threads before rendering, default `false`
 - `target_patch_coverage`: required patch coverage percentage, default `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
+- `patch_coverage_source_mode`: `raw_coverage_artifacts` or `coverage_xml_artifact`, default `raw_coverage_artifacts`
 - `coverage_artifact_prefix`: artifact name prefix for raw `.coverage*` uploads, default `pr-agent-context-coverage`
+- `coverage_report_artifact_name`: exact artifact name for a combined coverage XML report, default `""`
+- `coverage_report_filename`: path inside the combined coverage XML artifact, default `coverage.xml`
 - `enable_cross_run_coverage_lookup`: allow refresh-mode runs to reuse coverage artifacts from prior producer runs on the same head SHA, default `true`
 - `coverage_source_workflows`: optional workflow-name filter for reusable coverage producer runs
 - `coverage_source_conclusions`: allowed producer run conclusions, default `success`
 - `coverage_selection_strategy`: coverage producer selection strategy, default `latest_successful`
 - `fork_behavior`: fork degradation policy, default `best_effort`
-- `force_patch_coverage_section`: render the `# Codecov/patch` section even when patch coverage is not actionable, default `false`
+- `force_patch_coverage_section`: render the `# Patch coverage` section even when patch coverage is not actionable, default `false`
 - `prompt_preamble`: optional text inserted near the top of the rendered prompt
 - `prompt_template_file`: optional template file path in the caller repository workspace
 - `copilot_author_patterns`: comma- or newline-separated exact logins and `re:` regexes for Copilot actor matching
@@ -254,8 +257,11 @@ restricted, the tool records those degradations in debug artifacts instead of fa
 Patch coverage is computed locally from:
 
 1. the caller repo git diff between the PR base SHA and head SHA
-2. merged raw `.coverage*` data downloaded either from the current run or from a selected prior
-   producer workflow run for the same PR head SHA
+2. either:
+   - merged raw `.coverage*` data downloaded either from the current run or from a selected prior
+     producer workflow run for the same PR head SHA, or
+   - a caller-provided combined `coverage.xml` artifact downloaded from the current run or from a
+     selected prior producer workflow run for the same PR head SHA
 
 The reusable workflow does **not** scrape the Codecov UI and does **not** call Codecov APIs.
 
@@ -263,7 +269,8 @@ For refresh invocations, `pr-agent-context` can reuse artifacts from prior runs:
 - it searches workflow runs for the same head SHA
 - filters by configured workflow names/conclusions when provided
 - deterministically chooses the latest suitable producer run
-- downloads matching artifacts and reuses the existing `coverage.py` combine + patch analysis flow
+- downloads matching artifacts and reuses either the raw `coverage.py` flow or the configured
+  combined XML report flow
 
 Coverage-producing jobs in downstream repos must upload raw `coverage.py` data files in
 artifacts whose names start with the configured prefix. Example:
@@ -293,6 +300,38 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 ```
+
+For simpler repos that already produce a single combined `coverage.xml`, you can point
+`pr-agent-context` at that artifact directly and avoid waiting on Codecov patch status
+processing:
+
+```yaml
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python -m coverage combine
+      - run: python -m coverage xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  pr-agent-context:
+    needs: [coverage]
+    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
+    with:
+      include_patch_coverage: true
+      patch_coverage_source_mode: coverage_xml_artifact
+      coverage_report_artifact_name: coverage-xml
+      coverage_report_filename: coverage.xml
+```
+
+When `patch_coverage_source_mode=coverage_xml_artifact`, `pr-agent-context` automatically ignores
+Codecov check runs and `codecov/*` commit statuses during check settlement and failing-check
+rendering, because the configured coverage artifact is treated as the authoritative patch coverage
+source.
 
 ## Debug Artifacts
 
@@ -344,7 +383,7 @@ metadata-only item instead of failing the run.
 - Changed non-executable lines do not count against coverage.
 - If a changed Python file is in coverage scope but has no measured data, its changed executable lines are treated as uncovered.
 - If there are no changed executable Python lines, patch coverage is treated as `N/A`.
-- The `# Codecov/patch` section is omitted for `N/A` patches unless `force_patch_coverage_section` is enabled.
+- The `# Patch coverage` section is omitted for `N/A` patches unless `force_patch_coverage_section` is enabled.
 - Uncovered lines are rendered as explicit line lists rather than compressed ranges so the output is easy to hand to a coding agent.
 
 ## Copilot Classification

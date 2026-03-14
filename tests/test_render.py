@@ -226,9 +226,9 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
         ),
     )
 
-    assert "# Codecov/patch" in rendered.prompt_markdown
+    assert "# Patch coverage" in rendered.prompt_markdown
     assert "PR head commit: deadbeef" not in rendered.prompt_markdown
-    assert "patch test coverage is 50%" in rendered.prompt_markdown
+    assert "Patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
 
 
@@ -360,7 +360,7 @@ def test_render_prompt_omits_patch_coverage_section_when_not_actionable():
         force_patch_coverage_section=False,
     )
 
-    assert "# Codecov/patch" not in rendered.prompt_markdown
+    assert "# Patch coverage" not in rendered.prompt_markdown
     assert "PR head commit: abc1234" not in rendered.prompt_markdown
     assert "all clear" in rendered.prompt_markdown.lower()
     assert rendered.should_publish_comment is True
@@ -517,7 +517,7 @@ def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
         force_patch_coverage_section=True,
     )
 
-    assert "# Codecov/patch" in rendered.prompt_markdown
+    assert "# Patch coverage" in rendered.prompt_markdown
     assert "no changed executable Python lines" in rendered.prompt_markdown
     assert rendered.has_actionable_items is False
     assert rendered.should_publish_comment is True
@@ -1236,7 +1236,7 @@ def test_render_patch_coverage_section_handles_non_actionable_and_hard_limit():
         big_summary,
         force_patch_coverage_section=False,
     )
-    assert truncated_text.startswith("# Codecov/patch")
+    assert truncated_text.startswith("# Patch coverage")
     assert "- src/ignored.py:" not in truncated_text
     assert any(note.strategy == "hard_limit" for note in truncated_notes)
 

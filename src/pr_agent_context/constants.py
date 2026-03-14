@@ -27,7 +27,7 @@ DEFAULT_REFRESH_NOTE = "This is a refreshed snapshot of the current PR state."
 COPILOT_COMMENT_SECTION = "Copilot Comments"
 REVIEW_COMMENT_SECTION = "Other Review Comments"
 FAILING_WORKFLOWS_SECTION = "Failing Workflows"
-PATCH_COVERAGE_SECTION = "Codecov/patch"
+PATCH_COVERAGE_SECTION = "Patch coverage"
 
 DEFAULT_PROMPT_TEMPLATE = """
 {{ prompt_preamble }}
@@ -99,6 +99,8 @@ DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH = False
 DEFAULT_COVERAGE_SELECTION_STRATEGY = "latest_successful"
 DEFAULT_FORK_BEHAVIOR = "best_effort"
 DEFAULT_COVERAGE_SOURCE_CONCLUSIONS = ("success",)
+DEFAULT_PATCH_COVERAGE_SOURCE_MODE = "raw_coverage_artifacts"
+DEFAULT_COVERAGE_REPORT_FILENAME = "coverage.xml"
 
 DEFAULT_SECTION_BUDGETS = {
     "copilot_comments_section": 12000,

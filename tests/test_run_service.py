@@ -14,6 +14,7 @@ from coverage import Coverage
 
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.config import PullRequestRef, RunConfig
+from pr_agent_context.domain.models import PatchCoverageSummary
 from pr_agent_context.services.run import _write_outputs, run_service
 
 
@@ -258,6 +259,37 @@ def _run_git(repo: Path, *args: str) -> str:
 def _write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _coverage_xml_text(
+    *,
+    filename: str,
+    covered_lines: list[int],
+    uncovered_lines: list[int],
+) -> str:
+    line_nodes = "\n".join(
+        f'          <line number="{line}" hits="{1 if line in covered_lines else 0}"/>'
+        for line in [*covered_lines, *uncovered_lines]
+    )
+    return (
+        '<?xml version="1.0" ?>\n'
+        '<coverage version="7.6">\n'
+        "  <sources>\n"
+        "    <source>src</source>\n"
+        "  </sources>\n"
+        "  <packages>\n"
+        '    <package name="pkg">\n'
+        "      <classes>\n"
+        f'        <class name="module" filename="{filename}">\n'
+        "          <lines>\n"
+        f"{line_nodes}\n"
+        "          </lines>\n"
+        "        </class>\n"
+        "      </classes>\n"
+        "    </package>\n"
+        "  </packages>\n"
+        "</coverage>\n"
+    )
 
 
 def _build_coverage_data(script_path: Path, data_file: Path, invocation: str) -> None:
@@ -596,9 +628,102 @@ def test_run_service_renders_actionable_patch_coverage_from_artifacts(
     assert outputs["patch_coverage_percent"] == "75.0"
     assert len(outputs["prompt_sha256"]) == 64
     assert client.created_bodies
-    assert "# Codecov/patch" in client.created_bodies[0]
+    assert "# Patch coverage" in client.created_bodies[0]
     assert "- src/pkg/module.py: 5" in client.created_bodies[0]
-    assert "# Codecov/patch" in stdout.getvalue()
+    assert "# Patch coverage" in stdout.getvalue()
+
+
+def test_run_service_uses_xml_patch_coverage_and_suppresses_codecov_failures(
+    tmp_path,
+    issue_comments_payload,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.name", "Test User")
+    _run_git(repo, "config", "user.email", "test@example.com")
+    module_path = repo / "src" / "pkg" / "module.py"
+    _write_file(module_path, "def compute(flag):\n    return 1 if flag else 2\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "base")
+    base_sha = _run_git(repo, "rev-parse", "HEAD")
+    _write_file(
+        module_path,
+        "def compute(flag):\n"
+        "    if flag:\n"
+        "        value = 1\n"
+        "    else:\n"
+        "        value = 2\n"
+        "    return value\n",
+    )
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "head")
+    head_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    coverage_dir = tmp_path / "coverage-artifacts"
+    coverage_dir.mkdir(parents=True)
+    (coverage_dir / "coverage.xml").write_text(
+        _coverage_xml_text(
+            filename="pkg/module.py",
+            covered_lines=[1, 2, 3],
+            uncovered_lines=[5],
+        ),
+        encoding="utf-8",
+    )
+
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+        check_runs_payload=load_json_fixture("github/check_runs.json"),
+        commit_status_payload=load_json_fixture("github/commit_status.json"),
+    )
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=repo,
+        target_patch_coverage=100,
+        include_patch_coverage=True,
+        patch_coverage_source_mode="coverage_xml_artifact",
+        coverage_report_artifact_name="coverage-xml",
+        include_failing_checks=True,
+        include_cross_run_failures=False,
+        coverage_artifacts_dir=coverage_dir,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    assert client.created_bodies
+    body = client.created_bodies[0]
+    assert "# Patch coverage" in body
+    assert "- src/pkg/module.py: 5" in body
+    assert "codecov/patch" not in body
+    assert "security/scan" in body
 
 
 def test_run_service_can_force_na_patch_coverage_section(
@@ -784,6 +909,126 @@ def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
     assert "process_cwd" in coverage_source
 
 
+def test_run_service_combines_xml_parser_and_scope_warnings(
+    tmp_path,
+    issue_comments_payload,
+    monkeypatch,
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": True,
+            "patch_coverage_source_mode": "coverage_xml_artifact",
+            "coverage_report_artifact_name": "coverage-xml",
+        }
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.collect_changed_lines",
+        lambda *_, **__: {"src/pkg/module.py": [1, 2]},
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.resolve_coverage_files",
+        lambda **_: (
+            [tmp_path / "coverage.xml"],
+            {"resolution": "local_current_run_artifacts", "warnings": ["parser warning"]},
+        ),
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.compute_patch_coverage_from_xml_reports",
+        lambda **_: (
+            PatchCoverageSummary(
+                target_percent=100,
+                actual_percent=None,
+                total_changed_executable_lines=0,
+                covered_changed_executable_lines=0,
+                files=[],
+                actionable=False,
+                is_na=True,
+            ),
+            {
+                "measured_file_count": 1,
+                "measured_file_sample": ["src/pkg/module.py"],
+                "inferred_source_roots": ["src/pkg"],
+                "explicit_source": [],
+                "explicit_source_pkgs": [],
+                "scope_strategy": "measured_root_inference",
+                "warnings": ["parser warning"],
+                "scope_warnings": ["scope warning"],
+            },
+        ),
+    )
+
+    assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+
+    assert coverage_source["patch_scope_warnings"] == ["parser warning", "scope warning"]
+
+
+def test_run_service_does_not_suppress_codecov_without_patch_coverage(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": True,
+            "include_patch_coverage": False,
+            "patch_coverage_source_mode": "coverage_xml_artifact",
+        }
+    )
+    seen: dict[str, bool] = {}
+
+    def fake_collect_failing_checks(*args, **kwargs):
+        seen["suppress_codecov_checks"] = kwargs["suppress_codecov_checks"]
+        return [], {"settlement": {}, "deduped_source_counts": {}, "warnings": []}
+
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.collect_failing_checks",
+        fake_collect_failing_checks,
+    )
+
+    assert run_service(config, client=client) == 0
+
+    assert seen["suppress_codecov_checks"] is False
+
+
 def test_run_service_refresh_mode_suppresses_pending_patch_coverage_section(
     tmp_path, issue_comments_payload, monkeypatch
 ):
@@ -867,9 +1112,9 @@ def test_run_service_refresh_mode_suppresses_pending_patch_coverage_section(
     assert coverage_source["patch_scope_strategy"] == "coverage_source_pending"
     assert outputs["has_actionable_items"] == "false"
     assert outputs["patch_coverage_percent"] == ""
-    assert "# Codecov/patch" not in prompt_text
-    assert "Codecov shows patch test coverage is 0%" not in prompt_text
-    assert "# Codecov/patch" not in comment_body
+    assert "# Patch coverage" not in prompt_text
+    assert "Patch test coverage is 0%" not in prompt_text
+    assert "# Patch coverage" not in comment_body
     assert client.created_bodies == []
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tempfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
 
@@ -19,6 +19,21 @@ def discover_coverage_files(root: Path | None) -> list[Path]:
     return sorted(coverage_files)
 
 
+def discover_coverage_report_files(root: Path | None, *, report_filename: str) -> list[Path]:
+    if root is None or not root.exists():
+        return []
+    normalized_target = PurePosixPath(report_filename).as_posix().lstrip("./")
+    target_name = PurePosixPath(normalized_target).name
+    report_files: list[Path] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        relative_path = PurePosixPath(path.relative_to(root).as_posix()).as_posix()
+        if relative_path == normalized_target or path.name == target_name:
+            report_files.append(path)
+    return sorted(set(report_files))
+
+
 def resolve_coverage_files(
     *,
     client: GitHubApiClient,
@@ -26,7 +41,10 @@ def resolve_coverage_files(
     repo: str,
     head_sha: str,
     local_artifacts_dir: Path | None,
+    patch_coverage_source_mode: str = "raw_coverage_artifacts",
     artifact_prefix: str,
+    coverage_report_artifact_name: str = "",
+    coverage_report_filename: str = "coverage.xml",
     enable_cross_run_lookup: bool,
     execution_mode: str,
     workflow_names: tuple[str, ...],
@@ -34,13 +52,20 @@ def resolve_coverage_files(
     selection_strategy: str,
     max_candidate_runs: int,
 ) -> tuple[list[Path], dict[str, object]]:
-    local_files = discover_coverage_files(local_artifacts_dir)
+    local_files = _discover_local_inputs(
+        local_artifacts_dir,
+        patch_coverage_source_mode=patch_coverage_source_mode,
+        coverage_report_filename=coverage_report_filename,
+    )
     debug: dict[str, object] = {
         "execution_mode": execution_mode,
+        "patch_coverage_source_mode": patch_coverage_source_mode,
         "local_artifact_dir": str(local_artifacts_dir) if local_artifacts_dir else None,
         "local_coverage_files": [str(path) for path in local_files],
         "cross_run_lookup_enabled": enable_cross_run_lookup,
         "artifact_prefix": artifact_prefix,
+        "coverage_report_artifact_name": coverage_report_artifact_name,
+        "coverage_report_filename": coverage_report_filename,
         "workflow_name_filter": list(workflow_names),
         "allowed_conclusions": list(allowed_conclusions),
         "selection_strategy": selection_strategy,
@@ -65,7 +90,9 @@ def resolve_coverage_files(
         owner=owner,
         repo=repo,
         head_sha=head_sha,
+        patch_coverage_source_mode=patch_coverage_source_mode,
         artifact_prefix=artifact_prefix,
+        coverage_report_artifact_name=coverage_report_artifact_name,
         workflow_names=workflow_names,
         allowed_conclusions=allowed_conclusions,
         selection_strategy=selection_strategy,
@@ -118,7 +145,11 @@ def resolve_coverage_files(
         for artifact in selected_artifacts
     ]
     debug["downloaded_dirs"] = extracted_dirs
-    files = discover_coverage_files(extracted_root)
+    files = _discover_local_inputs(
+        extracted_root,
+        patch_coverage_source_mode=patch_coverage_source_mode,
+        coverage_report_filename=coverage_report_filename,
+    )
     debug["resolution"] = "cross_run_downloaded" if files else "selected_run_without_coverage_files"
     debug["selected_coverage_files"] = [str(path) for path in files]
     return files, debug
@@ -130,7 +161,9 @@ def _select_coverage_source_run(
     owner: str,
     repo: str,
     head_sha: str,
+    patch_coverage_source_mode: str = "raw_coverage_artifacts",
     artifact_prefix: str,
+    coverage_report_artifact_name: str = "",
     workflow_names: tuple[str, ...],
     allowed_conclusions: tuple[str, ...],
     selection_strategy: str,
@@ -199,11 +232,12 @@ def _select_coverage_source_run(
             run_id=int(run["id"]),
             warnings=warnings,
         )
-        matching_artifacts = [
-            artifact
-            for artifact in artifacts
-            if str(artifact.get("name") or "").startswith(artifact_prefix)
-        ]
+        matching_artifacts = _match_coverage_source_artifacts(
+            artifacts,
+            patch_coverage_source_mode=patch_coverage_source_mode,
+            artifact_prefix=artifact_prefix,
+            coverage_report_artifact_name=coverage_report_artifact_name,
+        )
         if not matching_artifacts:
             record["reasons"].append("no_matching_artifacts")
             debug["candidate_runs"].append(record)
@@ -297,3 +331,34 @@ def _safe_request_json(
 
 def _is_transient_coverage_file(path: Path) -> bool:
     return path.name.endswith(("-shm", "-wal", ".lock"))
+
+
+def _discover_local_inputs(
+    root: Path | None,
+    *,
+    patch_coverage_source_mode: str,
+    coverage_report_filename: str,
+) -> list[Path]:
+    if patch_coverage_source_mode == "coverage_xml_artifact":
+        return discover_coverage_report_files(root, report_filename=coverage_report_filename)
+    return discover_coverage_files(root)
+
+
+def _match_coverage_source_artifacts(
+    artifacts: list[dict[str, object]],
+    *,
+    patch_coverage_source_mode: str,
+    artifact_prefix: str,
+    coverage_report_artifact_name: str,
+) -> list[dict[str, object]]:
+    if patch_coverage_source_mode == "coverage_xml_artifact":
+        return [
+            artifact
+            for artifact in artifacts
+            if str(artifact.get("name") or "") == coverage_report_artifact_name
+        ]
+    return [
+        artifact
+        for artifact in artifacts
+        if str(artifact.get("name") or "").startswith(artifact_prefix)
+    ]

@@ -15,6 +15,7 @@ from pr_agent_context.constants import (
     DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS,
     DEFAULT_COPILOT_AUTHOR_PATTERNS,
     DEFAULT_COVERAGE_ARTIFACT_PREFIX,
+    DEFAULT_COVERAGE_REPORT_FILENAME,
     DEFAULT_COVERAGE_SELECTION_STRATEGY,
     DEFAULT_COVERAGE_SOURCE_CONCLUSIONS,
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
@@ -26,6 +27,7 @@ from pr_agent_context.constants import (
     DEFAULT_MAX_FAILING_ITEMS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
+    DEFAULT_PATCH_COVERAGE_SOURCE_MODE,
     DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH,
     DEFAULT_PUBLISH_MODE,
     DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS,
@@ -39,6 +41,7 @@ ResolvedExecutionMode = Literal["ci", "refresh"]
 PublishMode = Literal["append", "update_latest_managed", "update_matching", "update_latest_scoped"]
 CoverageSelectionStrategy = Literal["latest_successful"]
 ForkBehavior = Literal["best_effort"]
+PatchCoverageSourceMode = Literal["raw_coverage_artifacts", "coverage_xml_artifact"]
 
 
 def _parse_bool(value: str | bool | None, *, default: bool) -> bool:
@@ -156,7 +159,10 @@ class RunConfig(BaseModel):
     review_settle_poll_interval_seconds: int = DEFAULT_REVIEW_SETTLE_POLL_INTERVAL_SECONDS
     characters_per_line: int = DEFAULT_CHARACTERS_PER_LINE
     target_patch_coverage: float = DEFAULT_TARGET_PATCH_COVERAGE
+    patch_coverage_source_mode: PatchCoverageSourceMode = DEFAULT_PATCH_COVERAGE_SOURCE_MODE
     coverage_artifact_prefix: str = DEFAULT_COVERAGE_ARTIFACT_PREFIX
+    coverage_report_artifact_name: str = ""
+    coverage_report_filename: str = DEFAULT_COVERAGE_REPORT_FILENAME
     coverage_source_workflows: tuple[str, ...] = ()
     coverage_source_conclusions: tuple[str, ...] = DEFAULT_COVERAGE_SOURCE_CONCLUSIONS
     coverage_selection_strategy: CoverageSelectionStrategy = DEFAULT_COVERAGE_SELECTION_STRATEGY
@@ -174,6 +180,18 @@ class RunConfig(BaseModel):
         if self.pull_request is not None:
             return f"{self.pull_request.owner}/{self.pull_request.repo}"
         return ""
+
+    @model_validator(mode="after")
+    def _validate_patch_coverage_source_config(self) -> RunConfig:
+        if (
+            self.patch_coverage_source_mode == "coverage_xml_artifact"
+            and not self.coverage_report_artifact_name
+        ):
+            raise ValueError(
+                "coverage_report_artifact_name is required when "
+                "patch_coverage_source_mode=coverage_xml_artifact."
+            )
+        return self
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RunConfig:
@@ -353,11 +371,27 @@ class RunConfig(BaseModel):
                     str(DEFAULT_TARGET_PATCH_COVERAGE),
                 )
             ),
+            patch_coverage_source_mode=_parse_patch_coverage_source_mode(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_PATCH_COVERAGE_SOURCE_MODE",
+                    DEFAULT_PATCH_COVERAGE_SOURCE_MODE,
+                )
+            ),
             coverage_artifact_prefix=env_map.get(
                 "PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX",
                 DEFAULT_COVERAGE_ARTIFACT_PREFIX,
             ).strip()
             or DEFAULT_COVERAGE_ARTIFACT_PREFIX,
+            coverage_report_artifact_name=(
+                env_map.get("PR_AGENT_CONTEXT_COVERAGE_REPORT_ARTIFACT_NAME", "").strip()
+            ),
+            coverage_report_filename=(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_COVERAGE_REPORT_FILENAME",
+                    DEFAULT_COVERAGE_REPORT_FILENAME,
+                ).strip()
+                or DEFAULT_COVERAGE_REPORT_FILENAME
+            ),
             coverage_source_workflows=tuple(
                 _split_pattern_entries(env_map.get("PR_AGENT_CONTEXT_COVERAGE_SOURCE_WORKFLOWS"))
             ),
@@ -659,6 +693,13 @@ def _parse_coverage_selection_strategy(value: str | None) -> CoverageSelectionSt
     normalized = (value or DEFAULT_COVERAGE_SELECTION_STRATEGY).strip()
     if normalized != "latest_successful":
         raise ValueError(f"Unsupported coverage selection strategy: {value}")
+    return normalized
+
+
+def _parse_patch_coverage_source_mode(value: str | None) -> PatchCoverageSourceMode:
+    normalized = (value or DEFAULT_PATCH_COVERAGE_SOURCE_MODE).strip()
+    if normalized not in {"raw_coverage_artifacts", "coverage_xml_artifact"}:
+        raise ValueError(f"Unsupported patch coverage source mode: {value}")
     return normalized
 
 

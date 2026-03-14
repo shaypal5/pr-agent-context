@@ -870,6 +870,33 @@ def test_collect_external_check_runs_degrades_gracefully_on_forbidden():
     assert warnings == ["Unable to fetch check runs: GitHub API error 403: Forbidden"]
 
 
+def test_collect_failing_checks_suppresses_codecov_external_signals():
+    failures, debug = collect_failing_checks(
+        FakeFailingChecksClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=202,
+        current_run_attempt=2,
+        include_cross_run_failures=False,
+        include_external_checks=True,
+        wait_for_checks_to_settle=False,
+        max_actions_runs=20,
+        max_actions_jobs=20,
+        max_external_checks=20,
+        max_failing_checks=20,
+        max_log_lines_per_job=20,
+        check_settle_timeout_seconds=0,
+        check_settle_poll_interval_seconds=0,
+        suppress_codecov_checks=True,
+    )
+
+    assert all(failure.job_name != "codecov/patch" for failure in failures)
+    assert all(failure.context_name != "codecov/patch" for failure in failures)
+    assert any(failure.job_name == "security/scan" for failure in failures)
+    assert debug["deduped_source_counts"]["commit_status"] == 1
+
+
 def test_collect_commit_status_failures_degrades_gracefully_on_forbidden():
     failures, warnings = failing_checks_module._collect_commit_status_failures(
         FakeForbiddenStatusesClient(),

@@ -72,7 +72,10 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
             "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
             "PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE": "true",
+            "PR_AGENT_CONTEXT_PATCH_COVERAGE_SOURCE_MODE": "coverage_xml_artifact",
             "PR_AGENT_CONTEXT_COVERAGE_ARTIFACT_PREFIX": "custom-prefix",
+            "PR_AGENT_CONTEXT_COVERAGE_REPORT_ARTIFACT_NAME": "coverage-xml",
+            "PR_AGENT_CONTEXT_COVERAGE_REPORT_FILENAME": "reports/coverage.xml",
             "PR_AGENT_CONTEXT_FORCE_PATCH_COVERAGE_SECTION": "true",
             "PR_AGENT_CONTEXT_COPILOT_AUTHOR_PATTERNS": "copilot-reviewer,re:copilot.*bot",
             "PR_AGENT_CONTEXT_DEBUG_ARTIFACTS": "true",
@@ -112,7 +115,10 @@ def test_run_config_from_env(tmp_path):
     assert config.characters_per_line == 88
     assert config.target_patch_coverage == 92.5
     assert config.include_patch_coverage is True
+    assert config.patch_coverage_source_mode == "coverage_xml_artifact"
     assert config.coverage_artifact_prefix == "custom-prefix"
+    assert config.coverage_report_artifact_name == "coverage-xml"
+    assert config.coverage_report_filename == "reports/coverage.xml"
     assert config.force_patch_coverage_section is True
     assert config.copilot_author_patterns.exact_logins == ("copilot-reviewer",)
     assert config.copilot_author_patterns.regex_patterns == ("copilot.*bot",)
@@ -153,6 +159,8 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
     )
 
     assert config.publish_all_clear_comments_in_refresh is False
+    assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
+    assert config.coverage_report_filename == "coverage.xml"
 
 
 def test_run_config_rejects_empty_regex_pattern(tmp_path):
@@ -237,6 +245,62 @@ def test_run_config_rejects_template_path_outside_workspace(tmp_path):
                 "GITHUB_TOKEN": "token",
                 "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
                 "PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE": str(outside_template),
+            }
+        )
+
+
+def test_run_config_rejects_missing_report_artifact_name_for_xml_mode(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="coverage_report_artifact_name is required"):
+        RunConfig.from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_TOKEN": "token",
+                "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+                "PR_AGENT_CONTEXT_PATCH_COVERAGE_SOURCE_MODE": "coverage_xml_artifact",
+            }
+        )
+
+
+def test_run_config_rejects_unsupported_patch_coverage_source_mode(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Unsupported patch coverage source mode: xml"):
+        RunConfig.from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_TOKEN": "token",
+                "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+                "PR_AGENT_CONTEXT_PATCH_COVERAGE_SOURCE_MODE": "xml",
             }
         )
 
