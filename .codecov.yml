@@ -1,0 +1,54 @@
+codecov:
+  bot: "codecov-io"
+  max_report_age: 24
+  disable_default_path_fixes: no
+  require_ci_to_pass: yes
+  notify:
+    wait_for_ci: yes
+
+# For more configuration details:
+# https://docs.codecov.io/docs/codecov-yaml
+
+# Check if this file is valid by running in bash:
+# curl -X POST --data-binary @.codecov.yml https://codecov.io/validate
+
+# Coverage configuration
+# ----------------------
+coverage:
+  precision: 2
+  round: down
+  range: "70...98"
+  status:
+    project: # overall coverage
+      default:
+        informational: true
+        target: auto # fail on any drop
+        threshold: 0% # or 0.5 % if you want slack
+    patch: # changed lines
+      default:
+        informational: true
+        target: 98%
+
+# Ignoring Paths
+# --------------
+# which folders/files to ignore
+ignore:
+  - "tests"
+  - "*/tests/.*"
+  - "*/_version.py"
+  - "setup.py"
+  - "versioneer.py"
+  - "**/__init__.py"
+  - "**/_version.py"
+
+# Pull request comments:
+# ----------------------
+# Diff is the Coverage Diff of the pull request.
+# Files are the files impacted by the pull request
+comment:                  # this is a top-level key
+  layout: " diff, flags, files"
+  behavior: default
+  require_changes: false  # learn more in the Requiring Changes section below
+  require_base: false        # [true :: must have a base report to post]
+  require_head: false       # [true :: must have a head report to post]
+  hide_project_coverage: false # [true :: only show coverage on the git diff]
