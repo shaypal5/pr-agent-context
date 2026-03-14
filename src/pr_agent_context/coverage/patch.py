@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from coverage import Coverage
 from coverage.exceptions import NoSource
 
+from pr_agent_context.coverage.combine import coverage_working_directory
 from pr_agent_context.coverage.git_diff import normalize_repo_path
 from pr_agent_context.domain.models import CoverageFileGap, PatchCoverageSummary
 
@@ -66,9 +67,10 @@ def compute_patch_coverage(
             continue
 
         try:
-            _filename, statements, _excluded, missing, _missing_formatted = coverage.analysis2(
-                str(absolute_path)
-            )
+            with coverage_working_directory(workspace):
+                _filename, statements, _excluded, missing, _missing_formatted = coverage.analysis2(
+                    str(absolute_path)
+                )
         except NoSource:
             continue
 
