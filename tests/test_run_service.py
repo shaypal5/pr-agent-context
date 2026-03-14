@@ -770,10 +770,7 @@ def test_run_service_excludes_changed_tests_for_cli_only_patch_coverage(
 
     _write_file(
         source_path,
-        "def parse(flag):\n"
-        "    if flag:\n"
-        "        return 1\n"
-        "    return 2\n",
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
     )
     _write_file(test_path, "def test_scraper():\n    assert True\n")
     _write_file(fixture_path, "<html></html>\n")

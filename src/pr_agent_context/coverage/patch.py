@@ -89,8 +89,8 @@ def compute_patch_coverage(
                 changed_executable_lines=executable_lines,
                 covered_changed_executable_lines=covered_lines,
                 uncovered_changed_executable_lines=uncovered_lines,
-                has_measured_data=_normalize_compare_path(str(absolute_path), workspace) in
-                scope_context.measured_map,
+                has_measured_data=_normalize_compare_path(str(absolute_path), workspace)
+                in scope_context.measured_map,
             )
         )
 
@@ -188,7 +188,9 @@ def _build_scope_context(
     measured_map = {_normalize_compare_path(path, workspace): path for path in measured_files}
     measured_paths = tuple(sorted(path for path in measured_map if path not in {"", "."}))
     inferred_source_roots = _infer_measured_source_roots(measured_map)
-    source_entries = tuple(normalize_repo_path(str(entry)) for entry in (coverage.config.source or []))
+    source_entries = tuple(
+        normalize_repo_path(str(entry)) for entry in (coverage.config.source or [])
+    )
     source_packages = tuple(
         normalize_repo_path(str(entry))
         for entry in (getattr(coverage.config, "source_pkgs", []) or [])

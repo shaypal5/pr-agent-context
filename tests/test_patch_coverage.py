@@ -12,10 +12,10 @@ from pr_agent_context.coverage import combine as combine_module
 from pr_agent_context.coverage.artifacts import discover_coverage_files, resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.patch import (
+    _infer_measured_source_roots,
     _infer_source_root,
     _is_in_coverage_scope,
     _matches_any_pattern,
-    _infer_measured_source_roots,
     _matches_inferred_measured_roots,
     _matches_source_entry,
     _normalize_compare_path,
@@ -464,10 +464,7 @@ def test_compute_patch_coverage_cli_only_src_layout_excludes_changed_tests(tmp_p
     test_path = repo / "tests" / "integration" / "test_scrapers.py"
     _write_file(
         source_path,
-        "def parse(flag):\n"
-        "    if flag:\n"
-        "        return 1\n"
-        "    return 2\n",
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
     )
     _write_file(test_path, "def test_scraper():\n    assert True\n")
 
