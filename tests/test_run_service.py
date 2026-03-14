@@ -708,6 +708,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     )
     assert "pr-agent-context report:\n```markdown\nRepository: foldermix" in comment_body
     assert "\nRun metadata:\n```\nTool ref: v4\n" in comment_body
+    assert "Trigger: pull request updated" in comment_body
     assert (
         f"Comment timestamp: {comment_sync['sync_debug']['current_identity']['generated_at']}"
         in comment_body

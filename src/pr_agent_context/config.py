@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pr_agent_context.constants import (
     DEFAULT_CHARACTERS_PER_LINE,
@@ -69,10 +69,25 @@ class TriggerContext(BaseModel):
     event_name: str
     action: str | None = None
     source: str
+    label: str | None = None
     pull_request_number: int | None = None
     base_sha: str | None = None
     head_sha: str | None = None
     is_fork: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_label(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        if data.get("label"):
+            return data
+        event_name = str(data.get("event_name") or "").strip() or "unknown"
+        action_value = data.get("action")
+        action = str(action_value).strip() or None if action_value is not None else None
+        populated = dict(data)
+        populated["label"] = _build_trigger_label(event_name, action)
+        return populated
 
 
 class CopilotAuthorMatcherConfig(BaseModel):
@@ -102,6 +117,7 @@ class RunConfig(BaseModel):
             event_name="pull_request",
             action=None,
             source="pull_request",
+            label="pull request updated",
         )
     )
     pull_request: PullRequestRef | None = None
@@ -583,6 +599,48 @@ def _build_trigger_source(event_name: str, action: str | None) -> str:
     if action:
         return f"{event_name}:{action}"
     return event_name
+
+
+def _build_trigger_label(event_name: str, action: str | None) -> str:
+    normalized_event = (event_name or "unknown").strip()
+    normalized_action = action.strip() if action else None
+
+    if normalized_event == "pull_request":
+        if normalized_action in {"opened", "reopened"}:
+            return "pull request opened"
+        if normalized_action == "synchronize":
+            return "commit pushed"
+        return "pull request updated"
+
+    if normalized_event == "pull_request_review":
+        action_labels = {
+            "submitted": "review posted",
+            "edited": "review edited",
+            "dismissed": "review dismissed",
+        }
+        return action_labels.get(normalized_action or "", "review updated")
+
+    if normalized_event == "pull_request_review_comment":
+        action_labels = {
+            "created": "review comment posted",
+            "edited": "review comment edited",
+            "deleted": "review comment deleted",
+        }
+        return action_labels.get(normalized_action or "", "review comment updated")
+
+    if normalized_event in {"check_run", "check_suite"}:
+        return "check completed" if normalized_action == "completed" else "check updated"
+
+    if normalized_event == "workflow_run":
+        return "workflow completed" if normalized_action == "completed" else "workflow updated"
+
+    if normalized_event == "status":
+        return "status updated"
+
+    fallback_parts = [normalized_event.replace("_", " ")]
+    if normalized_action:
+        fallback_parts.append(normalized_action.replace("_", " "))
+    return " ".join(part for part in fallback_parts if part).strip() or "unknown trigger"
 
 
 def _parse_publish_mode(value: str | None) -> PublishMode:

@@ -7,6 +7,7 @@ import pytest
 from pr_agent_context.config import (
     PullRequestRef,
     RunConfig,
+    TriggerContext,
     _extract_is_fork,
     _extract_pull_request_number,
     _extract_pull_request_number_if_present,
@@ -343,6 +344,7 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
         "event_name",
         "event_payload",
         "expected_source",
+        "expected_label",
         "expected_number",
         "expected_head_sha",
     ),
@@ -358,6 +360,7 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
                 },
             },
             "pull_request_review:submitted",
+            "review posted",
             17,
             "def456",
         ),
@@ -372,6 +375,7 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
                 },
             },
             "pull_request_review_comment:created",
+            "review comment posted",
             18,
             "head123",
         ),
@@ -385,6 +389,7 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
                 },
             },
             "workflow_run:completed",
+            "workflow completed",
             21,
             "deadbeef",
         ),
@@ -394,6 +399,7 @@ def test_load_pull_request_context_from_env_rejects_missing_pull_request_context
                 "sha": "feedface",
             },
             "status",
+            "status updated",
             None,
             "feedface",
         ),
@@ -404,6 +410,7 @@ def test_load_trigger_context_from_env_supports_refresh_events(
     event_name,
     event_payload,
     expected_source,
+    expected_label,
     expected_number,
     expected_head_sha,
 ):
@@ -420,8 +427,63 @@ def test_load_trigger_context_from_env_supports_refresh_events(
 
     assert trigger.event_name == event_name
     assert trigger.source == expected_source
+    assert trigger.label == expected_label
     assert trigger.pull_request_number == expected_number
     assert trigger.head_sha == expected_head_sha
+
+
+def test_load_trigger_context_from_env_labels_pull_request_synchronize_as_commit_pushed(tmp_path):
+    event_path = tmp_path / "pull_request.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "action": "synchronize",
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456", "repo": {"fork": False}},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request",
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": "synchronize",
+        }
+    )
+
+    assert trigger.label == "commit pushed"
+
+
+def test_trigger_context_fallback_label_is_readable():
+    trigger = TriggerContext(
+        event_name="deployment_status",
+        action="queued_for_scan",
+        source="deployment_status:queued_for_scan",
+    )
+
+    assert trigger.label == "deployment status queued for scan"
+
+
+def test_trigger_context_model_validate_preserves_existing_model_instance():
+    original = TriggerContext(
+        event_name="pull_request_review",
+        action="submitted",
+        source="pull_request_review:submitted",
+    )
+
+    validated = TriggerContext.model_validate(original)
+
+    assert validated == original
+    assert validated.label == "review posted"
+
+
+def test_trigger_context_populate_label_returns_non_mapping_inputs_unchanged():
+    assert TriggerContext._populate_label("already-built") == "already-built"  # noqa: SLF001
 
 
 @pytest.mark.parametrize(

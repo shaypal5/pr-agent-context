@@ -311,6 +311,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         run_id=config.run_id,
         run_attempt=config.run_attempt,
         trigger_event_name=config.trigger.event_name,
+        trigger_label=config.trigger.label or config.trigger.source,
         execution_mode=config.execution_mode,
         publish_mode=config.publish_mode,
         tool_ref=config.tool_ref,
