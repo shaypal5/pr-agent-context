@@ -784,6 +784,95 @@ def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
     assert "process_cwd" in coverage_source
 
 
+def test_run_service_refresh_mode_suppresses_pending_patch_coverage_section(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(source_path, "def branch(flag):\n    if flag:\n        return 1\n    return 2\n")
+
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha="base123",
+            head_sha="deadbeef",
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=repo,
+        execution_mode="refresh",
+        include_review_comments=False,
+        include_failing_checks=False,
+        include_patch_coverage=True,
+        coverage_artifacts_dir=tmp_path / "missing-artifacts",
+        debug_artifacts=True,
+        debug_artifacts_dir=tmp_path / "debug",
+        publish_all_clear_comments_in_refresh=False,
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.collect_changed_lines",
+        lambda *_, **__: {"src/pkg/module.py": [1, 2, 3, 4]},
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.resolve_coverage_files",
+        lambda **_: (
+            [],
+            {
+                "resolution": "coverage_source_pending",
+                "coverage_source_pending": True,
+                "candidate_runs": [{"id": 30, "reasons": ["not_completed_yet"]}],
+                "selected_run": None,
+                "selected_artifacts": [],
+                "warnings": [],
+            },
+        ),
+    )
+
+    assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+    prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
+    comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
+    outputs = _read_outputs(config.github_output_path)
+
+    assert coverage_source["resolution"] == "coverage_source_pending"
+    assert coverage_source["coverage_source_pending"] is True
+    assert coverage_source["patch_scope_strategy"] == "coverage_source_pending"
+    assert outputs["has_actionable_items"] == "false"
+    assert outputs["patch_coverage_percent"] == ""
+    assert "# Codecov/patch" not in prompt_text
+    assert "Codecov shows patch test coverage is 0%" not in prompt_text
+    assert "# Codecov/patch" not in comment_body
+    assert client.created_bodies == []
+
+
 def test_run_service_excludes_changed_tests_for_cli_only_patch_coverage(
     tmp_path,
     issue_comments_payload,
