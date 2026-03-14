@@ -200,6 +200,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     coverage_files: list[Path] = []
     coverage_source_debug: dict | None = None
     if config.include_patch_coverage:
+        coverage_working_directory = str(config.workspace.resolve())
+        process_cwd = str(Path.cwd().resolve())
         changed_lines = collect_changed_lines(
             config.workspace,
             base_sha=pull_request.base_sha,
@@ -247,6 +249,13 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         )
         coverage_source_debug = {
             **(coverage_source_debug or {}),
+            "coverage_working_directory": coverage_working_directory,
+            "coverage_working_directory_mode": (
+                "process_cwd_matches_workspace"
+                if coverage_working_directory == process_cwd
+                else "workspace_override"
+            ),
+            "process_cwd": process_cwd,
             "combined_measured_file_count": patch_scope_debug["measured_file_count"],
             "combined_measured_file_sample": patch_scope_debug["measured_file_sample"],
             "inferred_source_roots": patch_scope_debug["inferred_source_roots"],

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from coverage import Coverage, CoverageData
@@ -14,6 +16,17 @@ KNOWN_COVERAGE_CONFIG_FILES = (
 )
 
 
+@contextmanager
+def coverage_working_directory(workspace: Path):
+    previous_cwd = Path.cwd()
+    target_cwd = workspace.resolve()
+    os.chdir(target_cwd)
+    try:
+        yield target_cwd
+    finally:
+        os.chdir(previous_cwd)
+
+
 def build_combined_coverage(*, workspace: Path, coverage_files: list[Path]) -> Coverage:
     config_file = _find_coverage_config_file(workspace)
     combined_output_dir = Path(tempfile.mkdtemp(prefix="pr-agent-context-coverage-"))
@@ -21,14 +34,18 @@ def build_combined_coverage(*, workspace: Path, coverage_files: list[Path]) -> C
         config_file=str(config_file) if config_file else False,
         data_file=str(combined_output_dir / ".coverage"),
     )
-    normalized_coverage_files = _normalize_coverage_files(
-        coverage_files=coverage_files,
-        config_file=config_file,
-    )
-    if normalized_coverage_files:
-        coverage.combine(data_paths=[str(path) for path in normalized_coverage_files], strict=False)
-        coverage.save()
-        coverage.load()
+    with coverage_working_directory(workspace):
+        normalized_coverage_files = _normalize_coverage_files(
+            coverage_files=coverage_files,
+            config_file=config_file,
+        )
+        if normalized_coverage_files:
+            coverage.combine(
+                data_paths=[str(path) for path in normalized_coverage_files],
+                strict=False,
+            )
+            coverage.save()
+            coverage.load()
     return coverage
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import zipfile
 from pathlib import Path
 
@@ -41,6 +42,30 @@ def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> No
         exec(invocation, globals_dict)
     coverage.stop()
     coverage.save()
+
+
+def _build_coverage_data_with_workspace_config(
+    *,
+    workspace: Path,
+    data_file: Path,
+    scripts: list[tuple[Path, str]],
+) -> None:
+    previous_cwd = Path.cwd()
+    os.chdir(workspace)
+    try:
+        coverage = Coverage(config_file=True, data_file=str(data_file))
+        coverage.start()
+        for script_path, invocation in scripts:
+            globals_dict = {"__name__": "__main__"}
+            exec(
+                compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"),
+                globals_dict,
+            )
+            exec(invocation, globals_dict)
+        coverage.stop()
+        coverage.save()
+    finally:
+        os.chdir(previous_cwd)
 
 
 def _coverage_zip_bytes(source_file: Path) -> bytes:
@@ -523,6 +548,66 @@ def test_compute_patch_coverage_is_na_when_artifacts_have_no_measured_files(tmp_
         "contained no measured files. "
         "Patch coverage was treated as N/A instead of 0%."
     ]
+
+
+def test_build_combined_coverage_honors_relative_files_from_workspace_root(tmp_path, monkeypatch):
+    job_workspace = tmp_path / "workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        "[tool.coverage.run]\n"
+        "relative_files = true\n"
+        'source = ["src/denbust"]\n'
+        "\n"
+        "[tool.coverage.paths]\n"
+        "source = [\n"
+        '  "src/denbust",\n'
+        '  "/home/runner/work/tfht_enforce_idx/tfht_enforce_idx/src/denbust",\n'
+        "]\n",
+        encoding="utf-8",
+    )
+    source_path = repo / "src" / "denbust" / "sources" / "mako.py"
+    test_path = repo / "tests" / "integration" / "test_scrapers.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+    _write_file(test_path, "def test_scraper():\n    assert True\n")
+
+    coverage_dir = job_workspace / "coverage-artifacts" / "linux"
+    coverage_dir.mkdir(parents=True)
+    coverage_file = coverage_dir / ".coverage.py312"
+    _build_coverage_data_with_workspace_config(
+        workspace=repo,
+        data_file=coverage_file,
+        scripts=[(source_path, "parse(True)")],
+    )
+
+    monkeypatch.chdir(job_workspace)
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={
+            "src/denbust/sources/mako.py": [1, 2, 3, 4],
+            "tests/integration/test_scrapers.py": [1, 2],
+        },
+        coverage=combined,
+        target_percent=100,
+        has_coverage_artifacts=True,
+    )
+    scope_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+
+    assert combined.get_data().measured_files()
+    assert summary.actual_percent == 75
+    assert summary.total_changed_executable_lines == 4
+    assert [file_gap.path for file_gap in summary.files] == ["src/denbust/sources/mako.py"]
+    assert scope_debug["scope_strategy"] == "explicit_config"
+    assert scope_debug["explicit_source"] == ["src/denbust"]
 
 
 def test_find_coverage_config_file_prefers_existing_project_config(tmp_path):
