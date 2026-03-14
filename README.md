@@ -399,6 +399,8 @@ The reusable workflow exposes these outputs for downstream observability and aut
 Cross-matrix coverage merging works best when downstream repos normalize paths in their
 coverage configuration. Recommended guidance:
 
+- common CLI-only setups such as `pytest --cov=my_pkg` and `pytest --cov=src/my_pkg` are
+  supported automatically, even when the repo does not commit a `coverage.py` config file
 - enable `relative_files = true`
 - define `[paths]` mappings when different runners produce different absolute prefixes
 - keep coverage source configuration explicit when practical
@@ -429,6 +431,6 @@ source = [
   it logs the traceback, attempts to upsert a managed alert comment with a concise failure summary,
   and exits successfully so the surrounding CI workflow is not blocked by the reporting step itself.
 
-If a repo uses unusual layout or path rewriting, `pr-agent-context` will still merge the
-available `.coverage*` files locally, but patch coverage quality depends on the caller
-repo's `coverage.py` path normalization being sane.
+If a repo uses unusual layout or aggressive path rewriting, `pr-agent-context` will still merge
+the available `.coverage*` files locally, but checked-in `coverage.py` config remains the safest
+option because it removes any ambiguity from source-scope inference.

@@ -751,6 +751,106 @@ def test_run_service_writes_coverage_source_debug_when_patch_coverage_enabled(
         (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
     )
     assert "resolution" in coverage_source
+    assert "combined_measured_file_count" in coverage_source
+    assert "patch_scope_strategy" in coverage_source
+
+
+def test_run_service_excludes_changed_tests_for_cli_only_patch_coverage(
+    tmp_path,
+    issue_comments_payload,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.name", "Test User")
+    _run_git(repo, "config", "user.email", "test@example.com")
+    source_path = repo / "src" / "denbust" / "sources" / "mako.py"
+    test_path = repo / "tests" / "integration" / "test_scrapers.py"
+    fixture_path = repo / "tests" / "fixtures" / "html" / "mako_search.html"
+
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+    _write_file(test_path, "def test_scraper():\n    assert True\n")
+    _write_file(fixture_path, "<html></html>\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "base")
+    base_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    _write_file(
+        source_path,
+        "def parse(flag):\n"
+        "    if flag:\n"
+        "        value = 1\n"
+        "    else:\n"
+        "        value = 2\n"
+        "    return value\n",
+    )
+    _write_file(test_path, "def test_scraper():\n    assert True\n    assert parse(True) == 1\n")
+    _run_git(repo, "add", ".")
+    _run_git(repo, "commit", "-m", "head")
+    head_sha = _run_git(repo, "rev-parse", "HEAD")
+
+    coverage_dir = tmp_path / "coverage-artifacts" / "linux"
+    coverage_dir.mkdir(parents=True)
+    _build_coverage_data(source_path, coverage_dir / ".coverage.py311", "parse(True)")
+
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = RunConfig(
+        github_token="token",
+        pull_request=PullRequestRef(
+            owner="shaypal5",
+            repo="example",
+            number=17,
+            base_sha=base_sha,
+            head_sha=head_sha,
+        ),
+        run_id=1,
+        run_attempt=1,
+        workspace=repo,
+        target_patch_coverage=100,
+        include_patch_coverage=True,
+        coverage_artifacts_dir=tmp_path / "coverage-artifacts",
+        debug_artifacts=True,
+        debug_artifacts_dir=tmp_path / "debug",
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=True,
+        github_output_path=tmp_path / "github-output.txt",
+    )
+
+    stdout = io.StringIO()
+    with redirect_stdout(stdout):
+        assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+    outputs = _read_outputs(config.github_output_path)
+
+    assert outputs["patch_coverage_percent"] == "66.67"
+    assert client.created_bodies
+    assert "- src/denbust/sources/mako.py: 5" in client.created_bodies[0]
+    assert "tests/integration/test_scrapers.py" not in client.created_bodies[0]
+    assert coverage_source["patch_scope_strategy"] == "measured_root_inference"
+    assert coverage_source["inferred_source_roots"] == ["src/denbust"]
+    assert coverage_source["combined_measured_file_count"] == 1
 
 
 def test_run_service_uses_review_settlement_and_skips_debug_artifacts_when_disabled(

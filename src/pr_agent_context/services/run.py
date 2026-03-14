@@ -9,7 +9,10 @@ from pr_agent_context.config import RunConfig
 from pr_agent_context.coverage.artifacts import resolve_coverage_files
 from pr_agent_context.coverage.combine import build_combined_coverage
 from pr_agent_context.coverage.git_diff import collect_changed_lines
-from pr_agent_context.coverage.patch import compute_patch_coverage
+from pr_agent_context.coverage.patch import (
+    compute_patch_coverage,
+    describe_patch_coverage_scope,
+)
 from pr_agent_context.domain.models import (
     CollectedContext,
     DebugSummary,
@@ -237,11 +240,27 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             workspace=config.workspace,
             coverage_files=coverage_files,
         )
+        patch_scope_debug = describe_patch_coverage_scope(
+            workspace=config.workspace,
+            coverage=combined_coverage,
+            has_coverage_artifacts=bool(coverage_files),
+        )
+        coverage_source_debug = {
+            **(coverage_source_debug or {}),
+            "combined_measured_file_count": patch_scope_debug["measured_file_count"],
+            "combined_measured_file_sample": patch_scope_debug["measured_file_sample"],
+            "inferred_source_roots": patch_scope_debug["inferred_source_roots"],
+            "patch_scope_strategy": patch_scope_debug["scope_strategy"],
+            "explicit_source": patch_scope_debug["explicit_source"],
+            "explicit_source_pkgs": patch_scope_debug["explicit_source_pkgs"],
+            "patch_scope_warnings": patch_scope_debug["warnings"],
+        }
         patch_coverage = compute_patch_coverage(
             workspace=config.workspace,
             changed_lines_by_file=changed_lines,
             coverage=combined_coverage,
             target_percent=config.target_patch_coverage,
+            has_coverage_artifacts=bool(coverage_files),
         )
         _log(
             "patch_result",
