@@ -172,7 +172,10 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             include_cross_run_failures=config.include_cross_run_failures,
             include_external_checks=config.include_external_checks,
             wait_for_checks_to_settle=config.wait_for_checks_to_settle,
-            suppress_codecov_checks=(config.patch_coverage_source_mode == "coverage_xml_artifact"),
+            suppress_codecov_checks=(
+                config.include_patch_coverage
+                and config.patch_coverage_source_mode == "coverage_xml_artifact"
+            ),
             max_actions_runs=config.max_actions_runs,
             max_actions_jobs=config.max_actions_jobs,
             max_external_checks=config.max_external_checks,
@@ -274,6 +277,11 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
                 has_coverage_artifacts=bool(coverage_files),
                 coverage_source_pending=coverage_source_pending,
             )
+        patch_scope_warnings = list(patch_scope_debug.get("warnings", []))
+        for warning in patch_scope_debug.get("scope_warnings", []):
+            if warning not in patch_scope_warnings:
+                patch_scope_warnings.append(warning)
+
         coverage_source_debug = {
             **(coverage_source_debug or {}),
             "coverage_working_directory": coverage_working_directory,
@@ -293,10 +301,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             "patch_scope_strategy": patch_scope_debug["scope_strategy"],
             "explicit_source": patch_scope_debug["explicit_source"],
             "explicit_source_pkgs": patch_scope_debug["explicit_source_pkgs"],
-            "patch_scope_warnings": patch_scope_debug.get(
-                "warnings",
-                patch_scope_debug.get("scope_warnings", []),
-            ),
+            "patch_scope_warnings": patch_scope_warnings,
             "codecov_suppressed": config.patch_coverage_source_mode == "coverage_xml_artifact",
         }
         _log(
