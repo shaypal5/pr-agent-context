@@ -46,7 +46,7 @@ ignore:
 # Diff is the Coverage Diff of the pull request.
 # Files are the files impacted by the pull request
 comment:                  # this is a top-level key
-  layout: " diff, flags, files"
+  layout: "diff, flags, files"
   behavior: default
   require_changes: false  # learn more in the Requiring Changes section below
   require_base: false        # [true :: must have a base report to post]
