@@ -271,17 +271,13 @@ def _build_actionable_opening_instructions(
             else "unresolved review comments"
         )
     if failing_check_count:
-        signal_labels.append(
-            "a failing check" if failing_check_count == 1 else "failing checks"
-        )
+        signal_labels.append("a failing check" if failing_check_count == 1 else "failing checks")
     if patch_gap_count:
         signal_labels.append(
             "a patch coverage gap" if patch_gap_count == 1 else "patch coverage gaps"
         )
 
-    lines = [
-        f"This run includes {_join_human_list(signal_labels)} on PR #{pull_request_number}."
-    ]
+    lines = [f"This run includes {_join_human_list(signal_labels)} on PR #{pull_request_number}."]
     if review_item_count:
         lines.extend(
             [

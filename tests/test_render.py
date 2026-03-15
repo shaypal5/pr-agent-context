@@ -352,9 +352,7 @@ def test_render_prompt_builds_signal_specific_openings(
     )
 
     assert expected_opening in rendered.prompt_markdown
-    assert _normalize_whitespace(expected_action) in _normalize_whitespace(
-        rendered.prompt_markdown
-    )
+    assert _normalize_whitespace(expected_action) in _normalize_whitespace(rendered.prompt_markdown)
     if review_threads:
         assert "For each unresolved review comment" in rendered.prompt_markdown
         assert "After I reply with my decision per item" in rendered.prompt_markdown

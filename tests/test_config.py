@@ -181,11 +181,7 @@ def test_run_config_uses_codecov_patch_target_when_env_override_is_absent(tmp_pa
         encoding="utf-8",
     )
     (tmp_path / ".codecov.yml").write_text(
-        "coverage:\n"
-        "  status:\n"
-        "    patch:\n"
-        "      default:\n"
-        "        target: 98%\n",
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 98%\n",
         encoding="utf-8",
     )
 
@@ -217,11 +213,7 @@ def test_run_config_env_override_beats_codecov_patch_target(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / "codecov.yml").write_text(
-        "coverage:\n"
-        "  status:\n"
-        "    patch:\n"
-        "      default:\n"
-        "        target: 97%\n",
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 97%\n",
         encoding="utf-8",
     )
 
@@ -478,15 +470,11 @@ def test_extract_codecov_patch_target_prefers_default_then_named_entries():
         == 95.0
     )
     assert (
-        _extract_codecov_patch_target(
-            {"coverage": {"status": {"patch": {"target": "90%"}}}}
-        )
+        _extract_codecov_patch_target({"coverage": {"status": {"patch": {"target": "90%"}}}})
         == 90.0
     )
     assert (
-        _extract_codecov_patch_target(
-            {"coverage": {"status": {"patch": {"target": "auto"}}}}
-        )
+        _extract_codecov_patch_target({"coverage": {"status": {"patch": {"target": "auto"}}}})
         is None
     )
 
