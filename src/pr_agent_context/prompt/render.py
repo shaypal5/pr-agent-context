@@ -276,8 +276,9 @@ def _build_actionable_opening_instructions(
         signal_labels.append(
             "a patch coverage gap" if patch_gap_count == 1 else "patch coverage gaps"
         )
+    opening_subject = _join_human_list(signal_labels) or "actionable items"
 
-    lines = [f"This run includes {_join_human_list(signal_labels)} on PR #{pull_request_number}."]
+    lines = [f"This run includes {opening_subject} on PR #{pull_request_number}."]
     if review_item_count:
         lines.extend(
             [
@@ -334,6 +335,11 @@ def _build_direct_action_instructions(
         actions.append("diagnose and fix the failing checks below")
     if include_patch_coverage:
         actions.append("address the patch coverage gaps below")
+    if not actions:
+        return (
+            "Review the actionable items below, then push all of these changes in a single "
+            "commit."
+        )
     return (
         _capitalize_first(_join_human_list(actions))
         + ", then push all of these changes in a single commit."

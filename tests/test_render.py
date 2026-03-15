@@ -696,7 +696,31 @@ def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
 
     assert "# Patch coverage" in rendered.prompt_markdown
     assert "no changed executable Python lines" in rendered.prompt_markdown
-    assert rendered.has_actionable_items is False
+
+
+def test_render_prompt_handles_actionable_patch_without_file_gaps():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="c0ffee",
+        review_threads=[],
+        failing_checks=[],
+        patch_coverage=PatchCoverageSummary(
+            target_percent=150,
+            actual_percent=100,
+            total_changed_executable_lines=4,
+            covered_changed_executable_lines=4,
+            files=[],
+            actionable=True,
+            is_na=False,
+        ),
+    )
+
+    assert "This run includes actionable items on PR #17." in rendered.prompt_markdown
+    assert (
+        "Review the actionable items below, then push all of these changes in a single commit."
+        in rendered.prompt_markdown
+    )
+    assert rendered.has_actionable_items is True
     assert rendered.should_publish_comment is True
 
 

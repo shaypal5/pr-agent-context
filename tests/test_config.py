@@ -231,6 +231,42 @@ def test_run_config_env_override_beats_codecov_patch_target(tmp_path):
     assert config.target_patch_coverage == 92.5
 
 
+def test_run_config_ignores_invalid_codecov_patch_target(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".codecov.yml").write_text(
+        "coverage:\n"
+        "  status:\n"
+        "    patch:\n"
+        "      default:\n"
+        "        target: 150%\n",
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+        }
+    )
+
+    assert config.target_patch_coverage == 100.0
+
+
 def test_run_config_rejects_empty_regex_pattern(tmp_path):
     event_path = tmp_path / "event.json"
     event_path.write_text(
@@ -430,6 +466,10 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         ("92.5", 92.5),
         (0.98, 98.0),
         (98, 98.0),
+        (150, None),
+        (-5, None),
+        ("101%", None),
+        ("-1", None),
         ("auto", None),
         ("", None),
         ("not-a-number", None),

@@ -137,7 +137,7 @@ def _parse_percent_like_value(value: object) -> float | None:
         numeric = float(value)
         if 0 <= numeric <= 1:
             return numeric * 100
-        return numeric
+        return numeric if 0 <= numeric <= 100 else None
     if not isinstance(value, str):
         return None
 
@@ -149,9 +149,10 @@ def _parse_percent_like_value(value: object) -> float | None:
     if raw.endswith("%"):
         raw = raw[:-1].strip()
     try:
-        return float(raw)
+        parsed = float(raw)
     except ValueError:
         return None
+    return parsed if 0 <= parsed <= 100 else None
 
 
 class PullRequestRef(BaseModel):
