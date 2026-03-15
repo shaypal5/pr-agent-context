@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from pr_agent_context.constants import (
@@ -54,6 +55,103 @@ def _parse_bool(value: str | bool | None, *, default: bool) -> bool:
 
 def parse_bool_env(value: str | bool | None, *, default: bool) -> bool:
     return _parse_bool(value, default=default)
+
+
+def _resolve_target_patch_coverage(
+    env_map: Mapping[str, str],
+    *,
+    workspace: Path,
+) -> float:
+    raw_override = env_map.get("PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE")
+    if raw_override is not None and raw_override.strip():
+        return float(raw_override)
+
+    configured_target = _load_patch_target_from_repo_config(workspace)
+    if configured_target is not None:
+        return configured_target
+
+    return DEFAULT_TARGET_PATCH_COVERAGE
+
+
+def _load_patch_target_from_repo_config(workspace: Path) -> float | None:
+    config_path = _find_codecov_config_file(workspace)
+    if config_path is None:
+        return None
+
+    try:
+        parsed = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+
+    return _extract_codecov_patch_target(parsed)
+
+
+def _find_codecov_config_file(workspace: Path) -> Path | None:
+    for name in (".codecov.yml", "codecov.yml", ".codecov.yaml", "codecov.yaml"):
+        candidate = workspace / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _extract_codecov_patch_target(data: object) -> float | None:
+    if not isinstance(data, Mapping):
+        return None
+
+    coverage = data.get("coverage")
+    if not isinstance(coverage, Mapping):
+        return None
+
+    status = coverage.get("status")
+    if not isinstance(status, Mapping):
+        return None
+
+    patch = status.get("patch")
+    if not isinstance(patch, Mapping):
+        return None
+
+    direct_target = _parse_percent_like_value(patch.get("target"))
+    if direct_target is not None:
+        return direct_target
+
+    default_entry = patch.get("default")
+    if isinstance(default_entry, Mapping):
+        default_target = _parse_percent_like_value(default_entry.get("target"))
+        if default_target is not None:
+            return default_target
+
+    for value in patch.values():
+        if not isinstance(value, Mapping):
+            continue
+        nested_target = _parse_percent_like_value(value.get("target"))
+        if nested_target is not None:
+            return nested_target
+
+    return None
+
+
+def _parse_percent_like_value(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if 0 <= numeric <= 1:
+            return numeric * 100
+        return numeric
+    if not isinstance(value, str):
+        return None
+
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.lower() == "auto":
+        return None
+    if raw.endswith("%"):
+        raw = raw[:-1].strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 class PullRequestRef(BaseModel):
@@ -365,11 +463,9 @@ class RunConfig(BaseModel):
                     str(DEFAULT_CHARACTERS_PER_LINE),
                 )
             ),
-            target_patch_coverage=float(
-                env_map.get(
-                    "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE",
-                    str(DEFAULT_TARGET_PATCH_COVERAGE),
-                )
+            target_patch_coverage=_resolve_target_patch_coverage(
+                env_map,
+                workspace=workspace,
             ),
             patch_coverage_source_mode=_parse_patch_coverage_source_mode(
                 env_map.get(

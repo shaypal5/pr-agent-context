@@ -97,7 +97,9 @@ The reusable workflow inputs are:
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
 - `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
 - `wait_for_reviews_to_settle`: in refresh mode, briefly poll unresolved review threads before rendering, default `false`
-- `target_patch_coverage`: required patch coverage percentage, default `"100"`
+- `target_patch_coverage`: required patch coverage percentage; explicit input wins, otherwise
+  `pr-agent-context` auto-detects the Codecov patch target from `.codecov.yml` / `codecov.yml`
+  when present, and falls back to `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
 - `patch_coverage_source_mode`: `raw_coverage_artifacts` or `coverage_xml_artifact`, default `raw_coverage_artifacts`
 - `coverage_artifact_prefix`: artifact name prefix for raw `.coverage*` uploads, default `pr-agent-context-coverage`

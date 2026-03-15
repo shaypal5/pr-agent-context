@@ -3,19 +3,6 @@ from __future__ import annotations
 MANAGED_COMMENT_MARKER_PREFIX = "<!-- pr-agent-context:managed-comment"
 MANAGED_COMMENT_SCHEMA_VERSION = "v5"
 
-DEFAULT_PROMPT_OPENING = (
-    "Below are the details of possibly unresolved review comments and/or "
-    "(possibly) failing checks on PR #{pr_number}.\n\n"
-    "For each unresolved comment (if any), recommend one of: resolve as "
-    "irrelevant, accept and implement the recommended solution, open a "
-    "separate issue and resolve as out-of-scope for this PR, accept and "
-    "implement a different solution, or resolve as already treated by the "
-    "code.\n\nAfter I reply with my decision per item, implement the "
-    "accepted actions, resolve the corresponding PR comments, fix each "
-    "failing check below (if any), and push all of these changes in a "
-    "single commit."
-)
-
 DEFAULT_ALL_CLEAR_PROMPT = (
     "No unresolved review comments, failing checks, or actionable patch "
     "coverage gaps were found on PR #{pr_number}. Treat this PR as all clear "
@@ -26,7 +13,7 @@ DEFAULT_REFRESH_NOTE = "This is a refreshed snapshot of the current PR state."
 
 COPILOT_COMMENT_SECTION = "Copilot Comments"
 REVIEW_COMMENT_SECTION = "Other Review Comments"
-FAILING_WORKFLOWS_SECTION = "Failing Workflows"
+FAILING_CHECKS_SECTION = "Failing Checks"
 PATCH_COVERAGE_SECTION = "Patch coverage"
 
 DEFAULT_PROMPT_TEMPLATE = """

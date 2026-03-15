@@ -12,13 +12,12 @@ from pr_agent_context.constants import (
     DEFAULT_FAILURE_EXCERPT_MAX_LINES,
     DEFAULT_ITEM_BUDGET_FLOOR,
     DEFAULT_PATCH_SECTION_HARD_LIMIT,
-    DEFAULT_PROMPT_OPENING,
     DEFAULT_REFRESH_NOTE,
     DEFAULT_REPLY_BODY_CHARS,
     DEFAULT_ROOT_COMMENT_BODY_CHARS,
     DEFAULT_SECTION_BUDGETS,
     DEFAULT_TOOL_REF,
-    FAILING_WORKFLOWS_SECTION,
+    FAILING_CHECKS_SECTION,
     PATCH_COVERAGE_SECTION,
     REVIEW_COMMENT_SECTION,
 )
@@ -108,6 +107,13 @@ def render_prompt(
                 pull_request_number=pull_request_number,
                 head_sha=head_sha,
                 has_actionable_items=has_actionable_items,
+                review_item_count=len(review_threads) if include_review_comments else 0,
+                failing_check_count=len(failing_checks) if include_failing_checks else 0,
+                patch_gap_count=(
+                    len(patch_coverage.files)
+                    if include_patch_coverage and patch_coverage and patch_coverage.actionable
+                    else 0
+                ),
                 include_review_comments=include_review_comments,
                 include_failing_checks=include_failing_checks,
                 include_patch_coverage=include_patch_coverage,
@@ -204,6 +210,9 @@ def _build_opening_instructions(
     pull_request_number: int,
     head_sha: str | None,
     has_actionable_items: bool,
+    review_item_count: int,
+    failing_check_count: int,
+    patch_gap_count: int,
     include_review_comments: bool,
     include_failing_checks: bool,
     include_patch_coverage: bool,
@@ -216,8 +225,11 @@ def _build_opening_instructions(
         else ""
     )
     if has_actionable_items:
-        return refresh_note + DEFAULT_PROMPT_OPENING.format(
-            pr_number=pull_request_number,
+        return refresh_note + _build_actionable_opening_instructions(
+            pull_request_number=pull_request_number,
+            review_item_count=review_item_count,
+            failing_check_count=failing_check_count,
+            patch_gap_count=patch_gap_count,
         )
 
     disabled_checks = [
@@ -242,6 +254,110 @@ def _build_opening_instructions(
         + ", ".join(disabled_checks)
         + "."
     )
+
+
+def _build_actionable_opening_instructions(
+    *,
+    pull_request_number: int,
+    review_item_count: int,
+    failing_check_count: int,
+    patch_gap_count: int,
+) -> str:
+    signal_labels: list[str] = []
+    if review_item_count:
+        signal_labels.append(
+            "an unresolved review comment"
+            if review_item_count == 1
+            else "unresolved review comments"
+        )
+    if failing_check_count:
+        signal_labels.append(
+            "a failing check" if failing_check_count == 1 else "failing checks"
+        )
+    if patch_gap_count:
+        signal_labels.append(
+            "a patch coverage gap" if patch_gap_count == 1 else "patch coverage gaps"
+        )
+
+    lines = [
+        f"This run includes {_join_human_list(signal_labels)} on PR #{pull_request_number}."
+    ]
+    if review_item_count:
+        lines.extend(
+            [
+                "",
+                "For each unresolved review comment, recommend one of: resolve as irrelevant, "
+                "accept and implement the recommended solution, open a separate issue and "
+                "resolve as out-of-scope for this PR, accept and implement a different "
+                "solution, or resolve as already treated by the code.",
+                "",
+                _build_review_follow_up_instructions(
+                    include_failing_checks=bool(failing_check_count),
+                    include_patch_coverage=bool(patch_gap_count),
+                ),
+            ]
+        )
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            "",
+            _build_direct_action_instructions(
+                include_failing_checks=bool(failing_check_count),
+                include_patch_coverage=bool(patch_gap_count),
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _build_review_follow_up_instructions(
+    *,
+    include_failing_checks: bool,
+    include_patch_coverage: bool,
+) -> str:
+    actions = [
+        "implement the accepted actions",
+        "resolve the corresponding PR comments",
+    ]
+    if include_failing_checks:
+        actions.append("fix the failing checks below")
+    if include_patch_coverage:
+        actions.append("address the patch coverage gaps below")
+    actions.append("push all of these changes in a single commit")
+    return "After I reply with my decision per item, " + _join_human_list(actions) + "."
+
+
+def _build_direct_action_instructions(
+    *,
+    include_failing_checks: bool,
+    include_patch_coverage: bool,
+) -> str:
+    actions: list[str] = []
+    if include_failing_checks:
+        actions.append("diagnose and fix the failing checks below")
+    if include_patch_coverage:
+        actions.append("address the patch coverage gaps below")
+    return (
+        _capitalize_first(_join_human_list(actions))
+        + ", then push all of these changes in a single commit."
+    )
+
+
+def _join_human_list(items: list[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
+def _capitalize_first(text: str) -> str:
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
 
 
 def _render_review_threads_section(
@@ -387,7 +503,7 @@ def _render_failing_checks_section(
         rendered, item_notes = _render_failing_check(failure, max_chars=item_budget)
         item_blocks.append(rendered)
         notes.extend(item_notes)
-    section_text = f"# {FAILING_WORKFLOWS_SECTION}\n\n" + "\n\n".join(item_blocks)
+    section_text = f"# {FAILING_CHECKS_SECTION}\n\n" + "\n\n".join(item_blocks)
     if len(section_text) <= budget:
         return section_text, notes
     trimmed, note = truncate_text(
