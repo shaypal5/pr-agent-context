@@ -337,8 +337,7 @@ def _build_direct_action_instructions(
         actions.append("address the patch coverage gaps below")
     if not actions:
         return (
-            "Review the actionable items below, then push all of these changes in a single "
-            "commit."
+            "Review the actionable items below, then push all of these changes in a single commit."
         )
     return (
         _capitalize_first(_join_human_list(actions))

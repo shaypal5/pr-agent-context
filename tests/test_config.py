@@ -246,11 +246,7 @@ def test_run_config_ignores_invalid_codecov_patch_target(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / ".codecov.yml").write_text(
-        "coverage:\n"
-        "  status:\n"
-        "    patch:\n"
-        "      default:\n"
-        "        target: 150%\n",
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 150%\n",
         encoding="utf-8",
     )
 
