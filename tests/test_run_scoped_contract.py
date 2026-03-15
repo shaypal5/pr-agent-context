@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pr_agent_context.constants import (
     DEFAULT_ALL_CLEAR_PROMPT,
-    DEFAULT_PROMPT_OPENING,
     DEFAULT_PROMPT_TEMPLATE,
     MANAGED_COMMENT_MARKER_PREFIX,
     MANAGED_COMMENT_SCHEMA_VERSION,
@@ -17,10 +16,6 @@ from pr_agent_context.domain.models import (
 def test_run_scoped_constants_expose_v5_marker_contract():
     assert MANAGED_COMMENT_MARKER_PREFIX == "<!-- pr-agent-context:managed-comment"
     assert MANAGED_COMMENT_SCHEMA_VERSION == "v5"
-    assert "{run_id}" not in DEFAULT_PROMPT_OPENING
-    assert "{run_attempt}" not in DEFAULT_PROMPT_OPENING
-    assert "{tool_ref}" not in DEFAULT_PROMPT_OPENING
-    assert "{tool_version}" not in DEFAULT_PROMPT_OPENING
     assert "{run_id}" not in DEFAULT_ALL_CLEAR_PROMPT
     assert "{{ failing_checks_section }}" in DEFAULT_PROMPT_TEMPLATE
 

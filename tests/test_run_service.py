@@ -508,7 +508,7 @@ def test_run_service_aggregates_pr_wide_failing_checks(tmp_path, issue_comments_
         "commit_status": 1,
         "external_check_run": 1,
     }
-    assert "# Failing Workflows" in prompt_text
+    assert "# Failing Checks" in prompt_text
     assert "Type: External check run" in prompt_text
     assert "Type: Commit status" in prompt_text
     assert "Type: GitHub Actions workflow run" in prompt_text

@@ -34,6 +34,73 @@ from pr_agent_context.prompt.template import (
 from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 
+def _sample_review_thread(
+    *,
+    item_id: str = "REVIEW-1",
+    classifier: str = "review",
+) -> ReviewThread:
+    return ReviewThread.model_validate(
+        {
+            "thread_id": item_id,
+            "classifier": classifier,
+            "path": "src/example.py",
+            "line": 5,
+            "original_line": 5,
+            "is_resolved": False,
+            "is_outdated": False,
+            "url": f"https://example.invalid/{item_id.lower()}",
+            "item_id": item_id,
+            "messages": [
+                {
+                    "comment_id": 1,
+                    "author_login": "octocat",
+                    "body": "body",
+                    "url": "https://example.invalid/comment",
+                }
+            ],
+        }
+    )
+
+
+def _sample_failing_check(*, item_id: str = "FAIL-1") -> FailingCheck:
+    return FailingCheck.model_validate(
+        {
+            "job_id": 1,
+            "workflow_name": "CI",
+            "job_name": "smoke",
+            "url": "https://example.invalid/job",
+            "failed_steps": ["pytest"],
+            "excerpt_lines": ["failure"],
+            "item_id": item_id,
+        }
+    )
+
+
+def _sample_actionable_patch(*, path: str = "src/pkg/example.py") -> PatchCoverageSummary:
+    return PatchCoverageSummary(
+        target_percent=100,
+        actual_percent=50,
+        total_changed_executable_lines=4,
+        covered_changed_executable_lines=2,
+        files=[
+            {
+                "path": path,
+                "changed_added_lines": [1, 2, 3, 4],
+                "changed_executable_lines": [1, 2, 3, 4],
+                "covered_changed_executable_lines": [1, 2],
+                "uncovered_changed_executable_lines": [3, 4],
+                "has_measured_data": True,
+            }
+        ],
+        actionable=True,
+        is_na=False,
+    )
+
+
+def _normalize_whitespace(text: str) -> str:
+    return " ".join(text.split())
+
+
 def test_render_prompt_matches_expected_snapshots():
     payload = load_json_fixture("prompts/collected_context.json")
     review_threads = [ReviewThread.model_validate(item) for item in payload["review_threads"]]
@@ -206,30 +273,140 @@ def test_render_prompt_renders_actionable_patch_coverage_section():
         head_sha="deadbeef",
         review_threads=[],
         failing_checks=[],
-        patch_coverage=PatchCoverageSummary(
-            target_percent=100,
-            actual_percent=50,
-            total_changed_executable_lines=4,
-            covered_changed_executable_lines=2,
-            files=[
-                {
-                    "path": "src/pkg/example.py",
-                    "changed_added_lines": [1, 2, 3, 4],
-                    "changed_executable_lines": [1, 2, 3, 4],
-                    "covered_changed_executable_lines": [1, 2],
-                    "uncovered_changed_executable_lines": [3, 4],
-                    "has_measured_data": True,
-                }
-            ],
-            actionable=True,
-            is_na=False,
-        ),
+        patch_coverage=_sample_actionable_patch(),
     )
 
     assert "# Patch coverage" in rendered.prompt_markdown
     assert "PR head commit: deadbeef" not in rendered.prompt_markdown
     assert "Patch test coverage is 50%" in rendered.prompt_markdown
     assert "- src/pkg/example.py: 3, 4" in rendered.prompt_markdown
+
+
+@pytest.mark.parametrize(
+    ("review_threads", "failing_checks", "patch_coverage", "expected_opening", "expected_action"),
+    [
+        (
+            [_sample_review_thread()],
+            [],
+            None,
+            "This run includes an unresolved review comment on PR #17.",
+            "For each unresolved review comment, recommend one of:",
+        ),
+        (
+            [],
+            [_sample_failing_check()],
+            None,
+            "This run includes a failing check on PR #17.",
+            "Diagnose and fix the failing checks below, then push all of these changes in a "
+            "single commit.",
+        ),
+        (
+            [],
+            [],
+            _sample_actionable_patch(),
+            "This run includes a patch coverage gap on PR #17.",
+            "Address the patch coverage gaps below, then push all of these changes in a single "
+            "commit.",
+        ),
+        (
+            [_sample_review_thread()],
+            [_sample_failing_check()],
+            None,
+            "This run includes an unresolved review comment and a failing check on PR #17.",
+            "After I reply with my decision per item, implement the accepted actions, resolve "
+            "the corresponding PR comments, fix the failing checks below, and push all of "
+            "these changes in a single commit.",
+        ),
+        (
+            [_sample_review_thread()],
+            [],
+            _sample_actionable_patch(),
+            "This run includes an unresolved review comment and a patch coverage gap on PR #17.",
+            "After I reply with my decision per item, implement the accepted actions, resolve "
+            "the corresponding PR comments, address the patch coverage gaps below, and push "
+            "all of these changes in a single commit.",
+        ),
+        (
+            [],
+            [_sample_failing_check()],
+            _sample_actionable_patch(),
+            "This run includes a failing check and a patch coverage gap on PR #17.",
+            "Diagnose and fix the failing checks below and address the patch coverage gaps "
+            "below, then push all of these changes in a single commit.",
+        ),
+    ],
+)
+def test_render_prompt_builds_signal_specific_openings(
+    review_threads,
+    failing_checks,
+    patch_coverage,
+    expected_opening,
+    expected_action,
+):
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=review_threads,
+        failing_checks=failing_checks,
+        patch_coverage=patch_coverage,
+    )
+
+    assert expected_opening in rendered.prompt_markdown
+    assert _normalize_whitespace(expected_action) in _normalize_whitespace(rendered.prompt_markdown)
+    if review_threads:
+        assert "For each unresolved review comment" in rendered.prompt_markdown
+        assert "After I reply with my decision per item" in rendered.prompt_markdown
+    else:
+        assert "For each unresolved review comment" not in rendered.prompt_markdown
+        assert "After I reply with my decision per item" not in rendered.prompt_markdown
+
+
+def test_render_prompt_all_three_signals_use_pluralized_opening():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[
+            _sample_review_thread(item_id="REVIEW-1"),
+            _sample_review_thread(item_id="REVIEW-2"),
+        ],
+        failing_checks=[
+            _sample_failing_check(item_id="FAIL-1"),
+            _sample_failing_check(item_id="FAIL-2"),
+        ],
+        patch_coverage=PatchCoverageSummary(
+            target_percent=100,
+            actual_percent=25,
+            total_changed_executable_lines=4,
+            covered_changed_executable_lines=1,
+            files=[
+                {
+                    "path": "src/pkg/one.py",
+                    "changed_added_lines": [1, 2],
+                    "changed_executable_lines": [1, 2],
+                    "covered_changed_executable_lines": [1],
+                    "uncovered_changed_executable_lines": [2],
+                    "has_measured_data": True,
+                },
+                {
+                    "path": "src/pkg/two.py",
+                    "changed_added_lines": [3, 4],
+                    "changed_executable_lines": [3, 4],
+                    "covered_changed_executable_lines": [],
+                    "uncovered_changed_executable_lines": [3, 4],
+                    "has_measured_data": True,
+                },
+            ],
+            actionable=True,
+            is_na=False,
+        ),
+    )
+
+    assert (
+        "This run includes unresolved review comments, failing checks, and patch coverage gaps "
+        "on PR #17."
+    ) in rendered.prompt_markdown
+    assert "fix the failing checks below" in rendered.prompt_markdown
+    assert "address the patch coverage gaps below" in rendered.prompt_markdown
 
 
 def test_render_helpers_append_truncation_notes(monkeypatch):
@@ -378,7 +555,7 @@ def test_render_prompt_renders_all_clear_message_when_nothing_is_actionable():
     assert "PR head commit: feedface" not in rendered.prompt_markdown
     assert "all clear" in rendered.prompt_markdown.lower()
     assert "# Copilot Comments" not in rendered.prompt_markdown
-    assert "# Failing Workflows" not in rendered.prompt_markdown
+    assert "# Failing Checks" not in rendered.prompt_markdown
     assert rendered.has_actionable_items is False
     assert rendered.should_publish_comment is True
 
@@ -519,7 +696,31 @@ def test_render_prompt_forced_patch_coverage_section_is_non_actionable():
 
     assert "# Patch coverage" in rendered.prompt_markdown
     assert "no changed executable Python lines" in rendered.prompt_markdown
-    assert rendered.has_actionable_items is False
+
+
+def test_render_prompt_handles_actionable_patch_without_file_gaps():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="c0ffee",
+        review_threads=[],
+        failing_checks=[],
+        patch_coverage=PatchCoverageSummary(
+            target_percent=150,
+            actual_percent=100,
+            total_changed_executable_lines=4,
+            covered_changed_executable_lines=4,
+            files=[],
+            actionable=True,
+            is_na=False,
+        ),
+    )
+
+    assert "This run includes actionable items on PR #17." in rendered.prompt_markdown
+    assert (
+        "Review the actionable items below, then push all of these changes in a single commit."
+        in rendered.prompt_markdown
+    )
+    assert rendered.has_actionable_items is True
     assert rendered.should_publish_comment is True
 
 
@@ -941,7 +1142,7 @@ def test_render_failing_checks_section_applies_metadata_drop_and_truncation():
 
     rendered, notes = _render_failing_checks_section([failure])
 
-    assert rendered.startswith("# Failing Workflows")
+    assert rendered.startswith("# Failing Checks")
     assert "[note: excerpt truncated" in rendered
     assert any(note.strategy == "trim_log_excerpt" for note in notes)
     assert "line 199" not in rendered
@@ -998,7 +1199,7 @@ def test_render_failing_checks_section_supports_mixed_failure_sources():
     rendered, notes = _render_failing_checks_section(failures)
 
     assert not notes
-    assert rendered.startswith("# Failing Workflows")
+    assert rendered.startswith("# Failing Checks")
     assert "Type: GitHub Actions job" in rendered
     assert "Current run: yes" in rendered
     assert "Type: External check run" in rendered

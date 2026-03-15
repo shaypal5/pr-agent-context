@@ -15,6 +15,7 @@ authors = [
 dependencies = [
   "coverage[toml]>=7,<8",
   "pydantic>=2,<3",
+  "PyYAML>=6,<7",
 ]
 
 [project.optional-dependencies]

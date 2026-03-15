@@ -8,6 +8,7 @@ from pr_agent_context.config import (
     PullRequestRef,
     RunConfig,
     TriggerContext,
+    _extract_codecov_patch_target,
     _extract_is_fork,
     _extract_pull_request_number,
     _extract_pull_request_number_if_present,
@@ -17,6 +18,7 @@ from pr_agent_context.config import (
     _parse_bool,
     _parse_coverage_selection_strategy,
     _parse_fork_behavior,
+    _parse_percent_like_value,
     _parse_publish_mode,
     _resolve_execution_mode,
     load_pull_request_context_from_env,
@@ -161,6 +163,104 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
     assert config.publish_all_clear_comments_in_refresh is False
     assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
     assert config.coverage_report_filename == "coverage.xml"
+    assert config.target_patch_coverage == 100.0
+
+
+def test_run_config_uses_codecov_patch_target_when_env_override_is_absent(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".codecov.yml").write_text(
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 98%\n",
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+        }
+    )
+
+    assert config.target_patch_coverage == 98.0
+
+
+def test_run_config_env_override_beats_codecov_patch_target(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "codecov.yml").write_text(
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 97%\n",
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+            "PR_AGENT_CONTEXT_TARGET_PATCH_COVERAGE": "92.5",
+        }
+    )
+
+    assert config.target_patch_coverage == 92.5
+
+
+def test_run_config_ignores_invalid_codecov_patch_target(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".codecov.yml").write_text(
+        "coverage:\n  status:\n    patch:\n      default:\n        target: 150%\n",
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+        }
+    )
+
+    assert config.target_patch_coverage == 100.0
 
 
 def test_run_config_rejects_empty_regex_pattern(tmp_path):
@@ -353,6 +453,66 @@ def test_config_private_helpers_cover_bool_and_event_fallbacks():
         _extract_pull_request_shas(
             {"pull_request": {"base": {"sha": ""}, "head": {"sha": "head123"}}}
         )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("98%", 98.0),
+        ("92.5", 92.5),
+        (0.98, 98.0),
+        (98, 98.0),
+        (150, None),
+        (-5, None),
+        ("101%", None),
+        ("-1", None),
+        ("auto", None),
+        ("", None),
+        ("not-a-number", None),
+    ],
+)
+def test_parse_percent_like_value(value, expected):
+    assert _parse_percent_like_value(value) == expected
+
+
+def test_extract_codecov_patch_target_prefers_default_then_named_entries():
+    assert (
+        _extract_codecov_patch_target(
+            {
+                "coverage": {
+                    "status": {
+                        "patch": {
+                            "default": {"target": "98%"},
+                            "strict": {"target": "95%"},
+                        }
+                    }
+                }
+            }
+        )
+        == 98.0
+    )
+    assert (
+        _extract_codecov_patch_target(
+            {
+                "coverage": {
+                    "status": {
+                        "patch": {
+                            "strict": {"target": "95%"},
+                        }
+                    }
+                }
+            }
+        )
+        == 95.0
+    )
+    assert (
+        _extract_codecov_patch_target({"coverage": {"status": {"patch": {"target": "90%"}}}})
+        == 90.0
+    )
+    assert (
+        _extract_codecov_patch_target({"coverage": {"status": {"patch": {"target": "auto"}}}})
+        is None
+    )
 
 
 def test_load_pull_request_context_from_env(tmp_path):

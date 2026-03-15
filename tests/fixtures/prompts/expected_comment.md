@@ -3,16 +3,14 @@ pr-agent-context report:
 ```markdown
 Repository: foldermix
 
-Below are the details of possibly unresolved review comments and/or (possibly) failing checks on PR
-#17.
+This run includes unresolved review comments and failing checks on PR #17.
 
-For each unresolved comment (if any), recommend one of: resolve as irrelevant, accept and implement
+For each unresolved review comment, recommend one of: resolve as irrelevant, accept and implement
 the recommended solution, open a separate issue and resolve as out-of-scope for this PR, accept and
 implement a different solution, or resolve as already treated by the code.
 
 After I reply with my decision per item, implement the accepted actions, resolve the corresponding
-PR comments, fix each failing check below (if any), and push all of these changes in a single
-commit.
+PR comments, fix the failing checks below, and push all of these changes in a single commit.
 
 # Copilot Comments
 
@@ -38,7 +36,7 @@ Root author: octocat
 Comment:
     This assertion is brittle across Python versions.
 
-# Failing Workflows
+# Failing Checks
 
 ## FAIL-1
 Type: GitHub Actions job
