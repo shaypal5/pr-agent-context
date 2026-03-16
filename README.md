@@ -87,8 +87,18 @@ After the version tag push completes, the workflow force-updates the matching ma
 The reusable workflow inputs are:
 
 - `tool_ref`: ref of `shaypal5/pr-agent-context` to run, default `"v4"`
-- `execution_mode`: `ci`, `refresh`, or `auto`, default `auto`
-- `publish_mode`: `append`, `update_latest_managed`, `update_matching`, or `update_latest_scoped`, default `append`
+- `execution_mode`: controls whether the run behaves like the initial CI pass or a later refresh
+  pass. `ci` always uses CI behavior, `refresh` always uses refresh behavior, and `auto`
+  infers the mode from the triggering event, default `auto`
+- `publish_mode`: controls how managed PR comments are created or updated, default `append`
+  - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
+    updating an existing one; refresh-mode no-op runs may still skip publishing entirely
+  - `update_latest_managed`: update the newest managed comment on the PR, regardless of which
+    run lifecycle created it
+  - `update_matching`: update the managed comment whose marker matches the current run identity
+  - `update_latest_scoped`: update the newest managed comment from the same lifecycle scope
+    (`ci` vs `refresh`); this is the recommended refresh-mode setting because it avoids touching
+    the CI comment
 - `publish_all_clear_comments_in_refresh`: in refresh mode, still publish no-op all-clear comments, default `false`
 - `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`
 - `include_review_comments`: include unresolved PR review threads, default `true`
@@ -101,14 +111,21 @@ The reusable workflow inputs are:
   `pr-agent-context` auto-detects the Codecov patch target from `.codecov.yml` / `codecov.yml`
   when present, and falls back to `"100"`
 - `include_patch_coverage`: enable patch coverage analysis, default `true`
-- `patch_coverage_source_mode`: `raw_coverage_artifacts` or `coverage_xml_artifact`, default `raw_coverage_artifacts`
+- `patch_coverage_source_mode`: controls where patch coverage is reconstructed from, default
+  `raw_coverage_artifacts`
+  - `raw_coverage_artifacts`: use raw `.coverage*` artifacts and reconstruct patch coverage with
+    `coverage.py`; this is the best fit for matrix or otherwise complex producer workflows
+  - `coverage_xml_artifact`: use a caller-provided combined `coverage.xml` artifact directly;
+    this is the best fit for simple repos that already publish a final combined report
 - `coverage_artifact_prefix`: artifact name prefix for raw `.coverage*` uploads, default `pr-agent-context-coverage`
 - `coverage_report_artifact_name`: exact artifact name for a combined coverage XML report, default `""`
 - `coverage_report_filename`: path inside the combined coverage XML artifact, default `coverage.xml`
 - `enable_cross_run_coverage_lookup`: allow refresh-mode runs to reuse coverage artifacts from prior producer runs on the same head SHA, default `true`
 - `coverage_source_workflows`: optional workflow-name filter for reusable coverage producer runs
 - `coverage_source_conclusions`: allowed producer run conclusions, default `success`
-- `coverage_selection_strategy`: coverage producer selection strategy, default `latest_successful`
+- `coverage_selection_strategy`: controls how a prior producer run is chosen when more than one
+  matching run is available; currently `latest_successful` is supported and selects the newest
+  successful matching producer, default `latest_successful`
 - `fork_behavior`: fork degradation policy, default `best_effort`
 - `force_patch_coverage_section`: render the `# Patch coverage` section even when patch coverage is not actionable, default `false`
 - `prompt_preamble`: optional text inserted near the top of the rendered prompt
