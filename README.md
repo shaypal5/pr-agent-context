@@ -91,7 +91,8 @@ The reusable workflow inputs are:
   pass. `ci` always uses CI behavior, `refresh` always uses refresh behavior, and `auto`
   infers the mode from the triggering event, default `auto`
 - `publish_mode`: controls how managed PR comments are created or updated, default `append`
-  - `append`: always post a new managed comment for each run
+  - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
+    updating an existing one; refresh-mode no-op runs may still skip publishing entirely
   - `update_latest_managed`: update the newest managed comment on the PR, regardless of which
     run lifecycle created it
   - `update_matching`: update the managed comment whose marker matches the current run identity
