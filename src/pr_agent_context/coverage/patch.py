@@ -509,7 +509,7 @@ def _parse_xml_coverage_reports(
             if line_number <= 0:
                 continue
             executable_lines.add(line_number)
-            if int(line_node.get("hits") or 0) > 0:
+            if _xml_line_is_fully_covered(line_node):
                 covered_lines.add(line_number)
 
     parsed = {
@@ -524,6 +524,24 @@ def _parse_xml_coverage_reports(
     debug["source_entries"] = source_entries
     debug["resolution"] = "report_loaded" if parsed else "report_without_measured_files"
     return parsed, debug
+
+
+def _xml_line_is_fully_covered(line_node: ET.Element) -> bool:
+    if int(line_node.get("hits") or 0) <= 0:
+        return False
+
+    if str(line_node.get("branch") or "").lower() != "true":
+        return True
+
+    condition_coverage = str(line_node.get("condition-coverage") or "").strip()
+    if not condition_coverage:
+        return True
+
+    percent_text = condition_coverage.split("%", 1)[0].strip()
+    try:
+        return float(percent_text) >= 100.0
+    except ValueError:
+        return True
 
 
 def _normalize_report_file_path(
