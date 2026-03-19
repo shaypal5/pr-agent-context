@@ -96,16 +96,22 @@ def _coverage_xml_text(
     filename: str,
     covered_lines: list[int],
     uncovered_lines: list[int],
+    source_entries: list[str] | None = None,
 ) -> str:
     line_nodes = "\n".join(
         f'          <line number="{line}" hits="{1 if line in covered_lines else 0}"/>'
         for line in [*covered_lines, *uncovered_lines]
     )
+    if source_entries is None:
+        source_entries = ["src"]
+    source_nodes = "\n".join(
+        f"    <source>{source_entry}</source>" for source_entry in source_entries
+    )
     return (
         '<?xml version="1.0" ?>\n'
         '<coverage version="7.6">\n'
         "  <sources>\n"
-        "    <source>src</source>\n"
+        f"{source_nodes}\n"
         "  </sources>\n"
         "  <packages>\n"
         '    <package name="pkg">\n'
@@ -364,6 +370,43 @@ def test_compute_patch_coverage_from_xml_reports_excludes_changed_tests(tmp_path
     assert all(file_gap.path != "tests/integration/test_scrapers.py" for file_gap in summary.files)
     assert debug["scope_strategy"] == "measured_root_inference"
     assert debug["inferred_source_roots"] == ["src/denbust"]
+
+
+def test_compute_patch_coverage_from_xml_reports_preserves_package_root_from_absolute_source(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "foldermix" / "converters" / "image_ocr.py"
+    _write_file(
+        source_path,
+        "def convert(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="converters/image_ocr.py",
+            covered_lines=[1, 2, 3],
+            uncovered_lines=[4],
+            source_entries=[str((tmp_path / "outside" / "foldermix").resolve())],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"foldermix/converters/image_ocr.py": [1, 2, 3, 4]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is False
+    assert summary.actual_percent == 75
+    assert summary.total_changed_executable_lines == 4
+    assert summary.files[0].path == "foldermix/converters/image_ocr.py"
+    assert summary.files[0].uncovered_changed_executable_lines == [4]
+    assert "foldermix/converters/image_ocr.py" in debug["normalized_report_file_sample"]
+    assert debug["inferred_source_roots"] == ["foldermix"]
 
 
 def test_compute_patch_coverage_from_xml_reports_treats_missing_changed_source_as_uncovered(

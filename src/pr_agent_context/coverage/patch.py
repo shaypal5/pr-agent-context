@@ -542,6 +542,9 @@ def _normalize_report_file_path(
             source_path = Path(source_entry)
             if source_path.is_absolute():
                 candidates.append(source_path / file_path)
+                candidates.extend(
+                    _workspace_source_suffix_candidates(source_path, file_path, workspace)
+                )
             else:
                 candidates.append(workspace / source_path / file_path)
 
@@ -559,6 +562,23 @@ def _normalize_report_file_path(
     if not file_path.is_absolute():
         return normalize_repo_path(file_path.as_posix())
     return None
+
+
+def _workspace_source_suffix_candidates(
+    source_path: Path,
+    file_path: Path,
+    workspace: Path,
+) -> list[Path]:
+    suffix_candidates: list[Path] = []
+    source_parts = source_path.parts
+    # Try mapping absolute XML <source> entries back into the checked-out repo by
+    # preserving the deepest existing repo-relative suffix, such as "foldermix" or "src/pkg".
+    for start_index in range(len(source_parts)):
+        suffix = Path(*source_parts[start_index:])
+        candidate = workspace / suffix / file_path
+        if candidate not in suffix_candidates:
+            suffix_candidates.append(candidate)
+    return suffix_candidates
 
 
 def _infer_measured_source_roots(measured_map: Mapping[str, str]) -> tuple[str, ...]:
