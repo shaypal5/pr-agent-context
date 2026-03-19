@@ -14,7 +14,7 @@ from coverage import Coverage
 
 from conftest import load_json_fixture, load_text_fixture
 from pr_agent_context.config import PullRequestRef, RunConfig
-from pr_agent_context.domain.models import PatchCoverageSummary
+from pr_agent_context.domain.models import FailingCheck, PatchCoverageSummary
 from pr_agent_context.services.run import _write_outputs, run_service
 
 
@@ -1027,6 +1027,153 @@ def test_run_service_does_not_suppress_codecov_without_patch_coverage(
     assert run_service(config, client=client) == 0
 
     assert seen["suppress_codecov_checks"] is False
+
+
+def test_run_service_deduplicates_duplicate_patch_scope_warnings(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": False,
+            "include_patch_coverage": True,
+            "patch_coverage_source_mode": "coverage_xml_artifact",
+            "coverage_report_artifact_name": "coverage-xml",
+        }
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.collect_changed_lines",
+        lambda *_, **__: {"src/pkg/module.py": [1]},
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.resolve_coverage_files",
+        lambda **_: (
+            [tmp_path / "coverage.xml"],
+            {"resolution": "local_current_run_artifacts", "warnings": []},
+        ),
+    )
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.compute_patch_coverage_from_xml_reports",
+        lambda **_: (
+            PatchCoverageSummary(
+                target_percent=100,
+                actual_percent=None,
+                total_changed_executable_lines=0,
+                covered_changed_executable_lines=0,
+                files=[],
+                actionable=False,
+                is_na=True,
+            ),
+            {
+                "measured_file_count": 0,
+                "measured_file_sample": [],
+                "inferred_source_roots": [],
+                "explicit_source": [],
+                "explicit_source_pkgs": [],
+                "scope_strategy": "measured_root_inference",
+                "warnings": ["same warning"],
+                "scope_warnings": ["same warning"],
+            },
+        ),
+    )
+
+    assert run_service(config, client=client) == 0
+
+    coverage_source = json.loads(
+        (config.debug_artifacts_dir / "coverage-source.json").read_text(encoding="utf-8")
+    )
+
+    assert coverage_source["patch_scope_warnings"] == ["same warning"]
+
+
+def test_run_service_renders_known_failures_even_when_settlement_timed_out(
+    tmp_path, issue_comments_payload, monkeypatch
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path).model_copy(
+        update={
+            "include_review_comments": False,
+            "include_failing_checks": True,
+            "include_patch_coverage": False,
+        }
+    )
+
+    def fake_collect_failing_checks(*args, **kwargs):  # noqa: ARG001
+        return (
+            [
+                FailingCheck.model_validate(
+                    {
+                        "source_type": "actions_job",
+                        "workflow_name": "CI",
+                        "job_name": "smoke",
+                        "matrix_label": "ubuntu-latest, 3.12",
+                        "summary": "Smoke failed",
+                        "conclusion": "failure",
+                        "url": "https://example.invalid/jobs/901",
+                        "head_sha": config.pull_request.head_sha,
+                        "is_current_run": True,
+                    }
+                )
+            ],
+            {
+                "settlement": {
+                    "enabled": True,
+                    "settled": False,
+                    "timed_out": True,
+                    "poll_count": 3,
+                    "elapsed_seconds": 3.2,
+                    "pending_count": 1,
+                    "warnings": [],
+                },
+                "deduped_source_counts": {"actions_job": 1},
+                "warnings": [],
+            },
+        )
+
+    monkeypatch.setattr(
+        "pr_agent_context.services.run.collect_failing_checks",
+        fake_collect_failing_checks,
+    )
+
+    assert run_service(config, client=client) == 0
+
+    assert client.created_bodies
+    body = client.created_bodies[0]
+    assert "# Failing Checks" in body
+    assert "smoke" in body
 
 
 def test_run_service_refresh_mode_suppresses_pending_patch_coverage_section(

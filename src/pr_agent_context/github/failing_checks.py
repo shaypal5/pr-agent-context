@@ -93,6 +93,21 @@ def collect_failing_checks(
             "skipped_reason": "no_cross_run_or_external_checks_enabled",
         }
 
+    current_run_failures, action_warnings, current_run_jobs_payloads = (
+        _collect_current_run_actions_failures(
+            client,
+            owner=owner,
+            repo=repo,
+            head_sha=head_sha,
+            current_run_id=current_run_id,
+            current_run_attempt=current_run_attempt,
+            max_actions_jobs=max_actions_jobs,
+            max_log_lines_per_job=max_log_lines_per_job,
+        )
+    )
+    raw_failures.extend(current_run_failures)
+    warnings.extend(action_warnings)
+
     if include_cross_run_failures:
         actions_failures, action_warnings = _collect_actions_failures_for_head_sha(
             client,
@@ -104,21 +119,9 @@ def collect_failing_checks(
             max_actions_runs=max_actions_runs,
             max_actions_jobs=max_actions_jobs,
             max_log_lines_per_job=max_log_lines_per_job,
+            current_run_jobs_payloads=current_run_jobs_payloads,
         )
         raw_failures.extend(actions_failures)
-        warnings.extend(action_warnings)
-    else:
-        current_run_failures, action_warnings = _collect_current_run_actions_failures(
-            client,
-            owner=owner,
-            repo=repo,
-            head_sha=head_sha,
-            current_run_id=current_run_id,
-            current_run_attempt=current_run_attempt,
-            max_actions_jobs=max_actions_jobs,
-            max_log_lines_per_job=max_log_lines_per_job,
-        )
-        raw_failures.extend(current_run_failures)
         warnings.extend(action_warnings)
 
     external_failures: list[FailingCheck] = []
@@ -149,6 +152,10 @@ def collect_failing_checks(
     raw_failures.extend(external_failures)
     deduped_failures = dedupe_failing_checks(raw_failures, max_items=max_failing_checks)
     source_counts = _count_by_source(deduped_failures)
+    settlement = {
+        **settlement,
+        "failures_observed_after_timeout": bool(settlement["timed_out"] and deduped_failures),
+    }
 
     debug = {
         "raw_failures": [failure.model_dump(mode="json") for failure in raw_failures],
@@ -378,7 +385,7 @@ def _collect_current_run_actions_failures(
     current_run_attempt: int,
     max_actions_jobs: int,
     max_log_lines_per_job: int,
-) -> tuple[list[FailingCheck], list[str]]:
+) -> tuple[list[FailingCheck], list[str], list[dict[str, object]]]:
     warnings: list[str] = []
     jobs_payloads = _fetch_run_jobs(
         client,
@@ -407,11 +414,12 @@ def _collect_current_run_actions_failures(
             current_run_id=current_run_id,
             current_run_attempt=current_run_attempt,
             max_log_lines_per_job=max_log_lines_per_job,
+            download_logs=True,
         )
         for raw_job in jobs_payloads
         if str(raw_job.get("conclusion") or "") in FAILED_JOB_CONCLUSIONS
     ]
-    return sorted(failures, key=failing_check_sort_key)[:max_actions_jobs], warnings
+    return sorted(failures, key=failing_check_sort_key)[:max_actions_jobs], warnings, jobs_payloads
 
 
 def _collect_actions_failures_for_head_sha(
@@ -425,6 +433,7 @@ def _collect_actions_failures_for_head_sha(
     max_actions_runs: int,
     max_actions_jobs: int,
     max_log_lines_per_job: int,
+    current_run_jobs_payloads: list[dict[str, object]] | None = None,
 ) -> tuple[list[FailingCheck], list[str]]:
     warnings: list[str] = []
     runs = _fetch_workflow_runs_for_head_sha(
@@ -444,14 +453,19 @@ def _collect_actions_failures_for_head_sha(
         observed_at = _parse_timestamp(
             str(run.get("updated_at") or run.get("run_started_at") or run.get("created_at") or "")
         )
-        jobs = _fetch_run_jobs(
-            client,
-            owner=owner,
-            repo=repo,
-            run_id=run_id,
-            run_attempt=run_attempt,
-            warnings=warnings,
-        )
+        is_current_run = run_id == current_run_id and run_attempt == current_run_attempt
+        conclusion = str(run.get("conclusion") or "")
+        if is_current_run and current_run_jobs_payloads is not None:
+            jobs = current_run_jobs_payloads
+        else:
+            jobs = _fetch_run_jobs(
+                client,
+                owner=owner,
+                repo=repo,
+                run_id=run_id,
+                run_attempt=run_attempt,
+                warnings=warnings,
+            )
 
         if jobs:
             for raw_job in jobs:
@@ -466,17 +480,17 @@ def _collect_actions_failures_for_head_sha(
                         current_run_id=current_run_id,
                         current_run_attempt=current_run_attempt,
                         max_log_lines_per_job=max_log_lines_per_job,
+                        download_logs=not is_current_run,
                     )
                 )
             continue
 
-        conclusion = str(run.get("conclusion") or "")
         if conclusion in FAILED_CHECK_CONCLUSIONS:
             run_level_failures.append(
                 _normalize_actions_run_failure(
                     run,
                     head_sha=head_sha,
-                    is_current_run=run_id == current_run_id and run_attempt == current_run_attempt,
+                    is_current_run=False,
                     summary="Workflow run failed, but job details were unavailable.",
                     observed_at=observed_at,
                 )
@@ -723,6 +737,7 @@ def _normalize_actions_job(
     current_run_id: int,
     current_run_attempt: int,
     max_log_lines_per_job: int,
+    download_logs: bool = True,
 ) -> FailingCheck:
     run_id = int(run["id"])
     run_attempt = int(run.get("run_attempt") or 1)
@@ -730,7 +745,7 @@ def _normalize_actions_job(
     log_bytes = b""
     excerpt_lines: list[str] = []
     logs_available = False
-    if str(raw_job.get("conclusion") or "") in FAILED_JOB_CONCLUSIONS:
+    if download_logs and str(raw_job.get("conclusion") or "") in FAILED_JOB_CONCLUSIONS:
         try:
             log_bytes = client.request_bytes(
                 "GET",
