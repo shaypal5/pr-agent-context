@@ -102,7 +102,8 @@ def _coverage_xml_text(
         f'          <line number="{line}" hits="{1 if line in covered_lines else 0}"/>'
         for line in [*covered_lines, *uncovered_lines]
     )
-    source_entries = source_entries or ["src"]
+    if source_entries is None:
+        source_entries = ["src"]
     source_nodes = "\n".join(
         f"    <source>{source_entry}</source>" for source_entry in source_entries
     )
