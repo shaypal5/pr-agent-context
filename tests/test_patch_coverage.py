@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from pr_agent_context.coverage.patch import (
     _normalize_compare_path,
     _normalize_report_file_path,
     _parse_xml_coverage_reports,
+    _xml_line_is_fully_covered,
     compute_patch_coverage,
     compute_patch_coverage_from_xml_reports,
     describe_patch_coverage_scope,
@@ -96,12 +98,21 @@ def _coverage_xml_text(
     filename: str,
     covered_lines: list[int],
     uncovered_lines: list[int],
+    partial_lines: list[int] | None = None,
     source_entries: list[str] | None = None,
 ) -> str:
-    line_nodes = "\n".join(
-        f'          <line number="{line}" hits="{1 if line in covered_lines else 0}"/>'
-        for line in [*covered_lines, *uncovered_lines]
-    )
+    partial_lines = partial_lines or []
+    line_nodes_list: list[str] = []
+    for line in covered_lines:
+        line_nodes_list.append(f'          <line number="{line}" hits="1"/>')
+    for line in uncovered_lines:
+        line_nodes_list.append(f'          <line number="{line}" hits="0"/>')
+    for line in partial_lines:
+        line_nodes_list.append(
+            f'          <line number="{line}" hits="1" branch="true" '
+            'condition-coverage="50% (1/2)" missing-branches="next"/>'
+        )
+    line_nodes = "\n".join(line_nodes_list)
     if source_entries is None:
         source_entries = ["src"]
     source_nodes = "\n".join(
@@ -407,6 +418,60 @@ def test_compute_patch_coverage_from_xml_reports_preserves_package_root_from_abs
     assert summary.files[0].uncovered_changed_executable_lines == [4]
     assert "foldermix/converters/image_ocr.py" in debug["normalized_report_file_sample"]
     assert debug["inferred_source_roots"] == ["foldermix"]
+
+
+def test_compute_patch_coverage_from_xml_reports_treats_partial_branch_lines_as_uncovered(
+    tmp_path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source_path = repo / "foldermix" / "converters" / "image_ocr.py"
+    _write_file(
+        source_path,
+        "def convert(flag):\n"
+        "    if flag:\n"
+        "        return 1\n"
+        "    return 2\n",
+    )
+    report_file = tmp_path / "coverage.xml"
+    report_file.write_text(
+        _coverage_xml_text(
+            filename="converters/image_ocr.py",
+            covered_lines=[1, 3],
+            uncovered_lines=[4],
+            partial_lines=[2],
+            source_entries=[str((tmp_path / "outside" / "foldermix").resolve())],
+        ),
+        encoding="utf-8",
+    )
+
+    summary, _debug = compute_patch_coverage_from_xml_reports(
+        workspace=repo,
+        changed_lines_by_file={"foldermix/converters/image_ocr.py": [1, 2, 3, 4]},
+        report_files=[report_file],
+        target_percent=100,
+    )
+
+    assert summary.is_na is False
+    assert summary.actual_percent == 50
+    assert summary.total_changed_executable_lines == 4
+    assert summary.covered_changed_executable_lines == 2
+    assert summary.files[0].path == "foldermix/converters/image_ocr.py"
+    assert summary.files[0].uncovered_changed_executable_lines == [2, 4]
+
+
+def test_xml_line_is_fully_covered_allows_branch_lines_without_condition_coverage():
+    line_node = ET.fromstring('<line number="10" hits="1" branch="true"/>')
+
+    assert _xml_line_is_fully_covered(line_node) is True
+
+
+def test_xml_line_is_fully_covered_tolerates_unparseable_condition_coverage():
+    line_node = ET.fromstring(
+        '<line number="10" hits="1" branch="true" condition-coverage="maybe"/>'
+    )
+
+    assert _xml_line_is_fully_covered(line_node) is True
 
 
 def test_compute_patch_coverage_from_xml_reports_treats_missing_changed_source_as_uncovered(
