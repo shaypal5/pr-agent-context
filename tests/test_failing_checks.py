@@ -117,6 +117,8 @@ class FakeForbiddenActionsRunsClient:
         assert method == "GET"
         if path.endswith("/actions/runs"):
             raise GitHubApiError(403, "Forbidden", "Resource not accessible by integration")
+        if path.endswith("/jobs"):
+            raise GitHubApiError(403, "Forbidden", "Resource not accessible by integration")
         raise AssertionError(f"Unexpected request_json call: {path}")
 
     def request_bytes(self, method, path, params=None, extra_headers=None):
@@ -313,6 +315,8 @@ class FakeSettlingChecksClient:
         if path.endswith("/actions/runs"):
             self.run_poll_count += 1
             return {"workflow_runs": []}
+        if path.endswith("/jobs"):
+            return {"jobs": []}
         if path.endswith("/check-runs"):
             self.check_run_poll_count += 1
             if self.check_run_poll_count < 3:
@@ -350,6 +354,8 @@ class FakeNeverSettledChecksClient:
         assert method == "GET"
         if path.endswith("/actions/runs"):
             return {"workflow_runs": []}
+        if path.endswith("/jobs"):
+            return {"jobs": []}
         if path.endswith("/check-runs"):
             self.check_run_poll_count += 1
             return {
@@ -368,6 +374,65 @@ class FakeNeverSettledChecksClient:
         raise AssertionError(f"Unexpected request_json call: {path}")
 
     def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
+class FakeTimedOutCurrentRunFailuresClient:
+    def __init__(self) -> None:
+        self.check_run_poll_count = 0
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 9,
+                        "run_attempt": 1,
+                        "run_number": 17,
+                        "name": "CI",
+                        "display_title": "pull request checks",
+                        "status": "in_progress",
+                        "conclusion": None,
+                        "updated_at": "2026-03-19T09:45:00Z",
+                        "created_at": "2026-03-19T09:44:00Z",
+                    }
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            return {
+                "jobs": [
+                    {
+                        "id": 901,
+                        "name": "smoke (ubuntu-latest, 3.12)",
+                        "workflow_name": "CI",
+                        "conclusion": "failure",
+                        "html_url": "https://example.invalid/runs/9/jobs/901",
+                        "completed_at": "2026-03-19T09:44:20Z",
+                        "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+                    },
+                    {
+                        "id": 902,
+                        "name": "pr-agent-context",
+                        "workflow_name": "CI",
+                        "conclusion": None,
+                        "html_url": "https://example.invalid/runs/9/jobs/902",
+                        "completed_at": None,
+                        "steps": [],
+                    },
+                ]
+            }
+        if path.endswith("/check-runs"):
+            self.check_run_poll_count += 1
+            return {"check_runs": []}
+        if path.endswith("/status"):
+            return {"statuses": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/901/logs"):
+            return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
         raise AssertionError(f"Unexpected request_bytes call: {path}")
 
 
@@ -649,6 +714,44 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
     assert debug["settlement"]["timed_out"] is True
     assert debug["settlement"]["pending_count"] == 1
     assert client.check_run_poll_count >= 3
+
+
+def test_collect_failing_checks_preserves_current_run_failures_after_timeout(monkeypatch):
+    client = FakeTimedOutCurrentRunFailuresClient()
+    monotonic_values = iter([0.0, 0.1, 1.0, 1.1, 2.0, 2.1, 3.1, 3.2])
+
+    monkeypatch.setattr(failing_checks_module, "_sleep", lambda _: None)
+    monkeypatch.setattr(failing_checks_module, "_monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        failing_checks_module,
+        "_minimum_check_settle_wait_seconds",
+        lambda **_: 1,
+    )
+
+    failures, debug = collect_failing_checks(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=9,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=True,
+        wait_for_checks_to_settle=True,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=3,
+        check_settle_poll_interval_seconds=1,
+    )
+
+    assert [failure.job_name for failure in failures] == ["smoke"]
+    assert failures[0].matrix_label == "ubuntu-latest, 3.12"
+    assert failures[0].is_current_run is True
+    assert debug["settlement"]["timed_out"] is True
+    assert debug["settlement"]["failures_observed_after_timeout"] is True
 
 
 def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():

@@ -15,6 +15,7 @@ from pr_agent_context.domain.models import (
 from pr_agent_context.prompt import render as render_module
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
 from pr_agent_context.prompt.render import (
+    _capitalize_first,
     _format_location,
     _indent_block,
     _render_failing_check,
@@ -722,6 +723,10 @@ def test_render_prompt_handles_actionable_patch_without_file_gaps():
     )
     assert rendered.has_actionable_items is True
     assert rendered.should_publish_comment is True
+
+
+def test_capitalize_first_returns_empty_string_for_empty_text():
+    assert _capitalize_first("") == ""
 
 
 def test_render_prompt_supports_custom_template_file(tmp_path):

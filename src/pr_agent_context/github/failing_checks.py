@@ -93,6 +93,19 @@ def collect_failing_checks(
             "skipped_reason": "no_cross_run_or_external_checks_enabled",
         }
 
+    current_run_failures, action_warnings = _collect_current_run_actions_failures(
+        client,
+        owner=owner,
+        repo=repo,
+        head_sha=head_sha,
+        current_run_id=current_run_id,
+        current_run_attempt=current_run_attempt,
+        max_actions_jobs=max_actions_jobs,
+        max_log_lines_per_job=max_log_lines_per_job,
+    )
+    raw_failures.extend(current_run_failures)
+    warnings.extend(action_warnings)
+
     if include_cross_run_failures:
         actions_failures, action_warnings = _collect_actions_failures_for_head_sha(
             client,
@@ -106,19 +119,6 @@ def collect_failing_checks(
             max_log_lines_per_job=max_log_lines_per_job,
         )
         raw_failures.extend(actions_failures)
-        warnings.extend(action_warnings)
-    else:
-        current_run_failures, action_warnings = _collect_current_run_actions_failures(
-            client,
-            owner=owner,
-            repo=repo,
-            head_sha=head_sha,
-            current_run_id=current_run_id,
-            current_run_attempt=current_run_attempt,
-            max_actions_jobs=max_actions_jobs,
-            max_log_lines_per_job=max_log_lines_per_job,
-        )
-        raw_failures.extend(current_run_failures)
         warnings.extend(action_warnings)
 
     external_failures: list[FailingCheck] = []
@@ -149,6 +149,10 @@ def collect_failing_checks(
     raw_failures.extend(external_failures)
     deduped_failures = dedupe_failing_checks(raw_failures, max_items=max_failing_checks)
     source_counts = _count_by_source(deduped_failures)
+    settlement = {
+        **settlement,
+        "failures_observed_after_timeout": bool(settlement["timed_out"] and deduped_failures),
+    }
 
     debug = {
         "raw_failures": [failure.model_dump(mode="json") for failure in raw_failures],

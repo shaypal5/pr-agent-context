@@ -21,6 +21,7 @@ from pr_agent_context.config import (
     _parse_percent_like_value,
     _parse_publish_mode,
     _resolve_execution_mode,
+    _resolve_target_patch_coverage,
     load_pull_request_context_from_env,
     load_trigger_context_from_env,
     parse_bool_env,
@@ -513,6 +514,30 @@ def test_extract_codecov_patch_target_prefers_default_then_named_entries():
         _extract_codecov_patch_target({"coverage": {"status": {"patch": {"target": "auto"}}}})
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        {},
+        {"coverage": None},
+        {"coverage": {"status": None}},
+        {"coverage": {"status": {"patch": None}}},
+    ],
+)
+def test_extract_codecov_patch_target_returns_none_for_invalid_shapes(payload):
+    assert _extract_codecov_patch_target(payload) is None
+
+
+def test_parse_percent_like_value_rejects_non_string_objects():
+    assert _parse_percent_like_value({}) is None
+
+
+def test_resolve_target_patch_coverage_ignores_unreadable_codecov_file(tmp_path):
+    (tmp_path / ".codecov.yml").write_text(": [\n", encoding="utf-8")
+
+    assert _resolve_target_patch_coverage({}, workspace=tmp_path) == 100.0
 
 
 def test_load_pull_request_context_from_env(tmp_path):
