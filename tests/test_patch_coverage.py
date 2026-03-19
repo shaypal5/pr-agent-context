@@ -428,10 +428,7 @@ def test_compute_patch_coverage_from_xml_reports_treats_partial_branch_lines_as_
     source_path = repo / "foldermix" / "converters" / "image_ocr.py"
     _write_file(
         source_path,
-        "def convert(flag):\n"
-        "    if flag:\n"
-        "        return 1\n"
-        "    return 2\n",
+        "def convert(flag):\n    if flag:\n        return 1\n    return 2\n",
     )
     report_file = tmp_path / "coverage.xml"
     report_file.write_text(
