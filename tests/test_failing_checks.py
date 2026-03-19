@@ -1141,6 +1141,66 @@ class FakeSuccessfulRunWithoutJobsClient:
         raise AssertionError(f"Unexpected request_json call: {path}")
 
 
+class FakeCurrentRunListedAmongCompletedRunsClient:
+    def __init__(self) -> None:
+        self.job_fetches: list[tuple[int, int]] = []
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 101,
+                        "run_attempt": 2,
+                        "run_number": 11,
+                        "name": "CI",
+                        "display_title": "current run",
+                        "conclusion": "success",
+                        "updated_at": "2026-03-08T12:20:00Z",
+                        "created_at": "2026-03-08T12:20:00Z",
+                        "html_url": "https://example.invalid/runs/101",
+                    },
+                    {
+                        "id": 88,
+                        "run_attempt": 1,
+                        "run_number": 10,
+                        "name": "CI",
+                        "display_title": "other run",
+                        "conclusion": "failure",
+                        "updated_at": "2026-03-08T12:10:00Z",
+                        "created_at": "2026-03-08T12:10:00Z",
+                        "html_url": "https://example.invalid/runs/88",
+                    },
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            parts = path.split("/")
+            run_id = int(parts[-4])
+            run_attempt = int(parts[-2])
+            self.job_fetches.append((run_id, run_attempt))
+            if (run_id, run_attempt) == (101, 2):
+                raise AssertionError("current run jobs should not be fetched twice")
+            return {
+                "jobs": [
+                    {
+                        "id": 8801,
+                        "name": "smoke (ubuntu-latest, 3.12)",
+                        "workflow_name": "CI",
+                        "conclusion": "failure",
+                        "html_url": "https://example.invalid/jobs/8801",
+                        "completed_at": "2026-03-08T12:10:00Z",
+                        "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        assert method == "GET"
+        return _zip_bytes(load_text_fixture("github/logs/pytest_failure.log"))
+
+
 def test_wait_for_check_settlement_repolls_without_sleep_when_poll_interval_is_zero(monkeypatch):
     snapshots = iter(
         [
@@ -1315,6 +1375,38 @@ def test_collect_actions_failures_for_head_sha_ignores_successful_runs_without_j
 
     assert failures == []
     assert warnings == []
+
+
+def test_collect_actions_failures_for_head_sha_skips_current_run_when_already_known():
+    client = FakeCurrentRunListedAmongCompletedRunsClient()
+    current_run_jobs_payloads = [
+        {
+            "id": 10101,
+            "name": "smoke (ubuntu-latest, 3.12)",
+            "workflow_name": "CI",
+            "conclusion": "success",
+            "html_url": "https://example.invalid/jobs/10101",
+            "completed_at": "2026-03-08T12:20:00Z",
+            "steps": [{"name": "Run pytest", "conclusion": "success"}],
+        }
+    ]
+
+    failures, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
+        client,
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=101,
+        current_run_attempt=2,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_log_lines_per_job=6,
+        current_run_jobs_payloads=current_run_jobs_payloads,
+    )
+
+    assert warnings == []
+    assert failures == []
+    assert client.job_fetches == [(88, 1)]
 
 
 def test_collect_external_check_runs_returns_empty_when_limit_is_zero():
