@@ -64,6 +64,46 @@ def test_parse_review_threads_supports_custom_copilot_matchers():
     assert threads[0].sort_key == 99
 
 
+def test_parse_review_threads_matches_copilot_login_without_bot_suffix():
+    nodes = [
+        {
+            "id": "PRRT_copilot_variant_1",
+            "isResolved": False,
+            "isOutdated": False,
+            "path": "src/example.py",
+            "line": 10,
+            "startLine": None,
+            "originalLine": 10,
+            "comments": {
+                "nodes": [
+                    {
+                        "databaseId": 101,
+                        "body": "body",
+                        "createdAt": "2026-03-24T08:52:35Z",
+                        "updatedAt": "2026-03-24T08:52:35Z",
+                        "url": "https://example.invalid",
+                        "author": {
+                            "login": "copilot-pull-request-reviewer",
+                            "__typename": "Bot",
+                        },
+                    }
+                ]
+            },
+        }
+    ]
+
+    threads = parse_review_threads(
+        nodes,
+        copilot_matcher=CopilotAuthorMatcherConfig(
+            exact_logins=("copilot-pull-request-reviewer[bot]",),
+            regex_patterns=("copilot.*bot",),
+        ),
+    )
+
+    assert threads[0].classifier == "copilot"
+    assert threads[0].messages[0].author_login == "copilot-pull-request-reviewer"
+
+
 def test_assign_item_ids_preserves_numeric_order_for_legacy_int_thread_ids():
     numbered_threads, _ = assign_item_ids(
         [

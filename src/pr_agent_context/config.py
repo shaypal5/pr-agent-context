@@ -199,11 +199,26 @@ class CopilotAuthorMatcherConfig(BaseModel):
     regex_patterns: tuple[str, ...] = ()
 
     def matches(self, author_login: str) -> bool:
-        if author_login in self.exact_logins:
+        candidate_logins = _build_login_match_candidates(author_login)
+        exact_logins = {
+            candidate
+            for configured_login in self.exact_logins
+            for candidate in _build_login_match_candidates(configured_login)
+        }
+        if any(candidate in exact_logins for candidate in candidate_logins):
             return True
         return any(
-            re.search(pattern, author_login, re.IGNORECASE) for pattern in self.regex_patterns
+            re.search(pattern, candidate, re.IGNORECASE)
+            for pattern in self.regex_patterns
+            for candidate in candidate_logins
         )
+
+
+def _build_login_match_candidates(author_login: str) -> tuple[str, ...]:
+    normalized = author_login.strip()
+    if normalized.endswith("[bot]"):
+        return (normalized, normalized[:-5])
+    return (normalized,)
 
 
 class RunConfig(BaseModel):
