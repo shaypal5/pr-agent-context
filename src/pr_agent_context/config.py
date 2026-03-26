@@ -251,6 +251,7 @@ class RunConfig(BaseModel):
     wait_for_checks_to_settle: bool = True
     wait_for_reviews_to_settle: bool = False
     publish_all_clear_comments_in_refresh: bool = DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH
+    hide_previous_managed_comments_on_append: bool = True
     include_patch_coverage: bool = True
     enable_cross_run_coverage_lookup: bool = True
     force_patch_coverage_section: bool = False
@@ -386,6 +387,10 @@ class RunConfig(BaseModel):
             publish_all_clear_comments_in_refresh=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH"),
                 default=DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH,
+            ),
+            hide_previous_managed_comments_on_append=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND"),
+                default=True,
             ),
             include_patch_coverage=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_PATCH_COVERAGE"),

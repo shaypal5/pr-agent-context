@@ -75,6 +75,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         wait_for_checks_to_settle=config.wait_for_checks_to_settle,
         wait_for_reviews_to_settle=config.wait_for_reviews_to_settle,
         publish_all_clear_comments_in_refresh=config.publish_all_clear_comments_in_refresh,
+        hide_previous_managed_comments_on_append=config.hide_previous_managed_comments_on_append,
         include_patch_coverage=config.include_patch_coverage,
         patch_coverage_source_mode=config.patch_coverage_source_mode,
         coverage_report_artifact_name=config.coverage_report_artifact_name,
@@ -388,6 +389,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         body=rendered.comment_body if rendered.should_publish_comment else None,
         delete_comment_when_empty=config.delete_comment_when_empty,
         skip_comment_on_readonly_token=config.skip_comment_on_readonly_token,
+        hide_previous_managed_comments_on_append=config.hide_previous_managed_comments_on_append,
     )
     _log(
         "comment_sync",
@@ -404,6 +406,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         matched_comment_run_attempt=publication.matched_comment_run_attempt or "",
         skipped_reason=publication.skipped_reason or "",
         error_status_code=publication.error_status_code or "",
+        hidden_comment_count=len(publication.sync_debug.get("hidden_comment_ids", [])),
+        hide_error_count=len(publication.sync_debug.get("hide_errors", [])),
     )
     if rendered.has_actionable_items:
         print(rendered.prompt_markdown)

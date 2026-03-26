@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from typing import Any
 
 from pr_agent_context.domain.models import ManagedComment, ManagedCommentIdentity, PublicationResult
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
 from pr_agent_context.github.comment_markers import parse_managed_comment_marker
+
+MINIMIZE_COMMENT_MUTATION = """
+mutation MinimizeComment($subjectId: ID!, $classifier: ReportedContentClassifiers!) {
+  minimizeComment(input: {subjectId: $subjectId, classifier: $classifier}) {
+    minimizedComment {
+      isMinimized
+    }
+  }
+}
+"""
 
 
 def list_issue_comments(
@@ -36,6 +47,7 @@ def normalize_issue_comment(raw_comment: dict[str, object]) -> ManagedComment:
     body = str(raw_comment.get("body") or "")
     return ManagedComment(
         comment_id=int(raw_comment["id"]),
+        node_id=str(raw_comment.get("node_id") or "") or None,
         author_login=str(user.get("login") or "unknown"),
         author_type=str(user.get("type")) if user.get("type") else None,
         body=body,
@@ -63,6 +75,7 @@ def sync_managed_comment(
     body: str | None,
     delete_comment_when_empty: bool,
     skip_comment_on_readonly_token: bool,
+    hide_previous_managed_comments_on_append: bool = True,
 ) -> PublicationResult:
     generated_at = generated_at or datetime.now(timezone.utc).isoformat()
     current_identity = ManagedCommentIdentity(
@@ -118,6 +131,12 @@ def sync_managed_comment(
             publish_mode=publish_mode,
             primary_comment=primary_comment,
         ),
+        "hide_enabled": publish_mode == "append" and hide_previous_managed_comments_on_append,
+        "hide_classifier": "OUTDATED",
+        "hidden_comment_ids": [],
+        "hidden_comment_node_ids": [],
+        "hide_skipped_comment_ids": [],
+        "hide_errors": [],
     }
 
     try:
@@ -193,6 +212,12 @@ def sync_managed_comment(
                 payload={"body": body},
             )
             normalized = normalize_issue_comment(created)
+            hide_debug = _hide_previous_managed_comments(
+                client,
+                managed_comments=managed_comments,
+                newly_created_comment=normalized,
+                enabled=publish_mode == "append" and hide_previous_managed_comments_on_append,
+            )
             return PublicationResult(
                 comment_id=normalized.comment_id,
                 comment_url=normalized.url,
@@ -212,6 +237,7 @@ def sync_managed_comment(
                     **sync_debug,
                     "action": "created",
                     "created_comment_id": normalized.comment_id,
+                    **hide_debug,
                 },
             )
 
@@ -399,3 +425,58 @@ def _matching_scoped_comments(
 
 def _is_bot_author(author_login: str, author_type: str | None) -> bool:
     return author_type == "Bot" or author_login.endswith("[bot]")
+
+
+def _hide_previous_managed_comments(
+    client: GitHubApiClient,
+    *,
+    managed_comments: list[ManagedComment],
+    newly_created_comment: ManagedComment,
+    enabled: bool,
+) -> dict[str, Any]:
+    debug: dict[str, Any] = {
+        "hide_enabled": enabled,
+        "hide_classifier": "OUTDATED",
+        "hidden_comment_ids": [],
+        "hidden_comment_node_ids": [],
+        "hide_skipped_comment_ids": [],
+        "hide_errors": [],
+    }
+    if not enabled:
+        return debug
+
+    for comment in managed_comments:
+        if comment.comment_id == newly_created_comment.comment_id:
+            continue
+        if not comment.node_id:
+            debug["hide_skipped_comment_ids"].append(comment.comment_id)
+            continue
+        try:
+            client.graphql(
+                MINIMIZE_COMMENT_MUTATION,
+                {
+                    "subjectId": comment.node_id,
+                    "classifier": "OUTDATED",
+                },
+            )
+            debug["hidden_comment_ids"].append(comment.comment_id)
+            debug["hidden_comment_node_ids"].append(comment.node_id)
+        except GitHubApiError as error:
+            debug["hide_errors"].append(
+                {
+                    "comment_id": comment.comment_id,
+                    "node_id": comment.node_id,
+                    "status_code": error.status_code,
+                    "message": error.message,
+                }
+            )
+        except Exception as error:  # pragma: no cover - defensive fallback
+            debug["hide_errors"].append(
+                {
+                    "comment_id": comment.comment_id,
+                    "node_id": comment.node_id,
+                    "status_code": None,
+                    "message": str(error),
+                }
+            )
+    return debug

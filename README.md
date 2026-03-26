@@ -21,6 +21,7 @@ Current behavior includes:
 - deterministic prompt rendering with stable item IDs
 - refresh-capable execution for CI producer runs and later PR lifecycle events
 - append-first managed PR comments with optional update modes
+- automatic hiding of superseded managed comments after append-mode publishes
 - cross-run coverage artifact reuse for refresh invocations on the same PR head SHA
 
 By default, each invocation writes a new managed comment. The tool can also be configured to
@@ -92,7 +93,8 @@ The reusable workflow inputs are:
   infers the mode from the triggering event, default `auto`
 - `publish_mode`: controls how managed PR comments are created or updated, default `append`
   - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
-    updating an existing one; refresh-mode no-op runs may still skip publishing entirely
+    updating an existing one; by default, older `pr-agent-context` managed comments on the same
+    PR are then hidden as `OUTDATED`; refresh-mode no-op runs may still skip publishing entirely
   - `update_latest_managed`: update the newest managed comment on the PR, regardless of which
     run lifecycle created it
   - `update_matching`: update the managed comment whose marker matches the current run identity
@@ -100,6 +102,8 @@ The reusable workflow inputs are:
     (`ci` vs `refresh`); this is the recommended refresh-mode setting because it avoids touching
     the CI comment
 - `publish_all_clear_comments_in_refresh`: in refresh mode, still publish no-op all-clear comments, default `false`
+- `hide_previous_managed_comments_on_append`: in append mode, hide older `pr-agent-context`
+  managed comments on the same PR after posting the new one, default `true`
 - `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`
 - `include_review_comments`: include unresolved PR review threads, default `true`
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
@@ -255,6 +259,9 @@ jobs:
       execution_mode: refresh
       publish_mode: update_latest_scoped
       publish_all_clear_comments_in_refresh: false
+      # Optional: disable the default append-mode hiding behavior if you prefer
+      # older managed comments to remain visible.
+      # hide_previous_managed_comments_on_append: false
       enable_cross_run_coverage_lookup: true
       wait_for_reviews_to_settle: true
       coverage_artifact_prefix: pr-agent-context-coverage
