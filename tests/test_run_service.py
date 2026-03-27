@@ -40,9 +40,6 @@ class FakeGitHubClient:
         self.deleted_ids: list[int] = []
         self.minimized_comment_node_ids: list[str] = []
 
-    def graphql(self, query, variables):
-        return self.review_threads_payload["data"]
-
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == "GET" and path.endswith("/actions/runs"):
             return self.workflow_runs_payload
