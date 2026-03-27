@@ -18,6 +18,17 @@ mutation MinimizeComment($subjectId: ID!, $classifier: ReportedContentClassifier
 }
 """
 
+COMMENT_MINIMIZATION_STATES_QUERY = """
+query CommentMinimizationStates($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    ... on IssueComment {
+      id
+      isMinimized
+    }
+  }
+}
+"""
+
 
 def list_issue_comments(
     client: GitHubApiClient,
@@ -48,6 +59,11 @@ def normalize_issue_comment(raw_comment: dict[str, object]) -> ManagedComment:
     return ManagedComment(
         comment_id=int(raw_comment["id"]),
         node_id=str(raw_comment.get("node_id") or "") or None,
+        is_minimized=(
+            bool(raw_comment.get("is_minimized"))
+            if raw_comment.get("is_minimized") is not None
+            else None
+        ),
         author_login=str(user.get("login") or "unknown"),
         author_type=str(user.get("type")) if user.get("type") else None,
         body=body,
@@ -212,11 +228,29 @@ def sync_managed_comment(
                 payload={"body": body},
             )
             normalized = normalize_issue_comment(created)
+            hide_enabled = publish_mode == "append" and hide_previous_managed_comments_on_append
+            managed_comments_for_hide = managed_comments
+            if hide_enabled:
+                managed_comments_for_hide = sorted(
+                    managed_comments_only(
+                        list_issue_comments(
+                            client,
+                            owner=owner,
+                            repo=repo,
+                            pull_request_number=pull_request_number,
+                        )
+                    ),
+                    key=lambda comment: comment.comment_id,
+                )
+                managed_comments_for_hide = hydrate_comment_minimization_states(
+                    client,
+                    managed_comments_for_hide,
+                )
             hide_debug = _hide_previous_managed_comments(
                 client,
-                managed_comments=managed_comments,
+                managed_comments=managed_comments_for_hide,
                 newly_created_comment=normalized,
-                enabled=publish_mode == "append" and hide_previous_managed_comments_on_append,
+                enabled=hide_enabled,
             )
             return PublicationResult(
                 comment_id=normalized.comment_id,
@@ -427,6 +461,28 @@ def _is_bot_author(author_login: str, author_type: str | None) -> bool:
     return author_type == "Bot" or author_login.endswith("[bot]")
 
 
+def hydrate_comment_minimization_states(
+    client: GitHubApiClient,
+    comments: list[ManagedComment],
+) -> list[ManagedComment]:
+    node_ids = [comment.node_id for comment in comments if comment.node_id]
+    if not node_ids:
+        return comments
+
+    response = client.graphql(COMMENT_MINIMIZATION_STATES_QUERY, {"ids": node_ids})
+    states_by_node_id = {
+        node["id"]: bool(node.get("isMinimized"))
+        for node in response.get("nodes", [])
+        if isinstance(node, dict) and node.get("id")
+    }
+    return [
+        comment.model_copy(
+            update={"is_minimized": states_by_node_id.get(comment.node_id, comment.is_minimized)}
+        )
+        for comment in comments
+    ]
+
+
 def _hide_previous_managed_comments(
     client: GitHubApiClient,
     *,
@@ -449,6 +505,9 @@ def _hide_previous_managed_comments(
         if comment.comment_id == newly_created_comment.comment_id:
             continue
         if not comment.node_id:
+            debug["hide_skipped_comment_ids"].append(comment.comment_id)
+            continue
+        if comment.is_minimized:
             debug["hide_skipped_comment_ids"].append(comment.comment_id)
             continue
         try:
