@@ -75,7 +75,7 @@ Excerpt:
 Run metadata:
 ```
 Tool ref: v4
-Tool version: 4.0.12
+Tool version: 4.0.13
 Trigger: pull request updated
 Workflow run: 0 attempt 1
 Comment timestamp: unknown
