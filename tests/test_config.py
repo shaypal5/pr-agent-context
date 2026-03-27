@@ -86,6 +86,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_DELETE_COMMENT_WHEN_EMPTY": "false",
             "PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN": "true",
             "PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH": "true",
+            "PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND": "false",
             "PR_AGENT_CONTEXT_PUBLISH_MODE": "update_latest_scoped",
             "PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR": str(coverage_dir),
         }
@@ -130,6 +131,7 @@ def test_run_config_from_env(tmp_path):
     assert config.delete_comment_when_empty is False
     assert config.skip_comment_on_readonly_token is True
     assert config.publish_all_clear_comments_in_refresh is True
+    assert config.hide_previous_managed_comments_on_append is False
     assert config.publish_mode == "update_latest_scoped"
     assert config.coverage_artifacts_dir == coverage_dir
     assert config.debug_artifacts_dir == tmp_path / "pr-agent-context-debug"
@@ -162,6 +164,7 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
     )
 
     assert config.publish_all_clear_comments_in_refresh is False
+    assert config.hide_previous_managed_comments_on_append is True
     assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
     assert config.coverage_report_filename == "coverage.xml"
     assert config.target_patch_coverage == 100.0

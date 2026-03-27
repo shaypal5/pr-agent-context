@@ -103,6 +103,9 @@ def _handle_run_failure(error: Exception, *, config: RunConfig | None) -> None:
                 body=body,
                 delete_comment_when_empty=False,
                 skip_comment_on_readonly_token=context["skip_comment_on_readonly_token"],
+                hide_previous_managed_comments_on_append=context[
+                    "hide_previous_managed_comments_on_append"
+                ],
             )
             print(
                 json.dumps(
@@ -158,6 +161,9 @@ def _resolve_failure_context(
                 "trigger_label": getattr(trigger, "label", "pull request updated"),
                 "execution_mode": getattr(config, "execution_mode", "ci"),
                 "publish_mode": getattr(config, "publish_mode", "append"),
+                "hide_previous_managed_comments_on_append": getattr(
+                    config, "hide_previous_managed_comments_on_append", True
+                ),
                 "github_token": config.github_token,
                 "github_api_url": config.github_api_url,
                 "skip_comment_on_readonly_token": config.skip_comment_on_readonly_token,
@@ -185,6 +191,10 @@ def _resolve_failure_context(
                 "trigger_label": trigger.label,
                 "execution_mode": _resolve_execution_mode_from_env(env, trigger.event_name),
                 "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
+                "hide_previous_managed_comments_on_append": parse_bool_env(
+                    env.get("PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND"),
+                    default=True,
+                ),
                 "github_token": github_token,
                 "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
                 "skip_comment_on_readonly_token": parse_bool_env(
@@ -217,6 +227,10 @@ def _resolve_failure_context(
         "trigger_label": trigger.label,
         "execution_mode": _resolve_execution_mode_from_env(env, trigger.event_name),
         "publish_mode": env.get("PR_AGENT_CONTEXT_PUBLISH_MODE", "append"),
+        "hide_previous_managed_comments_on_append": parse_bool_env(
+            env.get("PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND"),
+            default=True,
+        ),
         "github_token": github_token,
         "github_api_url": env.get("GITHUB_API_URL", "https://api.github.com"),
         "skip_comment_on_readonly_token": parse_bool_env(

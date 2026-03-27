@@ -147,6 +147,8 @@ class ManagedComment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     comment_id: int
+    node_id: str | None = None
+    is_minimized: bool | None = None
     author_login: str
     author_type: str | None = None
     body: str

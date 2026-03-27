@@ -58,6 +58,11 @@ on:
         required: false
         default: false
         type: boolean
+      hide_previous_managed_comments_on_append:
+        description: Hide older pr-agent-context managed comments after append-mode publishes a new one.
+        required: false
+        default: true
+        type: boolean
       prompt_preamble:
         description: Optional text inserted before the default prompt preamble.
         required: false
@@ -306,6 +311,7 @@ jobs:
           PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE: ${{ inputs.wait_for_checks_to_settle }}
           PR_AGENT_CONTEXT_WAIT_FOR_REVIEWS_TO_SETTLE: ${{ inputs.wait_for_reviews_to_settle }}
           PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH: ${{ inputs.publish_all_clear_comments_in_refresh }}
+          PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND: ${{ inputs.hide_previous_managed_comments_on_append }}
           PR_AGENT_CONTEXT_PROMPT_PREAMBLE: ${{ inputs.prompt_preamble }}
           PR_AGENT_CONTEXT_PROMPT_TEMPLATE_FILE: ${{ inputs.prompt_template_file }}
           PR_AGENT_CONTEXT_MAX_REVIEW_THREADS: ${{ inputs.max_review_threads }}

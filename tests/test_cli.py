@@ -28,6 +28,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         github_token = "token"
         github_api_url = "https://api.github.com"
         skip_comment_on_readonly_token = True
+        hide_previous_managed_comments_on_append = False
         github_output_path = tmp_path / "github-output.txt"
         publish_mode = "append"
 
@@ -69,6 +70,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
+        hide_previous_managed_comments_on_append,
     ):
         captured["body"] = body
         captured["owner"] = owner
@@ -82,6 +84,9 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
         captured["execution_mode"] = execution_mode
         captured["publish_mode"] = publish_mode
         captured["generated_at"] = generated_at
+        captured["hide_previous_managed_comments_on_append"] = (
+            hide_previous_managed_comments_on_append
+        )
         return PublicationResult(
             comment_id=500,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/15#issuecomment-500",
@@ -115,6 +120,7 @@ def test_cli_run_publishes_failure_comment_and_returns_zero(monkeypatch, tmp_pat
     assert captured["run_id"] == 123
     assert captured["run_attempt"] == 2
     assert captured["execution_mode"] == "ci"
+    assert captured["hide_previous_managed_comments_on_append"] is False
     assert captured["generated_at"] is not None
     outputs = Path(FakeConfig.github_output_path).read_text(encoding="utf-8")
     assert "comment_written=true" in outputs
@@ -193,6 +199,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
     monkeypatch.setenv("PR_AGENT_CONTEXT_TOOL_REF", "v4")
     monkeypatch.setenv("PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN", "false")
+    monkeypatch.setenv("PR_AGENT_CONTEXT_HIDE_PREVIOUS_MANAGED_COMMENTS_ON_APPEND", "false")
 
     captured = {}
 
@@ -213,6 +220,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         body,
         delete_comment_when_empty,
         skip_comment_on_readonly_token,
+        hide_previous_managed_comments_on_append,
     ):
         captured["owner"] = owner
         captured["repo"] = repo
@@ -227,6 +235,9 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
         captured["execution_mode"] = execution_mode
         captured["publish_mode"] = publish_mode
         captured["generated_at"] = generated_at
+        captured["hide_previous_managed_comments_on_append"] = (
+            hide_previous_managed_comments_on_append
+        )
         return PublicationResult(
             comment_id=777,
             comment_url="https://github.com/shaypal5/pr-agent-context/pull/17#issuecomment-777",
@@ -251,6 +262,7 @@ def test_cli_run_handles_config_load_failure_with_env_derived_context(
     assert captured["run_id"] == 321
     assert captured["run_attempt"] == 4
     assert captured["execution_mode"] == "ci"
+    assert captured["hide_previous_managed_comments_on_append"] is False
     assert captured["generated_at"] is not None
     outputs = output_path.read_text(encoding="utf-8")
     assert "comment_written=true" in outputs

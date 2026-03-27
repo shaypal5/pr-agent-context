@@ -38,9 +38,7 @@ class FakeGitHubClient:
         self.created_bodies: list[str] = []
         self.updated_bodies: list[str] = []
         self.deleted_ids: list[int] = []
-
-    def graphql(self, query, variables):
-        return self.review_threads_payload["data"]
+        self.minimized_comment_node_ids: list[str] = []
 
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == "GET" and path.endswith("/actions/runs"):
@@ -56,6 +54,7 @@ class FakeGitHubClient:
         if method == "POST" and path.endswith("/comments"):
             created = {
                 "id": 500,
+                "node_id": "IC_kwDOExample500",
                 "body": payload["body"],
                 "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-500",
                 "created_at": "2026-03-07T09:30:00Z",
@@ -80,6 +79,12 @@ class FakeGitHubClient:
             ]
             return {}
         raise AssertionError(f"Unexpected call: {method} {path}")
+
+    def graphql(self, query, variables):
+        if "subjectId" in variables:
+            self.minimized_comment_node_ids.append(variables["subjectId"])
+            return {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}
+        return self.review_threads_payload["data"]
 
     def request_bytes(self, method, path, params=None, extra_headers=None):
         job_id = int(path.split("/")[-2])
@@ -341,6 +346,7 @@ def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
 
     outputs = _read_outputs(config.github_output_path)
     assert client.created_bodies
+    assert client.minimized_comment_node_ids == []
     assert outputs["unresolved_thread_count"] == "2"
     assert outputs["failing_check_count"] == "3"
     assert outputs["comment_written"] == "true"
@@ -376,6 +382,7 @@ def test_run_service_publishes_all_clear_comment_when_no_actionable_items(
     outputs = _read_outputs(config.github_output_path)
     assert client.deleted_ids == []
     assert client.created_bodies
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample3", "IC_kwDOExample4"]
     assert "No actionable items were found in the enabled checks" in client.created_bodies[-1]
     assert outputs["has_actionable_items"] == "false"
     assert outputs["comment_written"] == "true"
@@ -827,6 +834,9 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert comment_sync["sync_debug"]["current_identity"]["run_id"] == 100
     assert comment_sync["sync_debug"]["matched_existing_comment"] is False
     assert comment_sync["sync_debug"]["current_identity"]["generated_at"].endswith("+00:00")
+    assert comment_sync["sync_debug"]["hide_enabled"] is True
+    assert comment_sync["sync_debug"]["hidden_comment_ids"] == []
+    assert comment_sync["sync_debug"]["hide_errors"] == []
     assert prompt_text.startswith("Repository: foldermix")
     assert comment_body.startswith(
         "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append;"
@@ -841,6 +851,39 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
+
+
+def test_run_service_hides_previous_managed_comments_after_append_publish(
+    tmp_path,
+    issue_comments_payload,
+):
+    empty_review_threads = {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [],
+                    }
+                }
+            }
+        }
+    }
+    client = FakeGitHubClient(
+        review_threads_payload=empty_review_threads,
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=issue_comments_payload,
+    )
+    config = _build_config(tmp_path)
+
+    assert run_service(config, client=client) == 0
+
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample3", "IC_kwDOExample4"]
+    comment_sync = json.loads(
+        (config.debug_artifacts_dir / "comment-sync.json").read_text(encoding="utf-8")
+    )
+    assert comment_sync["action"] == "created"
+    assert comment_sync["sync_debug"]["hidden_comment_ids"] == [3, 4]
 
 
 def test_run_service_refresh_mode_marks_review_wait_disabled(tmp_path, issue_comments_payload):

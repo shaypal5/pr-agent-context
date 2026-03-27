@@ -23,9 +23,17 @@ class FakeIssueCommentClient:
         self.updated_comment_id: int | None = None
         self.updated_body: str | None = None
         self.deleted_ids: list[int] = []
+        self.minimized_comment_node_ids: list[str] = []
+        self.minimized_state_by_node_id: dict[str, bool] = {
+            comment["node_id"]: bool(comment.get("is_minimized"))
+            for comment in self.comments
+            if comment.get("node_id")
+        }
+        self.comment_list_calls = 0
 
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == "GET" and path.endswith("/comments"):
+            self.comment_list_calls += 1
             return self.comments
         if method == "DELETE":
             comment_id = int(path.rsplit("/", maxsplit=1)[-1])
@@ -43,6 +51,7 @@ class FakeIssueCommentClient:
         if method == "POST":
             created = {
                 "id": 10,
+                "node_id": "IC_kwDOExample10",
                 "body": payload["body"],
                 "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-10",
                 "created_at": "2026-03-07T08:50:00Z",
@@ -56,6 +65,21 @@ class FakeIssueCommentClient:
             return created
         raise AssertionError(f"Unexpected call: {method} {path}")
 
+    def graphql(self, query, variables):
+        if "ids" in variables:
+            return {
+                "nodes": [
+                    {
+                        "id": node_id,
+                        "isMinimized": self.minimized_state_by_node_id.get(node_id, False),
+                    }
+                    for node_id in variables["ids"]
+                ]
+            }
+        self.minimized_comment_node_ids.append(variables["subjectId"])
+        self.minimized_state_by_node_id[variables["subjectId"]] = True
+        return {"minimizeComment": {"minimizedComment": {"isMinimized": True}}}
+
 
 class ForbiddenIssueCommentClient(FakeIssueCommentClient):
     def __init__(self, comments, *, fail_method: str):
@@ -65,6 +89,66 @@ class ForbiddenIssueCommentClient(FakeIssueCommentClient):
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == self.fail_method:
             raise GitHubApiError(403, "Forbidden", "forbidden")
+        return super().request_json(
+            method, path, params=params, payload=payload, extra_headers=extra_headers
+        )
+
+
+class GraphqlFailingIssueCommentClient(FakeIssueCommentClient):
+    def __init__(self, comments, *, failing_node_ids: set[str]):
+        super().__init__(comments)
+        self.failing_node_ids = failing_node_ids
+
+    def graphql(self, query, variables):
+        if "ids" in variables:
+            return super().graphql(query, variables)
+        node_id = variables["subjectId"]
+        if node_id in self.failing_node_ids:
+            raise GitHubApiError(403, "Forbidden", "forbidden")
+        return super().graphql(query, variables)
+
+
+class ListFailingIssueCommentClient(FakeIssueCommentClient):
+    def __init__(self, comments):
+        super().__init__(comments)
+        self.fail_after_create = False
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "POST" and path.endswith("/comments"):
+            created = super().request_json(
+                method,
+                path,
+                params=params,
+                payload=payload,
+                extra_headers=extra_headers,
+            )
+            self.fail_after_create = True
+            return created
+        if method == "GET" and path.endswith("/comments") and self.fail_after_create:
+            raise GitHubApiError(500, "Internal Server Error", "boom")
+        return super().request_json(
+            method, path, params=params, payload=payload, extra_headers=extra_headers
+        )
+
+
+class ConcurrentAppendIssueCommentClient(FakeIssueCommentClient):
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "POST" and path.endswith("/comments"):
+            created = super().request_json(
+                method,
+                path,
+                params=params,
+                payload=payload,
+                extra_headers=extra_headers,
+            )
+            concurrent_comment = _managed_comment_payload(
+                comment_id=11,
+                run_id=101,
+                run_attempt=1,
+                body_text="concurrent body",
+            )
+            self.comments.append(concurrent_comment)
+            return created
         return super().request_json(
             method, path, params=params, payload=payload, extra_headers=extra_headers
         )
@@ -81,6 +165,7 @@ def _managed_comment_payload(
 ):
     return {
         "id": comment_id,
+        "node_id": f"IC_kwDOExample{comment_id}",
         "body": (
             "<!-- pr-agent-context:managed-comment; schema=v5; "
             f"publish_mode={publish_mode}; execution_mode={execution_mode}; pr=17; "
@@ -112,6 +197,7 @@ def _sync(client, *, body: str | None):
         body=body,
         delete_comment_when_empty=True,
         skip_comment_on_readonly_token=True,
+        hide_previous_managed_comments_on_append=True,
     )
 
 
@@ -242,6 +328,48 @@ def test_sync_managed_comment_append_creates_new_comment_for_different_run_attem
     assert result.managed_comment_count == 2
     assert result.matched_existing_comment is False
     assert result.publish_mode == "append"
+    assert client.comment_list_calls == 2
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample3", "IC_kwDOExample4"]
+    assert result.sync_debug["hide_enabled"] is True
+    assert result.sync_debug["hidden_comment_ids"] == [3, 4]
+    assert result.sync_debug["hidden_comment_node_ids"] == [
+        "IC_kwDOExample3",
+        "IC_kwDOExample4",
+    ]
+    assert result.sync_debug["hide_skipped_comment_ids"] == []
+    assert result.sync_debug["hide_errors"] == []
+
+
+def test_sync_managed_comment_append_can_opt_out_of_hiding(issue_comments_payload):
+    client = FakeIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+        hide_previous_managed_comments_on_append=False,
+    )
+
+    assert result.action == "created"
+    assert client.comment_list_calls == 1
+    assert client.minimized_comment_node_ids == []
+    assert result.sync_debug["hide_enabled"] is False
+    assert result.sync_debug["hidden_comment_ids"] == []
 
 
 def test_sync_managed_comment_ignores_legacy_marker_comments(issue_comments_payload):
@@ -360,6 +488,78 @@ def test_sync_managed_comment_skips_forbidden_create(issue_comments_payload):
     assert result.error_status_code == 403
 
 
+def test_sync_managed_comment_append_skips_hiding_comments_without_node_id(issue_comments_payload):
+    payload = [dict(issue_comments_payload[2]), dict(issue_comments_payload[3])]
+    payload[0].pop("node_id", None)
+    client = FakeIssueCommentClient(payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert client.comment_list_calls == 2
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample4"]
+    assert result.sync_debug["hide_skipped_comment_ids"] == [3]
+    assert result.sync_debug["hidden_comment_ids"] == [4]
+
+
+def test_sync_managed_comment_append_never_hides_unmanaged_bot_comments(issue_comments_payload):
+    unmanaged_bot = {
+        "id": 9,
+        "node_id": "IC_kwDOExample9",
+        "body": "plain bot note",
+        "html_url": "https://github.com/shaypal5/example/pull/17#issuecomment-9",
+        "created_at": "2026-03-07T08:15:00Z",
+        "updated_at": "2026-03-07T08:15:00Z",
+        "user": {"login": "github-actions[bot]", "type": "Bot"},
+    }
+    client = FakeIssueCommentClient([*issue_comments_payload, unmanaged_bot])
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert client.comment_list_calls == 2
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample3", "IC_kwDOExample4"]
+    assert 9 not in result.sync_debug["hidden_comment_ids"]
+
+
 def test_sync_managed_comment_skips_forbidden_update(issue_comments_payload):
     client = ForbiddenIssueCommentClient(issue_comments_payload, fail_method="PATCH")
 
@@ -379,6 +579,155 @@ def test_sync_managed_comment_skips_forbidden_update(issue_comments_payload):
     assert result.matched_existing_comment is True
     assert result.matched_comment_run_id == 100
     assert result.matched_comment_run_attempt == 2
+
+
+def test_sync_managed_comment_append_records_hide_errors_without_failing(issue_comments_payload):
+    client = GraphqlFailingIssueCommentClient(
+        issue_comments_payload,
+        failing_node_ids={"IC_kwDOExample3"},
+    )
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert result.comment_written is True
+    assert client.comment_list_calls == 2
+    assert result.sync_debug["hidden_comment_ids"] == [4]
+    assert result.sync_debug["hide_errors"] == [
+        {
+            "comment_id": 3,
+            "node_id": "IC_kwDOExample3",
+            "status_code": 403,
+            "message": "Forbidden",
+        }
+    ]
+
+
+def test_sync_managed_comment_append_keeps_created_result_when_relist_fails(
+    issue_comments_payload,
+):
+    client = ListFailingIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert result.comment_id == 10
+    assert result.comment_written is True
+    assert result.sync_debug["hidden_comment_ids"] == []
+    assert result.sync_debug["hide_errors"] == [
+        {
+            "comment_id": None,
+            "node_id": None,
+            "status_code": 500,
+            "message": "GitHub API error 500: Internal Server Error",
+        }
+    ]
+
+
+def test_sync_managed_comment_append_skips_already_minimized_comments(issue_comments_payload):
+    payload = [dict(issue_comments_payload[2]), dict(issue_comments_payload[3])]
+    payload[0]["is_minimized"] = True
+    client = FakeIssueCommentClient(payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert client.minimized_comment_node_ids == ["IC_kwDOExample4"]
+    assert result.sync_debug["hide_skipped_comment_ids"] == [3]
+    assert result.sync_debug["hidden_comment_ids"] == [4]
+
+
+def test_sync_managed_comment_append_relists_after_create_to_hide_concurrent_comment(
+    issue_comments_payload,
+):
+    client = ConcurrentAppendIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert client.comment_list_calls == 2
+    assert client.minimized_comment_node_ids == [
+        "IC_kwDOExample3",
+        "IC_kwDOExample4",
+        "IC_kwDOExample11",
+    ]
+    assert result.sync_debug["hidden_comment_ids"] == [3, 4, 11]
 
 
 def test_sync_managed_comment_noops_delete_request_when_no_matching_comment(
@@ -436,6 +785,7 @@ def test_sync_managed_comment_updates_latest_managed_when_requested(
     )
 
     assert client.updated_comment_id == 4
+    assert client.minimized_comment_node_ids == []
     assert result.action == "updated_latest_managed"
     assert result.matched_existing_comment is True
 
@@ -512,6 +862,7 @@ def test_sync_managed_comment_updates_latest_scoped_comment_when_requested():
     )
 
     assert client.updated_comment_id == 32
+    assert client.minimized_comment_node_ids == []
     assert result.action == "updated_latest_scoped"
     assert result.matched_existing_comment is True
     assert result.sync_debug["matching_scoped_comment_ids"] == [31, 32]
