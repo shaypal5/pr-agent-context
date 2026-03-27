@@ -108,6 +108,29 @@ class GraphqlFailingIssueCommentClient(FakeIssueCommentClient):
         return super().graphql(query, variables)
 
 
+class ListFailingIssueCommentClient(FakeIssueCommentClient):
+    def __init__(self, comments):
+        super().__init__(comments)
+        self.fail_after_create = False
+
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        if method == "POST" and path.endswith("/comments"):
+            created = super().request_json(
+                method,
+                path,
+                params=params,
+                payload=payload,
+                extra_headers=extra_headers,
+            )
+            self.fail_after_create = True
+            return created
+        if method == "GET" and path.endswith("/comments") and self.fail_after_create:
+            raise GitHubApiError(500, "Internal Server Error", "boom")
+        return super().request_json(
+            method, path, params=params, payload=payload, extra_headers=extra_headers
+        )
+
+
 class ConcurrentAppendIssueCommentClient(FakeIssueCommentClient):
     def request_json(self, method, path, params=None, payload=None, extra_headers=None):
         if method == "POST" and path.endswith("/comments"):
@@ -595,6 +618,46 @@ def test_sync_managed_comment_append_records_hide_errors_without_failing(issue_c
             "node_id": "IC_kwDOExample3",
             "status_code": 403,
             "message": "Forbidden",
+        }
+    ]
+
+
+def test_sync_managed_comment_append_keeps_created_result_when_relist_fails(
+    issue_comments_payload,
+):
+    client = ListFailingIssueCommentClient(issue_comments_payload)
+
+    result = sync_managed_comment(
+        client,
+        owner="shaypal5",
+        repo="example",
+        pull_request_number=17,
+        run_id=100,
+        run_attempt=3,
+        head_sha="def456",
+        tool_ref="v4",
+        trigger_event_name="pull_request",
+        publish_mode="append",
+        generated_at="2026-03-07T08:55:00+00:00",
+        body=(
+            "<!-- pr-agent-context:managed-comment; schema=v4; publish_mode=append; pr=17; "
+            "head_sha=def456; trigger_event=pull_request; generated_at=2026-03-07T08:55:00+00:00; "
+            "tool_ref=v4; run_id=100; run_attempt=3 -->\n```markdown\nnew body\n```"
+        ),
+        delete_comment_when_empty=True,
+        skip_comment_on_readonly_token=False,
+    )
+
+    assert result.action == "created"
+    assert result.comment_id == 10
+    assert result.comment_written is True
+    assert result.sync_debug["hidden_comment_ids"] == []
+    assert result.sync_debug["hide_errors"] == [
+        {
+            "comment_id": None,
+            "node_id": None,
+            "status_code": 500,
+            "message": "GitHub API error 500: Internal Server Error",
         }
     ]
 

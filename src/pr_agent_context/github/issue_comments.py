@@ -230,28 +230,46 @@ def sync_managed_comment(
             normalized = normalize_issue_comment(created)
             hide_enabled = publish_mode == "append" and hide_previous_managed_comments_on_append
             managed_comments_for_hide = managed_comments
-            if hide_enabled:
-                managed_comments_for_hide = sorted(
-                    managed_comments_only(
-                        list_issue_comments(
-                            client,
-                            owner=owner,
-                            repo=repo,
-                            pull_request_number=pull_request_number,
-                        )
-                    ),
-                    key=lambda comment: comment.comment_id,
-                )
-                managed_comments_for_hide = hydrate_comment_minimization_states(
+            hide_debug: dict[str, Any]
+            try:
+                if hide_enabled:
+                    managed_comments_for_hide = sorted(
+                        managed_comments_only(
+                            list_issue_comments(
+                                client,
+                                owner=owner,
+                                repo=repo,
+                                pull_request_number=pull_request_number,
+                            )
+                        ),
+                        key=lambda comment: comment.comment_id,
+                    )
+                    managed_comments_for_hide = hydrate_comment_minimization_states(
+                        client,
+                        managed_comments_for_hide,
+                    )
+                hide_debug = _hide_previous_managed_comments(
                     client,
-                    managed_comments_for_hide,
+                    managed_comments=managed_comments_for_hide,
+                    newly_created_comment=normalized,
+                    enabled=hide_enabled,
                 )
-            hide_debug = _hide_previous_managed_comments(
-                client,
-                managed_comments=managed_comments_for_hide,
-                newly_created_comment=normalized,
-                enabled=hide_enabled,
-            )
+            except GitHubApiError as error:
+                hide_debug = {
+                    "hide_enabled": hide_enabled,
+                    "hide_classifier": "OUTDATED",
+                    "hidden_comment_ids": [],
+                    "hidden_comment_node_ids": [],
+                    "hide_skipped_comment_ids": [],
+                    "hide_errors": [
+                        {
+                            "comment_id": None,
+                            "node_id": None,
+                            "status_code": error.status_code,
+                            "message": str(error),
+                        }
+                    ],
+                }
             return PublicationResult(
                 comment_id=normalized.comment_id,
                 comment_url=normalized.url,

@@ -230,6 +230,11 @@ With this lifecycle split, the initial CI run can publish an all-clear comment, 
 runs only create/update refresh-scoped comments when they have something actionable to report. A
 later no-op refresh can delete its own prior refresh comment without touching the CI-originated one.
 
+This repository’s own self-consumer refresh workflow intentionally uses `publish_mode: append`
+instead, so every refresh signal creates a fresh managed comment and the new append-mode hiding
+behavior can minimize older managed comments afterward. For most downstream consumers, the
+recommended default remains `update_latest_scoped`.
+
 Minimal refresh workflow example:
 
 ```yaml
