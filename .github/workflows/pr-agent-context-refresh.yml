@@ -40,7 +40,7 @@ jobs:
     with:
       tool_ref: v4
       execution_mode: refresh
-      publish_mode: update_latest_scoped
+      publish_mode: append
       publish_all_clear_comments_in_refresh: false
       target_patch_coverage: "100"
       include_review_comments: true
