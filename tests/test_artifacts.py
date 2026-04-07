@@ -27,6 +27,22 @@ def test_discover_coverage_files_recurses_and_ignores_transient_files(tmp_path):
     assert discovered == [expected]
 
 
+def test_discover_coverage_files_preserves_same_named_files_in_sibling_artifact_dirs(tmp_path):
+    coverage_root = tmp_path / "coverage-artifacts"
+    first = coverage_root / "pr-agent-context-coverage-py311"
+    second = coverage_root / "pr-agent-context-coverage-py312"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    first_file = first / ".coverage"
+    second_file = second / ".coverage"
+    first_file.write_text("first", encoding="utf-8")
+    second_file.write_text("second", encoding="utf-8")
+
+    discovered = discover_coverage_files(coverage_root)
+
+    assert discovered == [first_file, second_file]
+
+
 class _ArtifactsClient:
     def __init__(self, responses):
         self.responses = responses

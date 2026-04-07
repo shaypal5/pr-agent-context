@@ -289,7 +289,6 @@ jobs:
         with:
           pattern: ${{ inputs.coverage_artifact_prefix }}*
           path: coverage-artifacts
-          merge-multiple: true
 
       - name: Download combined coverage report artifact
         if: ${{ inputs.include_patch_coverage && inputs.patch_coverage_source_mode == 'coverage_xml_artifact' }}
