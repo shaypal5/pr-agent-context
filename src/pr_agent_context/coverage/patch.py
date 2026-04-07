@@ -389,7 +389,11 @@ def _build_scope_context(
     coverage_source_pending: bool,
 ) -> _CoverageScopeContext:
     measured_files = set(coverage.get_data().measured_files())
-    measured_map = {_normalize_compare_path(path, workspace): path for path in measured_files}
+    measured_map = {
+        compare_path: path
+        for path in measured_files
+        if (compare_path := _normalize_measured_compare_path(path, workspace)) is not None
+    }
     return _build_scope_context_from_measured_map(
         coverage=coverage,
         workspace=workspace,
@@ -692,3 +696,40 @@ def _normalize_compare_path(path: str, workspace: Path) -> str:
     if normalized.startswith(f"{workspace_path}/"):
         return normalized[len(workspace_path) + 1 :]
     return normalized
+
+
+def _normalize_measured_compare_path(path: str, workspace: Path) -> str | None:
+    normalized = _normalize_compare_path(path, workspace)
+    if not Path(path).is_absolute():
+        return normalized
+    if normalized in {"", "."}:
+        return normalized
+    if not normalized.startswith("/"):
+        return normalized
+    return _rebase_absolute_measured_path_to_workspace(path, workspace)
+
+
+def _rebase_absolute_measured_path_to_workspace(path: str, workspace: Path) -> str | None:
+    measured_path = Path(path)
+    try:
+        relative_path = measured_path.resolve().relative_to(workspace.resolve()).as_posix()
+        return normalize_repo_path(relative_path)
+    except ValueError:
+        pass
+    except OSError:
+        return None
+
+    path_parts = measured_path.parts
+    for start_index in range(1, len(path_parts)):
+        suffix = Path(*path_parts[start_index:])
+        candidate = workspace / suffix
+        if not candidate.exists():
+            continue
+        try:
+            relative_candidate = candidate.resolve().relative_to(workspace.resolve()).as_posix()
+        except ValueError:
+            continue
+        except OSError:
+            continue
+        return normalize_repo_path(relative_candidate)
+    return None

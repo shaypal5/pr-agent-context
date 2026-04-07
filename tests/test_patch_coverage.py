@@ -26,6 +26,7 @@ from pr_agent_context.coverage.patch import (
     _matches_inferred_measured_roots,
     _matches_source_entry,
     _normalize_compare_path,
+    _normalize_measured_compare_path,
     _normalize_report_file_path,
     _parse_xml_coverage_reports,
     _xml_line_is_fully_covered,
@@ -48,6 +49,23 @@ def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> No
         globals_dict = {"__name__": "__main__"}
         exec(
             compile(script_path.read_text(encoding="utf-8"), str(script_path), "exec"),
+            globals_dict,
+        )
+        exec(invocation, globals_dict)
+    coverage.stop()
+    coverage.save()
+
+
+def _build_coverage_data_with_recorded_filenames(
+    data_file: Path,
+    scripts: list[tuple[str, Path, str]],
+) -> None:
+    coverage = Coverage(config_file=False, data_file=str(data_file))
+    coverage.start()
+    for recorded_filename, script_path, invocation in scripts:
+        globals_dict = {"__name__": "__main__"}
+        exec(
+            compile(script_path.read_text(encoding="utf-8"), recorded_filename, "exec"),
             globals_dict,
         )
         exec(invocation, globals_dict)
@@ -1181,6 +1199,76 @@ def test_build_combined_coverage_honors_relative_files_from_workspace_root(tmp_p
     assert [file_gap.path for file_gap in summary.files] == ["src/denbust/sources/mako.py"]
     assert scope_debug["scope_strategy"] == "explicit_config"
     assert scope_debug["explicit_source"] == ["src/denbust"]
+
+
+def test_normalize_measured_compare_path_rebases_absolute_split_checkout_paths(tmp_path):
+    job_workspace = tmp_path / "job-workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    source_path = repo / "src" / "pr_agent_context" / "coverage" / "patch.py"
+    _write_file(source_path, "def helper():\n    return 1\n")
+
+    measured_path = (
+        "/home/runner/work/pr-agent-context/pr-agent-context/src/pr_agent_context/coverage/patch.py"
+    )
+
+    assert _normalize_measured_compare_path(measured_path, repo) == (
+        "src/pr_agent_context/coverage/patch.py"
+    )
+
+
+def test_compute_patch_coverage_rebases_absolute_measured_paths_from_split_checkout(tmp_path):
+    job_workspace = tmp_path / "job-workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    source_path = repo / "src" / "pkg" / "module.py"
+    test_path = repo / "tests" / "test_module.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+    _write_file(test_path, "def test_parse():\n    assert True\n")
+
+    coverage_dir = job_workspace / "coverage-artifacts"
+    coverage_dir.mkdir(parents=True)
+    coverage_file = coverage_dir / ".coverage.py312"
+    _build_coverage_data_with_recorded_filenames(
+        coverage_file,
+        [
+            (
+                "/home/runner/work/pr-agent-context/pr-agent-context/src/pkg/module.py",
+                source_path,
+                "parse(True)",
+            )
+        ],
+    )
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+    summary = compute_patch_coverage(
+        workspace=repo,
+        changed_lines_by_file={
+            "src/pkg/module.py": [1, 2, 3, 4],
+            "tests/test_module.py": [1, 2],
+        },
+        coverage=combined,
+        target_percent=100,
+        has_coverage_artifacts=True,
+    )
+    scope_debug = describe_patch_coverage_scope(
+        workspace=repo,
+        coverage=combined,
+        has_coverage_artifacts=True,
+    )
+
+    assert summary.is_na is False
+    assert summary.actual_percent == 0
+    assert summary.total_changed_executable_lines == 4
+    assert [file_gap.path for file_gap in summary.files] == ["src/pkg/module.py"]
+    assert summary.files[0].covered_changed_executable_lines == []
+    assert summary.files[0].uncovered_changed_executable_lines == [1, 2, 3, 4]
+    assert summary.files[0].has_measured_data is True
+    assert scope_debug["scope_strategy"] == "measured_root_inference"
+    assert scope_debug["inferred_source_roots"] == ["src/pkg"]
 
 
 def test_find_coverage_config_file_prefers_existing_project_config(tmp_path):
