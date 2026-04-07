@@ -15,7 +15,7 @@ def test_version_falls_back_to_pyproject_when_package_metadata_is_unavailable(
 
     reloaded = importlib.reload(package)
 
-    assert reloaded.__version__ == "4.0.13"
+    assert reloaded.__version__ == "4.0.14"
 
 
 def test_read_pyproject_version_reads_from_source_checkout(tmp_path, monkeypatch):
@@ -74,7 +74,7 @@ def test_github_api_client_defaults_user_agent_from_package_version():
 
     client = GitHubApiClient(token="token")
 
-    assert client._user_agent == "pr-agent-context/4.0.13"
+    assert client._user_agent == "pr-agent-context/4.0.14"
 
 
 def test_github_api_client_respects_explicit_user_agent_override():
