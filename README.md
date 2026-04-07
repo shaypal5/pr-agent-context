@@ -94,13 +94,15 @@ The reusable workflow inputs are:
 - `publish_mode`: controls how managed PR comments are created or updated, default `append`
   - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
     updating an existing one; by default, older `pr-agent-context` managed comments on the same
-    PR are then hidden as `OUTDATED`; refresh-mode no-op runs may still skip publishing entirely
+    PR are then hidden as `OUTDATED`; refresh-mode no-op runs may still skip publishing entirely;
+    this is the recommended refresh-mode setting in this repository because each refresh signal
+    leaves behind its own comment history while keeping the newest result visible
   - `update_latest_managed`: update the newest managed comment on the PR, regardless of which
     run lifecycle created it
   - `update_matching`: update the managed comment whose marker matches the current run identity
   - `update_latest_scoped`: update the newest managed comment from the same lifecycle scope
-    (`ci` vs `refresh`); this is the recommended refresh-mode setting because it avoids touching
-    the CI comment
+    (`ci` vs `refresh`); this keeps refresh updates off the CI comment, but rewrites a single
+    refresh comment in place instead of preserving each refresh snapshot
 - `publish_all_clear_comments_in_refresh`: in refresh mode, still publish no-op all-clear comments, default `false`
 - `hide_previous_managed_comments_on_append`: in append mode, hide older `pr-agent-context`
   managed comments on the same PR after posting the new one, default `true`
@@ -222,19 +224,15 @@ Recommended minimal caller-side pattern:
 - optional additional triggers: `workflow_run`, `status`, `check_run`
 - invokes the same reusable workflow with:
   - `execution_mode: refresh`
-  - `publish_mode: update_latest_scoped`
+  - `publish_mode: append`
   - `publish_all_clear_comments_in_refresh: false`
   - `enable_cross_run_coverage_lookup: true`
   - optional `wait_for_reviews_to_settle: true`
 
 With this lifecycle split, the initial CI run can publish an all-clear comment, while later refresh
-runs only create/update refresh-scoped comments when they have something actionable to report. A
-later no-op refresh can delete its own prior refresh comment without touching the CI-originated one.
-
-This repository’s own self-consumer refresh workflow intentionally uses `publish_mode: append`
-instead, so every refresh signal creates a fresh managed comment and the new append-mode hiding
-behavior can minimize older managed comments afterward. For most downstream consumers, the
-recommended default remains `update_latest_scoped`.
+runs publish a fresh refresh-scoped managed comment whenever they have something actionable to
+report. The default append-mode hiding behavior can minimize older managed comments afterward so
+the newest refresh result stays visible without rewriting earlier comments in place.
 
 Minimal refresh workflow example:
 
@@ -263,7 +261,7 @@ jobs:
     with:
       tool_ref: v4
       execution_mode: refresh
-      publish_mode: update_latest_scoped
+      publish_mode: append
       publish_all_clear_comments_in_refresh: false
       # Optional: disable the default append-mode hiding behavior if you prefer
       # older managed comments to remain visible.

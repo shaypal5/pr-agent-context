@@ -21,7 +21,7 @@
 ### Refresh Lifecycle Defaults
 - CI runs may publish an all-clear comment.
 - Refresh runs should use scoped comment updates and suppress no-op all-clear comments.
-- The current recommended refresh pattern is `publish_mode: update_latest_scoped` with `publish_all_clear_comments_in_refresh: false`.
+- The current recommended refresh pattern is `publish_mode: append` with `publish_all_clear_comments_in_refresh: false`.
 
 ### Update Ripple Checklist
 - If you change reusable workflow inputs, config parsing, or environment variable handling, update the README input docs, examples, config tests, and this repo's self-consumer workflows when relevant.
