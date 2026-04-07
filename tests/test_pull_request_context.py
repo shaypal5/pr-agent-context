@@ -55,6 +55,44 @@ def test_resolve_pull_request_ref_prefers_newest_open_pr_for_head_sha():
     assert debug["resolution"] == "head_sha_lookup"
 
 
+class ClosedPullRequestContextClient:
+    def request_json(self, method: str, path: str, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/commits/merge123/pulls"):
+            return [
+                {
+                    "number": 12,
+                    "state": "closed",
+                    "updated_at": "2026-03-11T08:00:00Z",
+                }
+            ]
+        if path.endswith("/pulls/12"):
+            return {
+                "base": {"sha": "base123"},
+                "head": {"sha": "feature123"},
+            }
+        raise AssertionError(f"Unexpected request: {path}")
+
+
+def test_resolve_pull_request_ref_uses_trigger_sha_for_closed_status_event():
+    pull_request, debug = resolve_pull_request_ref(
+        ClosedPullRequestContextClient(),
+        owner="shaypal5",
+        repo="pr-agent-context",
+        trigger=TriggerContext(
+            event_name="status",
+            action=None,
+            source="status",
+            head_sha="merge123",
+        ),
+    )
+
+    assert pull_request.number == 12
+    assert pull_request.base_sha == "base123"
+    assert pull_request.head_sha == "merge123"
+    assert debug["resolution"] == "head_sha_lookup"
+
+
 class _NumberLookupClient:
     def request_json(self, method: str, path: str, params=None, payload=None, extra_headers=None):
         assert method == "GET"

@@ -222,19 +222,15 @@ Recommended minimal caller-side pattern:
 - optional additional triggers: `workflow_run`, `status`, `check_run`
 - invokes the same reusable workflow with:
   - `execution_mode: refresh`
-  - `publish_mode: update_latest_scoped`
+  - `publish_mode: append`
   - `publish_all_clear_comments_in_refresh: false`
   - `enable_cross_run_coverage_lookup: true`
   - optional `wait_for_reviews_to_settle: true`
 
 With this lifecycle split, the initial CI run can publish an all-clear comment, while later refresh
-runs only create/update refresh-scoped comments when they have something actionable to report. A
-later no-op refresh can delete its own prior refresh comment without touching the CI-originated one.
-
-This repository’s own self-consumer refresh workflow intentionally uses `publish_mode: append`
-instead, so every refresh signal creates a fresh managed comment and the new append-mode hiding
-behavior can minimize older managed comments afterward. For most downstream consumers, the
-recommended default remains `update_latest_scoped`.
+runs publish a fresh refresh-scoped managed comment whenever they have something actionable to
+report. The default append-mode hiding behavior can minimize older managed comments afterward so
+the newest refresh result stays visible without rewriting earlier comments in place.
 
 Minimal refresh workflow example:
 
@@ -263,7 +259,7 @@ jobs:
     with:
       tool_ref: v4
       execution_mode: refresh
-      publish_mode: update_latest_scoped
+      publish_mode: append
       publish_all_clear_comments_in_refresh: false
       # Optional: disable the default append-mode hiding behavior if you prefer
       # older managed comments to remain visible.

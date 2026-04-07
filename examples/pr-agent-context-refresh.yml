@@ -23,7 +23,7 @@ jobs:
     with:
       tool_ref: v4
       execution_mode: refresh
-      publish_mode: update_latest_scoped
+      publish_mode: append
       publish_all_clear_comments_in_refresh: false
       enable_cross_run_coverage_lookup: true
       wait_for_reviews_to_settle: true

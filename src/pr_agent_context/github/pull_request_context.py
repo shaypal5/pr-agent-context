@@ -37,6 +37,7 @@ def resolve_pull_request_ref(
             client,
             owner=owner,
             repo=repo,
+            trigger=trigger,
             head_sha=trigger.head_sha,
         )
         debug["resolution"] = "head_sha_lookup"
@@ -76,6 +77,7 @@ def _fetch_pull_request_for_head_sha(
     *,
     owner: str,
     repo: str,
+    trigger: TriggerContext,
     head_sha: str,
 ) -> PullRequestRef:
     payload = client.request_json(
@@ -97,12 +99,19 @@ def _fetch_pull_request_for_head_sha(
     )
     selected = candidates[0]
     try:
-        return _fetch_pull_request(
+        pull_request = _fetch_pull_request(
             client,
             owner=owner,
             repo=repo,
             pull_request_number=int(selected["number"]),
         )
+        if (
+            trigger.event_name in {"status", "check_run", "check_suite"}
+            and str(selected.get("state") or "") != "open"
+            and pull_request.head_sha != head_sha
+        ):
+            return pull_request.model_copy(update={"head_sha": head_sha})
+        return pull_request
     except GitHubApiError as exc:
         raise ValueError(
             f"Unable to fetch pull request details for head SHA {head_sha}: {exc}"
