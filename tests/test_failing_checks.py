@@ -304,6 +304,77 @@ class FakeActionRequiredRunClient:
         raise AssertionError(f"Unexpected request_bytes call: {path}")
 
 
+class FakeStaleFailedWorkflowRunClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 302,
+                        "workflow_id": 99,
+                        "path": ".github/workflows/release.yml",
+                        "run_attempt": 1,
+                        "run_number": 9,
+                        "name": "release workflow",
+                        "display_title": "release workflow",
+                        "conclusion": "success",
+                        "updated_at": "2026-03-08T12:13:00Z",
+                        "created_at": "2026-03-08T12:13:00Z",
+                        "html_url": "https://example.invalid/runs/302",
+                    },
+                    {
+                        "id": 301,
+                        "workflow_id": 99,
+                        "path": ".github/workflows/release.yml",
+                        "run_attempt": 1,
+                        "run_number": 8,
+                        "name": "release workflow",
+                        "display_title": "release workflow",
+                        "conclusion": "failure",
+                        "updated_at": "2026-03-08T12:12:00Z",
+                        "created_at": "2026-03-08T12:12:00Z",
+                        "html_url": "https://example.invalid/runs/301",
+                    },
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            return {"jobs": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
+class FakeLatestFailedWorkflowRunClient:
+    def request_json(self, method, path, params=None, payload=None, extra_headers=None):
+        assert method == "GET"
+        if path.endswith("/actions/runs"):
+            return {
+                "workflow_runs": [
+                    {
+                        "id": 401,
+                        "workflow_id": 100,
+                        "path": ".github/workflows/release.yml",
+                        "run_attempt": 1,
+                        "run_number": 10,
+                        "name": "release workflow",
+                        "display_title": "release workflow",
+                        "conclusion": "failure",
+                        "updated_at": "2026-03-08T12:14:00Z",
+                        "created_at": "2026-03-08T12:14:00Z",
+                        "html_url": "https://example.invalid/runs/401",
+                    }
+                ]
+            }
+        if "/actions/runs/" in path and path.endswith("/jobs"):
+            return {"jobs": []}
+        raise AssertionError(f"Unexpected request_json call: {path}")
+
+    def request_bytes(self, method, path, params=None, extra_headers=None):
+        raise AssertionError(f"Unexpected request_bytes call: {path}")
+
+
 class FakeSettlingChecksClient:
     def __init__(self) -> None:
         self.check_run_poll_count = 0
@@ -495,7 +566,7 @@ class FakeNoPollClient:
 
 
 def test_collect_failing_checks_aggregates_head_sha_failures():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeFailingChecksClient(),
         owner="shaypal5",
         repo="example",
@@ -504,6 +575,7 @@ def test_collect_failing_checks_aggregates_head_sha_failures():
         current_run_attempt=2,
         include_cross_run_failures=True,
         include_external_checks=True,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -526,6 +598,7 @@ def test_collect_failing_checks_aggregates_head_sha_failures():
     assert failures[1].summary == "Workflow run failed, but job details were unavailable."
     assert failures[2].app_name == "codecov"
     assert failures[3].context_name == "security/scan"
+    assert approval_notes == []
     assert debug["deduped_source_counts"] == {
         "actions_job": 1,
         "actions_workflow_run": 1,
@@ -536,7 +609,7 @@ def test_collect_failing_checks_aggregates_head_sha_failures():
 
 
 def test_collect_failing_checks_can_stay_current_run_only():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeCurrentRunClient(),
         owner="shaypal5",
         repo="example",
@@ -545,6 +618,7 @@ def test_collect_failing_checks_can_stay_current_run_only():
         current_run_attempt=1,
         include_cross_run_failures=False,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -560,11 +634,12 @@ def test_collect_failing_checks_can_stay_current_run_only():
     assert failure.source_type == "actions_job"
     assert failure.job_name == "smoke"
     assert failure.is_current_run is True
+    assert approval_notes == []
     assert debug["deduped_source_counts"] == {"actions_job": 1}
 
 
 def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbidden():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeForbiddenActionsRunsClient(),
         owner="shaypal5",
         repo="example",
@@ -573,6 +648,7 @@ def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbid
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -584,6 +660,7 @@ def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbid
     )
 
     assert failures == []
+    assert approval_notes == []
     assert debug["deduped_source_counts"] == {}
     assert any(
         warning.startswith("Unable to fetch workflow runs for head SHA def456:")
@@ -592,7 +669,7 @@ def test_collect_failing_checks_degrades_gracefully_when_actions_runs_are_forbid
 
 
 def test_collect_failing_checks_keeps_failed_actions_observation_over_successful_rerun():
-    failures, _ = collect_failing_checks(
+    failures, approval_notes, _ = collect_failing_checks(
         FakeMixedOutcomeActionsClient(),
         owner="shaypal5",
         repo="example",
@@ -601,6 +678,7 @@ def test_collect_failing_checks_keeps_failed_actions_observation_over_successful
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -615,11 +693,12 @@ def test_collect_failing_checks_keeps_failed_actions_observation_over_successful
     assert failures[0].source_type == "actions_job"
     assert failures[0].conclusion == "failure"
     assert failures[0].job_id == 2001
+    assert approval_notes == []
 
 
-def test_collect_failing_checks_includes_action_required_run_level_failures():
-    failures, _ = collect_failing_checks(
-        FakeActionRequiredRunClient(),
+def test_collect_failing_checks_suppresses_stale_workflow_run_failures_when_newer_run_succeeds():
+    failures, approval_notes, _ = collect_failing_checks(
+        FakeStaleFailedWorkflowRunClient(),
         owner="shaypal5",
         repo="example",
         head_sha="def456",
@@ -627,6 +706,7 @@ def test_collect_failing_checks_includes_action_required_run_level_failures():
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -636,6 +716,92 @@ def test_collect_failing_checks_includes_action_required_run_level_failures():
         check_settle_timeout_seconds=45,
         check_settle_poll_interval_seconds=5,
     )
+
+    assert failures == []
+    assert approval_notes == []
+
+
+def test_collect_failing_checks_keeps_latest_real_failed_workflow_run_without_jobs():
+    failures, approval_notes, _ = collect_failing_checks(
+        FakeLatestFailedWorkflowRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
+        wait_for_checks_to_settle=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
+    )
+
+    assert [failure.source_type for failure in failures] == ["actions_workflow_run"]
+    assert failures[0].summary == "Workflow run failed, but job details were unavailable."
+    assert approval_notes == []
+
+
+def test_collect_failing_checks_hides_approval_gated_runs_by_default():
+    failures, approval_notes, debug = collect_failing_checks(
+        FakeActionRequiredRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
+        wait_for_checks_to_settle=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
+    )
+
+    assert failures == []
+    assert approval_notes == []
+    assert len(debug["approval_gated_actions_run_notes"]) == 1
+    assert debug["approval_gated_actions_run_notes"][0]["conclusion"] == "action_required"
+
+
+def test_collect_failing_checks_can_render_approval_gated_runs_when_enabled():
+    failures, approval_notes, debug = collect_failing_checks(
+        FakeActionRequiredRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        current_run_id=1,
+        current_run_attempt=1,
+        include_cross_run_failures=True,
+        include_external_checks=False,
+        include_approval_gated_actions_run_notes=True,
+        wait_for_checks_to_settle=False,
+        max_actions_runs=10,
+        max_actions_jobs=10,
+        max_external_checks=10,
+        max_failing_checks=10,
+        max_log_lines_per_job=6,
+        check_settle_timeout_seconds=45,
+        check_settle_poll_interval_seconds=5,
+    )
+
+    assert failures == []
+    assert len(approval_notes) == 1
+    assert approval_notes[0].source_type == "actions_workflow_run"
+    assert approval_notes[0].summary == (
+        "Workflow run was waiting for maintainer approval and did not execute any jobs."
+    )
+    assert len(debug["approval_gated_actions_run_notes"]) == 1
 
 
 def test_collect_failing_checks_waits_for_late_external_checks(monkeypatch):
@@ -650,7 +816,7 @@ def test_collect_failing_checks_waits_for_late_external_checks(monkeypatch):
         lambda **_: 2,
     )
 
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         client,
         owner="shaypal5",
         repo="example",
@@ -659,6 +825,7 @@ def test_collect_failing_checks_waits_for_late_external_checks(monkeypatch):
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=True,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=True,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -670,6 +837,7 @@ def test_collect_failing_checks_waits_for_late_external_checks(monkeypatch):
     )
 
     assert [failure.job_name for failure in failures] == ["codecov/patch"]
+    assert approval_notes == []
     assert debug["settlement"]["enabled"] is True
     assert debug["settlement"]["settled"] is True
     assert debug["settlement"]["timed_out"] is False
@@ -689,7 +857,7 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
         lambda **_: 1,
     )
 
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         client,
         owner="shaypal5",
         repo="example",
@@ -698,6 +866,7 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=True,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=True,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -709,6 +878,7 @@ def test_collect_failing_checks_times_out_when_check_universe_never_settles(monk
     )
 
     assert failures == []
+    assert approval_notes == []
     assert debug["settlement"]["enabled"] is True
     assert debug["settlement"]["settled"] is False
     assert debug["settlement"]["timed_out"] is True
@@ -728,7 +898,7 @@ def test_collect_failing_checks_preserves_current_run_failures_after_timeout(mon
         lambda **_: 1,
     )
 
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         client,
         owner="shaypal5",
         repo="example",
@@ -737,6 +907,7 @@ def test_collect_failing_checks_preserves_current_run_failures_after_timeout(mon
         current_run_attempt=1,
         include_cross_run_failures=True,
         include_external_checks=True,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=True,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -748,6 +919,7 @@ def test_collect_failing_checks_preserves_current_run_failures_after_timeout(mon
     )
 
     assert [failure.job_name for failure in failures] == ["smoke"]
+    assert approval_notes == []
     assert failures[0].matrix_label == "ubuntu-latest, 3.12"
     assert failures[0].is_current_run is True
     assert debug["settlement"]["timed_out"] is True
@@ -755,7 +927,7 @@ def test_collect_failing_checks_preserves_current_run_failures_after_timeout(mon
 
 
 def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeNoPollClient(),
         owner="shaypal5",
         repo="example",
@@ -764,6 +936,7 @@ def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
         current_run_attempt=1,
         include_cross_run_failures=False,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=True,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -775,6 +948,7 @@ def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
     )
 
     assert failures == []
+    assert approval_notes == []
     assert debug["settlement"]["enabled"] is True
     assert debug["settlement"]["settled"] is False
     assert debug["settlement"]["timed_out"] is False
@@ -782,7 +956,7 @@ def test_collect_failing_checks_skips_settlement_when_timeout_non_positive():
 
 
 def test_collect_failing_checks_skips_settlement_when_poll_interval_non_positive():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeNoPollClient(),
         owner="shaypal5",
         repo="example",
@@ -791,6 +965,7 @@ def test_collect_failing_checks_skips_settlement_when_poll_interval_non_positive
         current_run_attempt=1,
         include_cross_run_failures=False,
         include_external_checks=False,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=True,
         max_actions_runs=10,
         max_actions_jobs=10,
@@ -802,6 +977,7 @@ def test_collect_failing_checks_skips_settlement_when_poll_interval_non_positive
     )
 
     assert failures == []
+    assert approval_notes == []
     assert debug["settlement"]["enabled"] is True
     assert debug["settlement"]["settled"] is False
     assert debug["settlement"]["timed_out"] is False
@@ -974,7 +1150,7 @@ def test_collect_external_check_runs_degrades_gracefully_on_forbidden():
 
 
 def test_collect_failing_checks_suppresses_codecov_external_signals():
-    failures, debug = collect_failing_checks(
+    failures, approval_notes, debug = collect_failing_checks(
         FakeFailingChecksClient(),
         owner="shaypal5",
         repo="example",
@@ -983,6 +1159,7 @@ def test_collect_failing_checks_suppresses_codecov_external_signals():
         current_run_attempt=2,
         include_cross_run_failures=False,
         include_external_checks=True,
+        include_approval_gated_actions_run_notes=False,
         wait_for_checks_to_settle=False,
         max_actions_runs=20,
         max_actions_jobs=20,
@@ -997,6 +1174,7 @@ def test_collect_failing_checks_suppresses_codecov_external_signals():
     assert all(failure.job_name != "codecov/patch" for failure in failures)
     assert all(failure.context_name != "codecov/patch" for failure in failures)
     assert any(failure.job_name == "security/scan" for failure in failures)
+    assert approval_notes == []
     assert debug["deduped_source_counts"]["commit_status"] == 1
 
 
@@ -1361,19 +1539,22 @@ def test_collect_check_settlement_snapshot_handles_completed_actions_without_ext
 
 
 def test_collect_actions_failures_for_head_sha_ignores_successful_runs_without_jobs():
-    failures, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
-        FakeSuccessfulRunWithoutJobsClient(),
-        owner="shaypal5",
-        repo="example",
-        head_sha="def456",
-        current_run_id=1,
-        current_run_attempt=1,
-        max_actions_runs=10,
-        max_actions_jobs=10,
-        max_log_lines_per_job=6,
+    failures, approval_notes, warnings = (
+        failing_checks_module._collect_actions_failures_for_head_sha(
+            FakeSuccessfulRunWithoutJobsClient(),
+            owner="shaypal5",
+            repo="example",
+            head_sha="def456",
+            current_run_id=1,
+            current_run_attempt=1,
+            max_actions_runs=10,
+            max_actions_jobs=10,
+            max_log_lines_per_job=6,
+        )
     )
 
     assert failures == []
+    assert approval_notes == []
     assert warnings == []
 
 
@@ -1391,17 +1572,19 @@ def test_collect_actions_failures_for_head_sha_skips_current_run_when_already_kn
         }
     ]
 
-    failures, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
-        client,
-        owner="shaypal5",
-        repo="example",
-        head_sha="def456",
-        current_run_id=101,
-        current_run_attempt=2,
-        max_actions_runs=10,
-        max_actions_jobs=10,
-        max_log_lines_per_job=6,
-        current_run_jobs_payloads=current_run_jobs_payloads,
+    failures, approval_notes, warnings = (
+        failing_checks_module._collect_actions_failures_for_head_sha(
+            client,
+            owner="shaypal5",
+            repo="example",
+            head_sha="def456",
+            current_run_id=101,
+            current_run_attempt=2,
+            max_actions_runs=10,
+            max_actions_jobs=10,
+            max_log_lines_per_job=6,
+            current_run_jobs_payloads=current_run_jobs_payloads,
+        )
     )
 
     assert warnings == []

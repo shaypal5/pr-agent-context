@@ -24,6 +24,7 @@ Use this playbook for client-repo adoption, refresh workflow fixes, and patch-co
   - `publish_all_clear_comments_in_refresh: false`
   - `enable_cross_run_coverage_lookup: true`
   - `wait_for_reviews_to_settle: true` when review timing matters
+- Leave approval-gated Actions runs hidden by default. Only enable `include_approval_gated_actions_run_notes: true` if the caller explicitly wants a separate informational note for maintainer-approval waits.
 - Point `coverage_source_workflows` at the producer workflow name when refresh runs need to reuse earlier CI artifacts.
 
 ## Coverage Debugging Rules

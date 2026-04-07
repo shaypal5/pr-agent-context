@@ -11,7 +11,8 @@ from pr_agent_context.domain.models import (
 def assign_item_ids(
     review_threads: list[ReviewThread],
     failing_checks: list[FailingCheck],
-) -> tuple[list[ReviewThread], list[FailingCheck]]:
+    approval_gated_actions_run_notes: list[FailingCheck],
+) -> tuple[list[ReviewThread], list[FailingCheck], list[FailingCheck]]:
     copilot_threads = sorted(
         [thread for thread in review_threads if thread.classifier == "copilot"],
         key=review_thread_sort_key,
@@ -37,4 +38,11 @@ def assign_item_ids(
         failure.model_copy(update={"item_id": f"FAIL-{index}"})
         for index, failure in enumerate(failures, start=1)
     ]
-    return numbered_copilot + numbered_review, numbered_failures
+    numbered_approval_notes = [
+        failure.model_copy(update={"item_id": f"APPROVAL-{index}"})
+        for index, failure in enumerate(
+            sorted(approval_gated_actions_run_notes, key=failing_check_sort_key),
+            start=1,
+        )
+    ]
+    return numbered_copilot + numbered_review, numbered_failures, numbered_approval_notes

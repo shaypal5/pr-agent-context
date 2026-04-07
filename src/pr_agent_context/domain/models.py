@@ -137,6 +137,7 @@ class CollectedContext(BaseModel):
     pull_request: PullRequestRef
     review_threads: list[ReviewThread] = Field(default_factory=list)
     failing_checks: list[FailingCheck] = Field(default_factory=list)
+    approval_gated_actions_run_notes: list[FailingCheck] = Field(default_factory=list)
     patch_coverage: PatchCoverageSummary | None = None
     failing_check_debug: dict | None = None
     review_settlement_debug: dict | None = None

@@ -105,7 +105,7 @@ def test_parse_review_threads_matches_copilot_login_without_bot_suffix():
 
 
 def test_assign_item_ids_preserves_numeric_order_for_legacy_int_thread_ids():
-    numbered_threads, _ = assign_item_ids(
+    numbered_threads, _, _ = assign_item_ids(
         [
             ReviewThread.model_validate(
                 {
@@ -150,6 +150,7 @@ def test_assign_item_ids_preserves_numeric_order_for_legacy_int_thread_ids():
                 }
             ),
         ],
+        [],
         [],
     )
 

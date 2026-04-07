@@ -105,6 +105,7 @@ def test_run_config_from_env(tmp_path):
     assert config.include_failing_checks is True
     assert config.include_cross_run_failures is False
     assert config.include_external_checks is False
+    assert config.include_approval_gated_actions_run_notes is False
     assert config.wait_for_checks_to_settle is False
     assert config.prompt_preamble == "Repository: example"
     assert config.prompt_template_file == template_path.resolve()
@@ -164,10 +165,40 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
     )
 
     assert config.publish_all_clear_comments_in_refresh is False
+    assert config.include_approval_gated_actions_run_notes is False
     assert config.hide_previous_managed_comments_on_append is True
     assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
     assert config.coverage_report_filename == "coverage.xml"
     assert config.target_patch_coverage == 100.0
+
+
+def test_run_config_parses_include_approval_gated_actions_run_notes(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RunConfig.from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_TOKEN": "token",
+            "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
+            "PR_AGENT_CONTEXT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES": "true",
+        }
+    )
+
+    assert config.include_approval_gated_actions_run_notes is True
 
 
 def test_run_config_uses_codecov_patch_target_when_env_override_is_absent(tmp_path):

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pr_agent_context import __version__
 from pr_agent_context.constants import (
+    APPROVAL_GATED_ACTIONS_RUNS_SECTION,
     COPILOT_COMMENT_SECTION,
     DEFAULT_ALL_CLEAR_PROMPT,
     DEFAULT_CHARACTERS_PER_LINE,
@@ -50,9 +51,11 @@ def render_prompt(
     tool_version: str = __version__,
     review_threads: list[ReviewThread],
     failing_checks: list[FailingCheck],
+    approval_gated_actions_run_notes: list[FailingCheck] | None = None,
     patch_coverage: PatchCoverageSummary | None = None,
     include_review_comments: bool = True,
     include_failing_checks: bool = True,
+    include_approval_gated_actions_run_notes: bool = False,
     include_patch_coverage: bool = True,
     include_refresh_metadata: bool = True,
     publish_all_clear_comments_in_refresh: bool = False,
@@ -65,6 +68,7 @@ def render_prompt(
     truncation_notes: list[TruncationNote] = []
     has_review_items = include_review_comments and bool(review_threads)
     has_failing_check_items = include_failing_checks and bool(failing_checks)
+    approval_gated_actions_run_notes = approval_gated_actions_run_notes or []
     has_patch_coverage_items = include_patch_coverage and bool(
         patch_coverage and patch_coverage.actionable
     )
@@ -88,6 +92,10 @@ def render_prompt(
     )
     truncation_notes.extend(notes)
     failing_section, notes = _render_failing_checks_section(failing_checks)
+    truncation_notes.extend(notes)
+    approval_gated_actions_runs_section, notes = _render_approval_gated_actions_run_notes_section(
+        approval_gated_actions_run_notes if include_approval_gated_actions_run_notes else []
+    )
     truncation_notes.extend(notes)
     patch_section, notes = _render_patch_coverage_section(
         patch_coverage,
@@ -123,9 +131,19 @@ def render_prompt(
             "copilot_comments_section": copilot_section,
             "review_comments_section": review_section,
             "failing_checks_section": failing_section,
+            "approval_gated_actions_run_notes_section": approval_gated_actions_runs_section,
             "patch_coverage_section": patch_section,
         },
     )
+    if (
+        approval_gated_actions_runs_section
+        and "approval_gated_actions_run_notes_section" not in diagnostics.placeholders_used
+    ):
+        prompt_markdown = (
+            f"{prompt_markdown}\n\n{approval_gated_actions_runs_section}"
+            if prompt_markdown
+            else approval_gated_actions_runs_section
+        )
     prompt_markdown = wrap_markdown_prose(
         prompt_markdown,
         max_chars=characters_per_line,
@@ -511,6 +529,48 @@ def _render_failing_checks_section(
         section_text,
         max_chars=budget,
         target="failing_checks_section",
+        strategy="section_budget_cap",
+        suffix="\n[note: section truncated to fit overall section budget]",
+    )
+    if note:
+        notes.append(note)
+    return trimmed, notes
+
+
+def _render_approval_gated_actions_run_notes_section(
+    approvals: list[FailingCheck],
+) -> tuple[str, list[TruncationNote]]:
+    if not approvals:
+        return "", []
+
+    budget = DEFAULT_SECTION_BUDGETS["approval_gated_actions_run_notes_section"]
+    intro = (
+        "These GitHub Actions workflow runs were waiting for maintainer approval and are "
+        "informational only; they do not require code changes."
+    )
+    item_blocks: list[str] = []
+    notes: list[TruncationNote] = []
+    base_length = len(f"# {APPROVAL_GATED_ACTIONS_RUNS_SECTION}\n\n{intro}\n\n")
+    for index, approval in enumerate(approvals, start=1):
+        remaining_items = len(approvals) - index + 1
+        used_budget = base_length + sum(len(block) for block in item_blocks)
+        remaining_budget = max(0, budget - used_budget)
+        if remaining_budget <= 0:
+            break
+        item_budget = max(DEFAULT_ITEM_BUDGET_FLOOR, remaining_budget // remaining_items)
+        rendered, item_notes = _render_failing_check(approval, max_chars=item_budget)
+        item_blocks.append(rendered)
+        notes.extend(item_notes)
+
+    section_text = f"# {APPROVAL_GATED_ACTIONS_RUNS_SECTION}\n\n{intro}\n\n" + "\n\n".join(
+        item_blocks
+    )
+    if len(section_text) <= budget:
+        return section_text, notes
+    trimmed, note = truncate_text(
+        section_text,
+        max_chars=budget,
+        target="approval_gated_actions_run_notes_section",
         strategy="section_budget_cap",
         suffix="\n[note: section truncated to fit overall section budget]",
     )
