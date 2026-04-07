@@ -93,6 +93,78 @@ def test_resolve_pull_request_ref_uses_trigger_sha_for_closed_status_event():
     assert debug["resolution"] == "head_sha_lookup"
 
 
+def test_resolve_pull_request_ref_keeps_fetched_sha_for_closed_status_event_when_it_matches():
+    class MatchingClosedPullRequestContextClient:
+        def request_json(
+            self, method: str, path: str, params=None, payload=None, extra_headers=None
+        ):
+            assert method == "GET"
+            if path.endswith("/commits/merge123/pulls"):
+                return [
+                    {
+                        "number": 12,
+                        "state": "closed",
+                        "updated_at": "2026-03-11T08:00:00Z",
+                    }
+                ]
+            if path.endswith("/pulls/12"):
+                return {
+                    "base": {"sha": "base123"},
+                    "head": {"sha": "merge123"},
+                }
+            raise AssertionError(f"Unexpected request: {path}")
+
+    pull_request, _ = resolve_pull_request_ref(
+        MatchingClosedPullRequestContextClient(),
+        owner="shaypal5",
+        repo="pr-agent-context",
+        trigger=TriggerContext(
+            event_name="status",
+            action=None,
+            source="status",
+            head_sha="merge123",
+        ),
+    )
+
+    assert pull_request.head_sha == "merge123"
+
+
+def test_resolve_pull_request_ref_keeps_fetched_sha_for_open_status_event():
+    class OpenPullRequestContextClient:
+        def request_json(
+            self, method: str, path: str, params=None, payload=None, extra_headers=None
+        ):
+            assert method == "GET"
+            if path.endswith("/commits/merge123/pulls"):
+                return [
+                    {
+                        "number": 12,
+                        "state": "open",
+                        "updated_at": "2026-03-11T08:00:00Z",
+                    }
+                ]
+            if path.endswith("/pulls/12"):
+                return {
+                    "base": {"sha": "base123"},
+                    "head": {"sha": "feature123"},
+                }
+            raise AssertionError(f"Unexpected request: {path}")
+
+    pull_request, _ = resolve_pull_request_ref(
+        OpenPullRequestContextClient(),
+        owner="shaypal5",
+        repo="pr-agent-context",
+        trigger=TriggerContext(
+            event_name="status",
+            action=None,
+            source="status",
+            head_sha="merge123",
+        ),
+    )
+
+    assert pull_request.head_sha == "feature123"
+
+
 class _NumberLookupClient:
     def request_json(self, method: str, path: str, params=None, payload=None, extra_headers=None):
         assert method == "GET"

@@ -94,13 +94,15 @@ The reusable workflow inputs are:
 - `publish_mode`: controls how managed PR comments are created or updated, default `append`
   - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
     updating an existing one; by default, older `pr-agent-context` managed comments on the same
-    PR are then hidden as `OUTDATED`; refresh-mode no-op runs may still skip publishing entirely
+    PR are then hidden as `OUTDATED`; refresh-mode no-op runs may still skip publishing entirely;
+    this is the recommended refresh-mode setting in this repository because each refresh signal
+    leaves behind its own comment history while keeping the newest result visible
   - `update_latest_managed`: update the newest managed comment on the PR, regardless of which
     run lifecycle created it
   - `update_matching`: update the managed comment whose marker matches the current run identity
   - `update_latest_scoped`: update the newest managed comment from the same lifecycle scope
-    (`ci` vs `refresh`); this is the recommended refresh-mode setting because it avoids touching
-    the CI comment
+    (`ci` vs `refresh`); this keeps refresh updates off the CI comment, but rewrites a single
+    refresh comment in place instead of preserving each refresh snapshot
 - `publish_all_clear_comments_in_refresh`: in refresh mode, still publish no-op all-clear comments, default `false`
 - `hide_previous_managed_comments_on_append`: in append mode, hide older `pr-agent-context`
   managed comments on the same PR after posting the new one, default `true`
