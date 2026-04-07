@@ -56,6 +56,23 @@ def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> No
     coverage.save()
 
 
+def _build_coverage_data_with_recorded_filenames(
+    data_file: Path,
+    scripts: list[tuple[str, Path, str]],
+) -> None:
+    coverage = Coverage(config_file=False, data_file=str(data_file))
+    coverage.start()
+    for recorded_filename, script_path, invocation in scripts:
+        globals_dict = {"__name__": "__main__"}
+        exec(
+            compile(script_path.read_text(encoding="utf-8"), recorded_filename, "exec"),
+            globals_dict,
+        )
+        exec(invocation, globals_dict)
+    coverage.stop()
+    coverage.save()
+
+
 def _build_coverage_data_with_workspace_config(
     *,
     workspace: Path,
@@ -1215,7 +1232,16 @@ def test_compute_patch_coverage_rebases_absolute_measured_paths_from_split_check
     coverage_dir = job_workspace / "coverage-artifacts"
     coverage_dir.mkdir(parents=True)
     coverage_file = coverage_dir / ".coverage.py312"
-    _build_coverage_data(coverage_file, [(source_path, "parse(True)")])
+    _build_coverage_data_with_recorded_filenames(
+        coverage_file,
+        [
+            (
+                "/home/runner/work/pr-agent-context/pr-agent-context/src/pkg/module.py",
+                source_path,
+                "parse(True)",
+            )
+        ],
+    )
 
     combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
     summary = compute_patch_coverage(
@@ -1235,10 +1261,12 @@ def test_compute_patch_coverage_rebases_absolute_measured_paths_from_split_check
     )
 
     assert summary.is_na is False
-    assert summary.actual_percent == 75
+    assert summary.actual_percent == 0
     assert summary.total_changed_executable_lines == 4
     assert [file_gap.path for file_gap in summary.files] == ["src/pkg/module.py"]
-    assert summary.files[0].uncovered_changed_executable_lines == [4]
+    assert summary.files[0].covered_changed_executable_lines == []
+    assert summary.files[0].uncovered_changed_executable_lines == [1, 2, 3, 4]
+    assert summary.files[0].has_measured_data is True
     assert scope_debug["scope_strategy"] == "measured_root_inference"
     assert scope_debug["inferred_source_roots"] == ["src/pkg"]
 
