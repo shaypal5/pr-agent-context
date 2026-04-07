@@ -22,6 +22,7 @@ from pr_agent_context.constants import (
     DEFAULT_DEBUG_ARTIFACT_PREFIX,
     DEFAULT_EXECUTION_MODE,
     DEFAULT_FORK_BEHAVIOR,
+    DEFAULT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES,
     DEFAULT_MAX_EXTERNAL_CHECKS,
     DEFAULT_MAX_FAILED_JOBS,
     DEFAULT_MAX_FAILED_RUNS,
@@ -248,6 +249,9 @@ class RunConfig(BaseModel):
     include_failing_checks: bool = True
     include_cross_run_failures: bool = True
     include_external_checks: bool = True
+    include_approval_gated_actions_run_notes: bool = (
+        DEFAULT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES
+    )
     wait_for_checks_to_settle: bool = True
     wait_for_reviews_to_settle: bool = False
     publish_all_clear_comments_in_refresh: bool = DEFAULT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH
@@ -375,6 +379,10 @@ class RunConfig(BaseModel):
             include_external_checks=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS"),
                 default=True,
+            ),
+            include_approval_gated_actions_run_notes=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES"),
+                default=DEFAULT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES,
             ),
             wait_for_checks_to_settle=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE"),

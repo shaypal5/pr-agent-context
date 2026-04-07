@@ -72,6 +72,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         include_failing_checks=config.include_failing_checks,
         include_cross_run_failures=config.include_cross_run_failures,
         include_external_checks=config.include_external_checks,
+        include_approval_gated_actions_run_notes=config.include_approval_gated_actions_run_notes,
         wait_for_checks_to_settle=config.wait_for_checks_to_settle,
         wait_for_reviews_to_settle=config.wait_for_reviews_to_settle,
         publish_all_clear_comments_in_refresh=config.publish_all_clear_comments_in_refresh,
@@ -161,19 +162,23 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     )
 
     failing_checks = []
+    approval_gated_actions_run_notes = []
     failing_check_debug: dict | None = None
-    if config.include_failing_checks:
-        failing_checks, failing_check_debug = collect_failing_checks(
+    if config.include_failing_checks or config.include_approval_gated_actions_run_notes:
+        failing_checks, approval_gated_actions_run_notes, failing_check_debug = collect_failing_checks(
             api_client,
             owner=pull_request.owner,
             repo=pull_request.repo,
             head_sha=pull_request.head_sha,
-            current_run_id=config.run_id,
-            current_run_attempt=config.run_attempt,
-            include_cross_run_failures=config.include_cross_run_failures,
-            include_external_checks=config.include_external_checks,
-            wait_for_checks_to_settle=config.wait_for_checks_to_settle,
-            suppress_codecov_checks=(
+                current_run_id=config.run_id,
+                current_run_attempt=config.run_attempt,
+                include_cross_run_failures=config.include_cross_run_failures,
+                include_external_checks=config.include_external_checks,
+                include_approval_gated_actions_run_notes=(
+                    config.include_approval_gated_actions_run_notes
+                ),
+                wait_for_checks_to_settle=config.wait_for_checks_to_settle,
+                suppress_codecov_checks=(
                 config.include_patch_coverage
                 and config.patch_coverage_source_mode == "coverage_xml_artifact"
             ),
@@ -198,8 +203,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     )
     _log(
         "failing_checks",
-        enabled=config.include_failing_checks,
+        enabled=config.include_failing_checks or config.include_approval_gated_actions_run_notes,
         count=len(failing_checks),
+        approval_gated_note_count=len(approval_gated_actions_run_notes),
         source_counts=(failing_check_debug or {}).get("deduped_source_counts", {}),
         warning_count=len((failing_check_debug or {}).get("warnings", [])),
     )
@@ -328,12 +334,17 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
             coverage_artifact_files=0,
         )
 
-    numbered_threads, numbered_failures = assign_item_ids(review_threads, failing_checks)
+    numbered_threads, numbered_failures, numbered_approval_notes = assign_item_ids(
+        review_threads,
+        failing_checks,
+        approval_gated_actions_run_notes,
+    )
     collected_context = CollectedContext(
         trigger=config.trigger,
         pull_request=pull_request,
         review_threads=numbered_threads,
         failing_checks=numbered_failures,
+        approval_gated_actions_run_notes=numbered_approval_notes,
         patch_coverage=patch_coverage,
         failing_check_debug=failing_check_debug,
         review_settlement_debug=review_settlement_debug,
@@ -352,9 +363,11 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         tool_version=__version__,
         review_threads=numbered_threads,
         failing_checks=numbered_failures,
+        approval_gated_actions_run_notes=numbered_approval_notes,
         patch_coverage=patch_coverage,
         include_review_comments=config.include_review_comments,
         include_failing_checks=config.include_failing_checks,
+        include_approval_gated_actions_run_notes=config.include_approval_gated_actions_run_notes,
         include_patch_coverage=config.include_patch_coverage,
         include_refresh_metadata=config.include_refresh_metadata,
         publish_all_clear_comments_in_refresh=config.publish_all_clear_comments_in_refresh,

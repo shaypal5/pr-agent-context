@@ -445,6 +445,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
         "tool": "pr-agent-context",
     }
     assert events["failing_checks"] == {
+        "approval_gated_note_count": 0,
         "count": 3,
         "enabled": True,
         "event": "failing_checks",
@@ -1060,7 +1061,7 @@ def test_run_service_does_not_suppress_codecov_without_patch_coverage(
 
     def fake_collect_failing_checks(*args, **kwargs):
         seen["suppress_codecov_checks"] = kwargs["suppress_codecov_checks"]
-        return [], {"settlement": {}, "deduped_source_counts": {}, "warnings": []}
+        return [], [], {"settlement": {}, "deduped_source_counts": {}, "warnings": []}
 
     monkeypatch.setattr(
         "pr_agent_context.services.run.collect_failing_checks",
@@ -1191,6 +1192,7 @@ def test_run_service_renders_known_failures_even_when_settlement_timed_out(
                     }
                 )
             ],
+            [],
             {
                 "settlement": {
                     "enabled": True,

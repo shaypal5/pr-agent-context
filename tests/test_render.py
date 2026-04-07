@@ -567,6 +567,7 @@ def test_render_prompt_suppresses_all_clear_comment_in_refresh_mode_by_default()
         head_sha="feedface",
         review_threads=[],
         failing_checks=[],
+        approval_gated_actions_run_notes=[],
         execution_mode="refresh",
         patch_coverage=None,
     )
@@ -581,6 +582,7 @@ def test_render_prompt_can_publish_all_clear_comment_in_refresh_mode_when_enable
         head_sha="feedface",
         review_threads=[],
         failing_checks=[],
+        approval_gated_actions_run_notes=[],
         execution_mode="refresh",
         publish_all_clear_comments_in_refresh=True,
         patch_coverage=None,
@@ -606,6 +608,63 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
     assert "Skipped checks: review comments," in rendered.prompt_markdown
     assert "patch coverage." in rendered.prompt_markdown
+
+
+def test_render_prompt_hides_approval_gated_note_section_by_default():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        failing_checks=[],
+        approval_gated_actions_run_notes=[
+            _sample_failing_check(item_id="APPROVAL-1").model_copy(
+                update={
+                    "source_type": "actions_workflow_run",
+                    "job_name": "release workflow",
+                    "summary": (
+                        "Workflow run was waiting for maintainer approval and did not execute "
+                        "any jobs."
+                    ),
+                }
+            )
+        ],
+        patch_coverage=None,
+    )
+
+    assert "Approval-Gated Actions Runs" not in rendered.prompt_markdown
+    assert "# Failing Checks" not in rendered.prompt_markdown
+
+
+def test_render_prompt_renders_approval_gated_note_section_separately_when_enabled():
+    rendered = render_prompt(
+        pull_request_number=17,
+        head_sha="feedface",
+        review_threads=[],
+        failing_checks=[],
+        approval_gated_actions_run_notes=[
+            _sample_failing_check(item_id="APPROVAL-1").model_copy(
+                update={
+                    "source_type": "actions_workflow_run",
+                    "job_name": "release workflow",
+                    "summary": (
+                        "Workflow run was waiting for maintainer approval and did not execute "
+                        "any jobs."
+                    ),
+                    "conclusion": "action_required",
+                }
+            )
+        ],
+        include_approval_gated_actions_run_notes=True,
+        execution_mode="refresh",
+        patch_coverage=None,
+    )
+
+    assert rendered.has_actionable_items is False
+    assert rendered.should_publish_comment is False
+    assert "# Approval-Gated Actions Runs" in rendered.prompt_markdown
+    assert "informational only" in rendered.prompt_markdown
+    assert "# Failing Checks" not in rendered.prompt_markdown
+    assert "This run includes a failing check" not in rendered.prompt_markdown
 
 
 def test_render_prompt_ignores_disabled_signal_inputs_for_actionable_state():

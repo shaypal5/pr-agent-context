@@ -109,6 +109,7 @@ The reusable workflow inputs are:
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
+- `include_approval_gated_actions_run_notes`: include a separate informational section for GitHub Actions runs that were waiting for maintainer approval and did not execute jobs, default `false`
 - `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
 - `wait_for_reviews_to_settle`: in refresh mode, briefly poll unresolved review threads before rendering, default `false`
 - `target_patch_coverage`: required patch coverage percentage; explicit input wins, otherwise
@@ -395,9 +396,16 @@ For the PR head SHA, `pr-agent-context` will attempt to collect:
 The tool deduplicates repeated failures across reruns/check surfaces so the prompt stays compact:
 
 - later successful reruns suppress older failures for the same Actions job identity
+- later successful workflow runs suppress older fallback workflow-run failures for the same workflow identity
 - repeated failures with the same identity are deduped to the most informative instance
 - Actions jobs are preferred over fallback workflow-run items when job details are available
 - external check runs and commit statuses are kept distinct unless they are obvious duplicates by context/name
+
+Approval-gated GitHub Actions runs are treated separately from actionable failing checks:
+
+- `action_required` Actions workflow runs with no jobs are hidden from `# Failing Checks` by default
+- when `include_approval_gated_actions_run_notes` is enabled, they render in a separate informational section
+- those notes do not count as failing checks and do not change comment publication behavior on their own
 
 Current-run failures remain first-class: when the current reusable-workflow run contributed the most
 useful failure instance, it is preferred and rendered first among equivalent failures.

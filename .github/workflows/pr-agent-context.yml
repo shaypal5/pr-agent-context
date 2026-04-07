@@ -43,6 +43,11 @@ on:
         required: false
         default: true
         type: boolean
+      include_approval_gated_actions_run_notes:
+        description: Include informational notes for approval-gated GitHub Actions runs that did not execute jobs.
+        required: false
+        default: false
+        type: boolean
       wait_for_checks_to_settle:
         description: Briefly poll the PR head SHA check universe so late-arriving checks can appear before collection.
         required: false
@@ -308,6 +313,7 @@ jobs:
           PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS: ${{ inputs.include_failing_checks }}
           PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES: ${{ inputs.include_cross_run_failures }}
           PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS: ${{ inputs.include_external_checks }}
+          PR_AGENT_CONTEXT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES: ${{ inputs.include_approval_gated_actions_run_notes }}
           PR_AGENT_CONTEXT_WAIT_FOR_CHECKS_TO_SETTLE: ${{ inputs.wait_for_checks_to_settle }}
           PR_AGENT_CONTEXT_WAIT_FOR_REVIEWS_TO_SETTLE: ${{ inputs.wait_for_reviews_to_settle }}
           PR_AGENT_CONTEXT_PUBLISH_ALL_CLEAR_COMMENTS_IN_REFRESH: ${{ inputs.publish_all_clear_comments_in_refresh }}

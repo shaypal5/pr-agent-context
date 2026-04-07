@@ -34,6 +34,7 @@ def collect_failing_checks(
     current_run_attempt: int,
     include_cross_run_failures: bool,
     include_external_checks: bool,
+    include_approval_gated_actions_run_notes: bool,
     wait_for_checks_to_settle: bool,
     max_actions_runs: int,
     max_actions_jobs: int,
@@ -43,9 +44,10 @@ def collect_failing_checks(
     check_settle_timeout_seconds: int,
     check_settle_poll_interval_seconds: int,
     suppress_codecov_checks: bool = False,
-) -> tuple[list[FailingCheck], dict[str, object]]:
+) -> tuple[list[FailingCheck], list[FailingCheck], dict[str, object]]:
     warnings: list[str] = []
     raw_failures: list[FailingCheck] = []
+    approval_gated_actions_run_notes: list[FailingCheck] = []
     settlement = {
         "enabled": False,
         "settled": False,
@@ -109,7 +111,7 @@ def collect_failing_checks(
     warnings.extend(action_warnings)
 
     if include_cross_run_failures:
-        actions_failures, action_warnings = _collect_actions_failures_for_head_sha(
+        actions_failures, approval_gated_notes, action_warnings = _collect_actions_failures_for_head_sha(
             client,
             owner=owner,
             repo=repo,
@@ -122,6 +124,7 @@ def collect_failing_checks(
             current_run_jobs_payloads=current_run_jobs_payloads,
         )
         raw_failures.extend(actions_failures)
+        approval_gated_actions_run_notes.extend(approval_gated_notes)
         warnings.extend(action_warnings)
 
     external_failures: list[FailingCheck] = []
@@ -159,13 +162,21 @@ def collect_failing_checks(
 
     debug = {
         "raw_failures": [failure.model_dump(mode="json") for failure in raw_failures],
+        "approval_gated_actions_run_notes": [
+            failure.model_dump(mode="json") for failure in approval_gated_actions_run_notes
+        ],
         "deduped_failures": [failure.model_dump(mode="json") for failure in deduped_failures],
         "raw_source_counts": _count_by_source(raw_failures),
         "deduped_source_counts": source_counts,
         "settlement": settlement,
         "warnings": warnings,
     }
-    return deduped_failures, debug
+    rendered_approval_notes = (
+        sorted(approval_gated_actions_run_notes, key=failing_check_sort_key)
+        if include_approval_gated_actions_run_notes
+        else []
+    )
+    return deduped_failures, rendered_approval_notes, debug
 
 
 def _wait_for_check_settlement(
@@ -434,7 +445,7 @@ def _collect_actions_failures_for_head_sha(
     max_actions_jobs: int,
     max_log_lines_per_job: int,
     current_run_jobs_payloads: list[dict[str, object]] | None = None,
-) -> tuple[list[FailingCheck], list[str]]:
+) -> tuple[list[FailingCheck], list[FailingCheck], list[str]]:
     warnings: list[str] = []
     runs = _fetch_workflow_runs_for_head_sha(
         client,
@@ -446,10 +457,15 @@ def _collect_actions_failures_for_head_sha(
     )
     job_observations: list[FailingCheck] = []
     run_level_failures: list[FailingCheck] = []
+    approval_gated_actions_run_notes: list[FailingCheck] = []
+    latest_workflow_runs_seen: set[str] = set()
 
     for run in runs:
         run_id = int(run["id"])
         run_attempt = int(run.get("run_attempt") or 1)
+        workflow_identity = _workflow_run_identity(run)
+        is_latest_workflow_run = workflow_identity not in latest_workflow_runs_seen
+        latest_workflow_runs_seen.add(workflow_identity)
         observed_at = _parse_timestamp(
             str(run.get("updated_at") or run.get("run_started_at") or run.get("created_at") or "")
         )
@@ -485,6 +501,25 @@ def _collect_actions_failures_for_head_sha(
                 )
             continue
 
+        if not is_latest_workflow_run:
+            continue
+
+        if _is_approval_gated_actions_run(run, jobs):
+            approval_gated_actions_run_notes.append(
+                _normalize_actions_run_failure(
+                    run,
+                    head_sha=head_sha,
+                    is_current_run=False,
+                    summary=(
+                        "Workflow run was waiting for maintainer approval and did not execute "
+                        "any jobs."
+                    ),
+                    observed_at=observed_at,
+                    workflow_identity=workflow_identity,
+                )
+            )
+            continue
+
         if conclusion in FAILED_CHECK_CONCLUSIONS:
             run_level_failures.append(
                 _normalize_actions_run_failure(
@@ -493,6 +528,7 @@ def _collect_actions_failures_for_head_sha(
                     is_current_run=False,
                     summary="Workflow run failed, but job details were unavailable.",
                     observed_at=observed_at,
+                    workflow_identity=workflow_identity,
                 )
             )
 
@@ -512,7 +548,7 @@ def _collect_actions_failures_for_head_sha(
     selected_runs = [
         failure for failure in run_level_failures if failure.run_id not in selected_run_ids
     ]
-    return selected_jobs + selected_runs, warnings
+    return selected_jobs + selected_runs, approval_gated_actions_run_notes, warnings
 
 
 def _collect_external_check_runs(
@@ -794,6 +830,7 @@ def _normalize_actions_run_failure(
     is_current_run: bool,
     summary: str,
     observed_at: datetime | None,
+    workflow_identity: str | None = None,
 ) -> FailingCheck:
     workflow_name = str(run.get("name") or "Workflow")
     return FailingCheck(
@@ -807,7 +844,7 @@ def _normalize_actions_run_failure(
         is_current_run=is_current_run,
         logs_available=False,
         details_available=bool(run.get("html_url")),
-        dedupe_key=f"actions_run::{workflow_name}",
+        dedupe_key=f"actions_run::{workflow_identity or _workflow_run_identity(run)}",
         observed_at=observed_at,
         run_id=int(run["id"]),
         run_attempt=int(run.get("run_attempt") or 1),
@@ -999,6 +1036,23 @@ def _fallback_dedupe_key(failure: FailingCheck) -> str:
         f"{failure.source_type}::{failure.workflow_name}::{failure.job_name}::"
         f"{failure.matrix_label or ''}::{failure.app_name or ''}"
     )
+
+
+def _workflow_run_identity(run: dict[str, object]) -> str:
+    workflow_id = run.get("workflow_id")
+    if workflow_id is not None:
+        return f"workflow_id::{workflow_id}"
+    path = str(run.get("path") or "").strip()
+    if path:
+        return f"path::{path}"
+    return f"name::{str(run.get('name') or 'Workflow').strip()}"
+
+
+def _is_approval_gated_actions_run(
+    run: dict[str, object],
+    jobs: list[dict[str, object]],
+) -> bool:
+    return not jobs and str(run.get("conclusion") or "") == "action_required"
 
 
 def _is_relevant_external_check_run(
