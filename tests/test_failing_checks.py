@@ -1539,16 +1539,18 @@ def test_collect_check_settlement_snapshot_handles_completed_actions_without_ext
 
 
 def test_collect_actions_failures_for_head_sha_ignores_successful_runs_without_jobs():
-    failures, approval_notes, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
-        FakeSuccessfulRunWithoutJobsClient(),
-        owner="shaypal5",
-        repo="example",
-        head_sha="def456",
-        current_run_id=1,
-        current_run_attempt=1,
-        max_actions_runs=10,
-        max_actions_jobs=10,
-        max_log_lines_per_job=6,
+    failures, approval_notes, warnings = (
+        failing_checks_module._collect_actions_failures_for_head_sha(
+            FakeSuccessfulRunWithoutJobsClient(),
+            owner="shaypal5",
+            repo="example",
+            head_sha="def456",
+            current_run_id=1,
+            current_run_attempt=1,
+            max_actions_runs=10,
+            max_actions_jobs=10,
+            max_log_lines_per_job=6,
+        )
     )
 
     assert failures == []
@@ -1570,17 +1572,19 @@ def test_collect_actions_failures_for_head_sha_skips_current_run_when_already_kn
         }
     ]
 
-    failures, approval_notes, warnings = failing_checks_module._collect_actions_failures_for_head_sha(
-        client,
-        owner="shaypal5",
-        repo="example",
-        head_sha="def456",
-        current_run_id=101,
-        current_run_attempt=2,
-        max_actions_runs=10,
-        max_actions_jobs=10,
-        max_log_lines_per_job=6,
-        current_run_jobs_payloads=current_run_jobs_payloads,
+    failures, approval_notes, warnings = (
+        failing_checks_module._collect_actions_failures_for_head_sha(
+            client,
+            owner="shaypal5",
+            repo="example",
+            head_sha="def456",
+            current_run_id=101,
+            current_run_attempt=2,
+            max_actions_runs=10,
+            max_actions_jobs=10,
+            max_log_lines_per_job=6,
+            current_run_jobs_payloads=current_run_jobs_payloads,
+        )
     )
 
     assert warnings == []

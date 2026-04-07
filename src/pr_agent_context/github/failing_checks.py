@@ -111,17 +111,19 @@ def collect_failing_checks(
     warnings.extend(action_warnings)
 
     if include_cross_run_failures:
-        actions_failures, approval_gated_notes, action_warnings = _collect_actions_failures_for_head_sha(
-            client,
-            owner=owner,
-            repo=repo,
-            head_sha=head_sha,
-            current_run_id=current_run_id,
-            current_run_attempt=current_run_attempt,
-            max_actions_runs=max_actions_runs,
-            max_actions_jobs=max_actions_jobs,
-            max_log_lines_per_job=max_log_lines_per_job,
-            current_run_jobs_payloads=current_run_jobs_payloads,
+        actions_failures, approval_gated_notes, action_warnings = (
+            _collect_actions_failures_for_head_sha(
+                client,
+                owner=owner,
+                repo=repo,
+                head_sha=head_sha,
+                current_run_id=current_run_id,
+                current_run_attempt=current_run_attempt,
+                max_actions_runs=max_actions_runs,
+                max_actions_jobs=max_actions_jobs,
+                max_log_lines_per_job=max_log_lines_per_job,
+                current_run_jobs_payloads=current_run_jobs_payloads,
+            )
         )
         raw_failures.extend(actions_failures)
         approval_gated_actions_run_notes.extend(approval_gated_notes)

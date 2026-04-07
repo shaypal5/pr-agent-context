@@ -137,8 +137,7 @@ def render_prompt(
     )
     if (
         approval_gated_actions_runs_section
-        and "approval_gated_actions_run_notes_section"
-        not in diagnostics.placeholders_used
+        and "approval_gated_actions_run_notes_section" not in diagnostics.placeholders_used
     ):
         prompt_markdown = (
             f"{prompt_markdown}\n\n{approval_gated_actions_runs_section}"
@@ -563,8 +562,8 @@ def _render_approval_gated_actions_run_notes_section(
         item_blocks.append(rendered)
         notes.extend(item_notes)
 
-    section_text = (
-        f"# {APPROVAL_GATED_ACTIONS_RUNS_SECTION}\n\n{intro}\n\n" + "\n\n".join(item_blocks)
+    section_text = f"# {APPROVAL_GATED_ACTIONS_RUNS_SECTION}\n\n{intro}\n\n" + "\n\n".join(
+        item_blocks
     )
     if len(section_text) <= budget:
         return section_text, notes

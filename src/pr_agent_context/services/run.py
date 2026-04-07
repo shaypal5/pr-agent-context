@@ -165,11 +165,12 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     approval_gated_actions_run_notes = []
     failing_check_debug: dict | None = None
     if config.include_failing_checks or config.include_approval_gated_actions_run_notes:
-        failing_checks, approval_gated_actions_run_notes, failing_check_debug = collect_failing_checks(
-            api_client,
-            owner=pull_request.owner,
-            repo=pull_request.repo,
-            head_sha=pull_request.head_sha,
+        failing_checks, approval_gated_actions_run_notes, failing_check_debug = (
+            collect_failing_checks(
+                api_client,
+                owner=pull_request.owner,
+                repo=pull_request.repo,
+                head_sha=pull_request.head_sha,
                 current_run_id=config.run_id,
                 current_run_attempt=config.run_attempt,
                 include_cross_run_failures=config.include_cross_run_failures,
@@ -179,16 +180,17 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
                 ),
                 wait_for_checks_to_settle=config.wait_for_checks_to_settle,
                 suppress_codecov_checks=(
-                config.include_patch_coverage
-                and config.patch_coverage_source_mode == "coverage_xml_artifact"
-            ),
-            max_actions_runs=config.max_actions_runs,
-            max_actions_jobs=config.max_actions_jobs,
-            max_external_checks=config.max_external_checks,
-            max_failing_checks=config.max_failing_checks,
-            max_log_lines_per_job=config.max_log_lines_per_job,
-            check_settle_timeout_seconds=config.check_settle_timeout_seconds,
-            check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
+                    config.include_patch_coverage
+                    and config.patch_coverage_source_mode == "coverage_xml_artifact"
+                ),
+                max_actions_runs=config.max_actions_runs,
+                max_actions_jobs=config.max_actions_jobs,
+                max_external_checks=config.max_external_checks,
+                max_failing_checks=config.max_failing_checks,
+                max_log_lines_per_job=config.max_log_lines_per_job,
+                check_settle_timeout_seconds=config.check_settle_timeout_seconds,
+                check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
+            )
         )
     _log(
         "check_settlement",
