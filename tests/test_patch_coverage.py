@@ -1192,8 +1192,7 @@ def test_normalize_measured_compare_path_rebases_absolute_split_checkout_paths(t
     _write_file(source_path, "def helper():\n    return 1\n")
 
     measured_path = (
-        "/home/runner/work/pr-agent-context/pr-agent-context/"
-        "src/pr_agent_context/coverage/patch.py"
+        "/home/runner/work/pr-agent-context/pr-agent-context/src/pr_agent_context/coverage/patch.py"
     )
 
     assert _normalize_measured_compare_path(measured_path, repo) == (
@@ -1209,10 +1208,7 @@ def test_compute_patch_coverage_rebases_absolute_measured_paths_from_split_check
     test_path = repo / "tests" / "test_module.py"
     _write_file(
         source_path,
-        "def parse(flag):\n"
-        "    if flag:\n"
-        "        return 1\n"
-        "    return 2\n",
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
     )
     _write_file(test_path, "def test_parse():\n    assert True\n")
 
