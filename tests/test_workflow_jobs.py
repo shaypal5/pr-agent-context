@@ -80,6 +80,7 @@ def test_extract_log_text_falls_back_when_zip_has_no_file_entries():
 
 def test_trim_log_excerpt_handles_empty_and_anchorless_logs():
     assert trim_log_excerpt("", failed_steps=["Run pytest"], max_lines=3) == []
+    assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=0) == []
     assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=2) == [
         "three",
         "four",

@@ -119,6 +119,8 @@ def trim_log_excerpt_lines(
 ) -> list[str]:
     if not lines:
         return []
+    if max_lines <= 0:
+        return []
 
     selected_indexes: set[int] = set()
     weighted_anchors: list[tuple[int, int]] = []
