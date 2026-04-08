@@ -20,13 +20,16 @@
 
 ### Refresh Lifecycle Defaults
 - CI runs may publish an all-clear comment.
-- Refresh runs should use scoped comment updates and suppress no-op all-clear comments.
+- Refresh runs should default to append-mode comment history and suppress no-op all-clear comments.
 - The current recommended refresh pattern is `publish_mode: append` with `publish_all_clear_comments_in_refresh: false`.
 
 ### Update Ripple Checklist
 - If you change reusable workflow inputs, config parsing, or environment variable handling, update the README input docs, examples, config tests, and this repo's self-consumer workflows when relevant.
+- If you change prompt-template placeholders or rendered sections, update the README placeholder list, the example template, render tests, and any repo-local skills that describe template evolution.
+- If you change refresh lifecycle behavior or trigger recommendations, update the README refresh guidance, [`examples/pr-agent-context-refresh.yml`](examples/pr-agent-context-refresh.yml), and any repo-local skills that cover refresh wiring.
 - If you change rendered comment wording or metadata, update [`tests/fixtures/prompts/expected_comment.md`](tests/fixtures/prompts/expected_comment.md) and any render/version assertions that pin the output.
 - If you change patch coverage behavior, keep branch coverage at `100%` and update the service/debug tests that lock in the behavior.
+- If you change raw coverage artifact discovery or path normalization behavior, update the README coverage contract and downstream integration guidance.
 
 ### Release Flow
 - Release bump PRs update exactly these files: [`pyproject.toml`](pyproject.toml), [`tests/test_version.py`](tests/test_version.py), and [`tests/fixtures/prompts/expected_comment.md`](tests/fixtures/prompts/expected_comment.md).
@@ -40,4 +43,7 @@
 
 ### Repo-Local Skills
 - For release/version work, consult [`skills/release-flow/SKILL.md`](skills/release-flow/SKILL.md).
+- For refresh workflow design, merged/closed PR refresh behavior, or trigger selection, consult [`skills/refresh-lifecycle/SKILL.md`](skills/refresh-lifecycle/SKILL.md).
+- For managed comment publication behavior and append/update mode decisions, consult [`skills/comment-publishing/SKILL.md`](skills/comment-publishing/SKILL.md).
 - For downstream/client repo integration or patch-coverage wiring/debugging, consult [`skills/downstream-integration/SKILL.md`](skills/downstream-integration/SKILL.md).
+- For prompt template and rendered-section changes, consult [`skills/prompt-template-evolution/SKILL.md`](skills/prompt-template-evolution/SKILL.md).
