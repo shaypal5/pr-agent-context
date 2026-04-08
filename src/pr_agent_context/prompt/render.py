@@ -620,7 +620,9 @@ def _render_failing_check(
     if failure.summary:
         lines.extend(["", "Summary:", _indent_block(_sanitize_block(failure.summary))])
     preferred_output_lines = (
-        failure.failed_step_output_lines if failure.failed_step_output_lines else failure.excerpt_lines
+        failure.failed_step_output_lines
+        if failure.failed_step_output_lines
+        else failure.excerpt_lines
     )
     output_heading = "Excerpt:"
     note_message = "Excerpt truncated to fit section budget."

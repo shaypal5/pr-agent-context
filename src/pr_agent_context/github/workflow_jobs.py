@@ -155,7 +155,9 @@ def extract_failed_step_output(
 
     normalized_lookup = {}
     for step_name, step_lines in grouped_steps:
-        normalized_lookup.setdefault(_normalize_step_name(step_name), []).append((step_name, step_lines))
+        normalized_lookup.setdefault(_normalize_step_name(step_name), []).append(
+            (step_name, step_lines)
+        )
 
     for failed_step in failed_steps:
         matches = normalized_lookup.get(_normalize_step_name(failed_step), [])

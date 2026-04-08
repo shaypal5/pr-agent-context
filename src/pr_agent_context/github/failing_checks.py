@@ -7,11 +7,11 @@ from datetime import datetime
 
 from pr_agent_context.constants import (
     ACTIONS_APP_NAMES,
+    DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     FAILED_CHECK_CONCLUSIONS,
     FAILED_JOB_CONCLUSIONS,
     FAILED_STATUS_STATES,
-    DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
-    DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
 )
 from pr_agent_context.domain.models import FailingCheck, failing_check_sort_key
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
