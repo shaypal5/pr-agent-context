@@ -1,0 +1,42 @@
+---
+name: refresh-lifecycle
+description: Use when working on pr-agent-context refresh-mode workflow design, trigger selection, merged or closed PR refresh behavior, same-repo guards, or comment refresh lifecycle guidance.
+---
+
+# Refresh Lifecycle
+
+Use this playbook for refresh-mode workflow design and debugging in `pr-agent-context`.
+
+## When To Use
+- The user asks how refresh-mode workflows should be wired in this repo or downstream repos.
+- The user asks why a refresh did or did not run after a review, status, or check signal.
+- The user asks about merged or closed PR behavior for later check-driven refreshes.
+
+## Preferred Refresh Shape
+- Use a separate refresh workflow instead of rerunning the full CI producer workflow.
+- Default to:
+  - `execution_mode: refresh`
+  - `publish_mode: append`
+  - `publish_all_clear_comments_in_refresh: false`
+  - `enable_cross_run_coverage_lookup: true`
+  - `wait_for_reviews_to_settle: true` when review timing matters
+- Prefer same-repo guards before comment mutation.
+- Prefer per-PR concurrency so bursts of review/check activity collapse to the newest run.
+
+## Trigger Guidance
+- Core review triggers: `pull_request_review`, `pull_request_review_comment`
+- Check-related triggers: `status`, `check_run`, `check_suite`
+- Ignore GitHub Actions-originated `check_run` events unless the task explicitly wants self-observation.
+- When refresh runs reuse prior CI coverage artifacts, point `coverage_source_workflows` at the CI producer workflow name.
+
+## Merged Or Closed PR Behavior
+- Later `status`, `check_run`, or `check_suite` events may arrive after the PR is closed or merged.
+- In those paths, `pr-agent-context` resolves the PR from the trigger SHA and can preserve the trigger head SHA even when GitHub returns a closed PR whose stored head SHA differs.
+- When debugging this behavior, inspect `pull-request-context.json` before assuming resolution is wrong.
+
+## Docs And Example Ripple
+- If refresh recommendations change, update:
+  - `README.md` refresh guidance
+  - `examples/pr-agent-context-refresh.yml`
+  - `AGENTS.md`
+  - any downstream-integration guidance that repeats refresh defaults

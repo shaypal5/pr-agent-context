@@ -171,6 +171,7 @@ Supported placeholders:
 - `{{ copilot_comments_section }}`
 - `{{ review_comments_section }}`
 - `{{ failing_checks_section }}`
+- `{{ approval_gated_actions_run_notes_section }}`
 - `{{ patch_coverage_section }}`
 
 Unknown placeholders and malformed template braces fail fast with a clear validation error.
@@ -187,11 +188,17 @@ Example custom template file:
 {{ copilot_comments_section }}
 {{ review_comments_section }}
 {{ failing_checks_section }}
+{{ approval_gated_actions_run_notes_section }}
 {{ patch_coverage_section }}
 ```
 
 `prompt_preamble`, when non-empty, is always inserted near the top in a deterministic way,
 even if a custom template omits the explicit placeholder.
+
+When `include_approval_gated_actions_run_notes` is enabled, custom templates should include
+`{{ approval_gated_actions_run_notes_section }}` if they want to control where the informational
+approval-gated section appears. If the placeholder is omitted, `pr-agent-context` appends that
+section after the rendered template so the information is still preserved.
 
 Rendered output also applies a configurable prose-wrapping pass. By default, plain prose lines
 are wrapped to 100 characters, while semantically sensitive lines are left untouched:
@@ -221,7 +228,7 @@ Recommended minimal caller-side pattern:
 
 2. Refresh workflow
 - triggers: `pull_request_review`, `pull_request_review_comment`
-- optional additional triggers: `workflow_run`, `status`, `check_run`
+- optional additional triggers: `workflow_run`, `status`, `check_run`, `check_suite`
 - invokes the same reusable workflow with:
   - `execution_mode: refresh`
   - `publish_mode: append`
@@ -234,18 +241,39 @@ runs publish a fresh refresh-scoped managed comment whenever they have something
 report. The default append-mode hiding behavior can minimize older managed comments afterward so
 the newest refresh result stays visible without rewriting earlier comments in place.
 
-Minimal refresh workflow example:
+For production use, prefer a refresh workflow with:
+
+- same-repository guards so fork-originated review/check events do not try to write comments
+- concurrency per PR so rapid review/check bursts coalesce
+- `coverage_source_workflows` pinned to the CI producer workflow name when refresh runs reuse
+  earlier coverage artifacts
+
+Status-driven refreshes can arrive after a PR is closed or merged. In those cases,
+`pr-agent-context` resolves the PR from the trigger SHA and preserves the trigger head SHA for
+`status`, `check_run`, and `check_suite` events when GitHub points the lookup back at a closed PR.
+
+Production-hardened refresh workflow example:
 
 ```yaml
 name: pr-agent-context-refresh
 
 on:
   pull_request_review:
-    types: [submitted]
+    types: [submitted, edited, dismissed]
   pull_request_review_comment:
-    types: [created]
+    types: [created, edited, deleted]
   check_run:
     types: [completed]
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event.pull_request.number ||
+      github.event.check_run.pull_requests[0].number ||
+      github.event.check_run.head_sha ||
+      github.sha
+    }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -254,21 +282,34 @@ permissions:
 
 jobs:
   pr-agent-context:
-    if: >
-      github.event_name != 'check_run' ||
-      github.event.check_run.app.slug != 'github-actions'
+    if: >-
+      (github.event_name == 'pull_request_review' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'check_run' &&
+       github.event.action == 'completed' &&
+       github.event.check_run.app.slug != 'github-actions' &&
+       toJson(github.event.check_run.pull_requests) != '[]' &&
+       github.event.check_run.pull_requests[0].head.repo.full_name == github.repository)
     uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
     with:
       tool_ref: v4
       execution_mode: refresh
       publish_mode: append
       publish_all_clear_comments_in_refresh: false
+      target_patch_coverage: "100"
+      include_review_comments: true
+      include_failing_checks: true
+      include_patch_coverage: true
       # Optional: disable the default append-mode hiding behavior if you prefer
       # older managed comments to remain visible.
       # hide_previous_managed_comments_on_append: false
       enable_cross_run_coverage_lookup: true
       wait_for_reviews_to_settle: true
       coverage_artifact_prefix: pr-agent-context-coverage
+      coverage_source_workflows: CI
+      debug_artifacts: true
       prompt_template_file: .github/pr-agent-context-template.md
 ```
 
@@ -288,8 +329,8 @@ Patch coverage is computed locally from:
 
 1. the caller repo git diff between the PR base SHA and head SHA
 2. either:
-   - merged raw `.coverage*` data downloaded either from the current run or from a selected prior
-     producer workflow run for the same PR head SHA, or
+   - raw `.coverage*` data discovered recursively inside downloaded artifact directories from the
+     current run or from a selected prior producer workflow run for the same PR head SHA, or
    - a caller-provided combined `coverage.xml` artifact downloaded from the current run or from a
      selected prior producer workflow run for the same PR head SHA
 
@@ -330,6 +371,11 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 ```
+
+Each matrix artifact may keep its own `.coverage` or `.coverage.*` filenames; they do not need to
+be globally unique across artifacts. The reusable workflow preserves per-artifact directories when
+downloading and discovers raw coverage files recursively, so same-named files from sibling matrix
+artifacts remain distinct.
 
 For simpler repos that already produce a single combined `coverage.xml`, you can point
 `pr-agent-context` at that artifact directly and avoid waiting on Codecov patch status
@@ -477,6 +523,8 @@ coverage configuration. Recommended guidance:
 
 - common CLI-only setups such as `pytest --cov=my_pkg` and `pytest --cov=src/my_pkg` are
   supported automatically, even when the repo does not commit a `coverage.py` config file
+- absolute measured paths from split checkouts are rebased onto the active workspace when that can
+  be inferred safely, but explicit normalization is still more reliable
 - enable `relative_files = true`
 - define `[paths]` mappings when different runners produce different absolute prefixes
 - keep coverage source configuration explicit when practical
