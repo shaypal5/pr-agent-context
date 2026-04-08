@@ -129,6 +129,59 @@ def test_extract_failed_step_output_applies_line_cap():
     ]
 
 
+def test_extract_failed_step_output_trims_trailing_blank_lines():
+    log_text = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "src/example.py:1: error: boom",
+            "Found 1 error in 1 file",
+            "",
+            "   ",
+        ]
+    )
+
+    step_name, lines = extract_failed_step_output(
+        log_text,
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    )
+
+    assert step_name == "mypy"
+    assert lines[-1] == "Found 1 error in 1 file"
+
+
+def test_extract_failed_step_output_handles_empty_and_duplicate_groups():
+    assert extract_failed_step_output("", failed_steps=["Run mypy"], max_lines=10) == (None, [])
+    assert extract_failed_step_output(
+        "plain log\nwithout groups",
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    ) == (None, [])
+    duplicate_log = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "first",
+            "2026-03-07T10:00:01Z ##[group]Run mypy",
+            "second",
+        ]
+    )
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=[],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=["Run mypy"],
+        max_lines=0,
+    ) == (None, [])
+
+
 class _PagedWorkflowJobsClient:
     def __init__(self) -> None:
         self.pages: list[int] = []

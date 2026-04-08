@@ -164,7 +164,8 @@ def extract_failed_step_output(
         if len(matches) != 1:
             continue
         step_name, step_lines = matches[0]
-        return step_name, step_lines[:max_lines]
+        trimmed_step_lines = _trim_trailing_blank_lines(step_lines)
+        return step_name, trimmed_step_lines[:max_lines]
 
     return None, []
 
@@ -213,6 +214,13 @@ def _normalize_step_name(name: str) -> str:
     if normalized.casefold().startswith("run "):
         normalized = normalized[4:]
     return normalized.casefold()
+
+
+def _trim_trailing_blank_lines(lines: list[str]) -> list[str]:
+    trimmed = list(lines)
+    while trimmed and not trimmed[-1].strip():
+        trimmed.pop()
+    return trimmed
 
 
 def extract_log_text(log_payload: bytes) -> str:

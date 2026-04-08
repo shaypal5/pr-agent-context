@@ -108,6 +108,16 @@ on:
         required: false
         default: 80
         type: number
+      include_failed_step_output:
+        description: Prefer the failed step's full log block over the compact excerpt for GitHub Actions job failures.
+        required: false
+        default: false
+        type: boolean
+      max_failed_step_output_lines:
+        description: Maximum collected lines from a failed GitHub Actions step before render-time truncation.
+        required: false
+        default: 500
+        type: number
       check_settle_timeout_seconds:
         description: Maximum seconds to wait for the PR head SHA check universe to settle before collecting failures.
         required: false
@@ -325,6 +335,8 @@ jobs:
           PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS: ${{ inputs.max_external_checks }}
           PR_AGENT_CONTEXT_MAX_FAILING_CHECKS: ${{ inputs.max_failing_checks }}
           PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB: ${{ inputs.max_log_lines_per_job }}
+          PR_AGENT_CONTEXT_INCLUDE_FAILED_STEP_OUTPUT: ${{ inputs.include_failed_step_output }}
+          PR_AGENT_CONTEXT_MAX_FAILED_STEP_OUTPUT_LINES: ${{ inputs.max_failed_step_output_lines }}
           PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS: ${{ inputs.check_settle_timeout_seconds }}
           PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS: ${{ inputs.check_settle_poll_interval_seconds }}
           PR_AGENT_CONTEXT_REVIEW_SETTLE_TIMEOUT_SECONDS: ${{ inputs.review_settle_timeout_seconds }}

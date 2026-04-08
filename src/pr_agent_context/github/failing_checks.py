@@ -799,6 +799,7 @@ def _normalize_actions_job(
     run_id = int(run["id"])
     run_attempt = int(run.get("run_attempt") or 1)
     job_id = int(raw_job["id"])
+    failed_steps = _extract_failed_steps(raw_job)
     log_bytes = b""
     excerpt_lines: list[str] = []
     failed_step_output_step: str | None = None
@@ -838,7 +839,7 @@ def _normalize_actions_job(
         summary=str(run.get("display_title") or raw_job.get("name") or ""),
         conclusion=str(raw_job.get("conclusion") or ""),
         url=str(raw_job.get("html_url") or run.get("html_url") or ""),
-        failed_steps=_extract_failed_steps(raw_job),
+        failed_steps=failed_steps,
         excerpt_lines=excerpt_lines,
         failed_step_output_lines=failed_step_output_lines,
         failed_step_output_step=failed_step_output_step,
