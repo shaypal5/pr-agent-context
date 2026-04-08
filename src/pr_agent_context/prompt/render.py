@@ -632,9 +632,14 @@ def _render_failing_check(
         note_message = "Failed step output truncated to fit section budget."
         target_strategy = "trim_failed_step_output"
     if preferred_output_lines:
+        max_lines = (
+            len(preferred_output_lines)
+            if failure.failed_step_output_lines
+            else min(len(preferred_output_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES)
+        )
         excerpt_lines, note = truncate_lines(
             preferred_output_lines,
-            max_lines=min(len(preferred_output_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES),
+            max_lines=max_lines,
             max_chars=DEFAULT_FAILURE_EXCERPT_CHARS,
             target=failure.item_id or "workflow-failure",
             strategy=target_strategy,

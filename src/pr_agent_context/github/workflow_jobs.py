@@ -104,7 +104,19 @@ def split_job_display_name(name: str) -> tuple[str, str | None]:
 
 
 def trim_log_excerpt(log_text: str, *, failed_steps: list[str], max_lines: int) -> list[str]:
-    lines = log_text.splitlines()
+    return trim_log_excerpt_lines(
+        log_text.splitlines(),
+        failed_steps=failed_steps,
+        max_lines=max_lines,
+    )
+
+
+def trim_log_excerpt_lines(
+    lines: list[str],
+    *,
+    failed_steps: list[str],
+    max_lines: int,
+) -> list[str]:
     if not lines:
         return []
 
@@ -142,11 +154,20 @@ def extract_failed_step_output(
     failed_steps: list[str],
     max_lines: int,
 ) -> tuple[str | None, list[str]]:
-    if max_lines <= 0 or not failed_steps:
-        return None, []
+    return extract_failed_step_output_lines(
+        log_text.splitlines(),
+        failed_steps=failed_steps,
+        max_lines=max_lines,
+    )
 
-    lines = log_text.splitlines()
-    if not lines:
+
+def extract_failed_step_output_lines(
+    lines: list[str],
+    *,
+    failed_steps: list[str],
+    max_lines: int,
+) -> tuple[str | None, list[str]]:
+    if max_lines <= 0 or not failed_steps or not lines:
         return None, []
 
     grouped_steps = _group_step_blocks(lines)

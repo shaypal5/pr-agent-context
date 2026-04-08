@@ -7,10 +7,12 @@ from conftest import load_text_fixture
 from pr_agent_context.github.workflow_jobs import (
     collect_failed_jobs,
     extract_failed_step_output,
+    extract_failed_step_output_lines,
     extract_log_text,
     parse_failed_jobs,
     split_job_display_name,
     trim_log_excerpt,
+    trim_log_excerpt_lines,
 )
 
 
@@ -180,6 +182,22 @@ def test_extract_failed_step_output_handles_empty_and_duplicate_groups():
         failed_steps=["Run mypy"],
         max_lines=0,
     ) == (None, [])
+
+
+def test_split_lines_helpers_match_string_helpers():
+    log_text = load_text_fixture("github/logs/pytest_failure.log")
+    log_lines = log_text.splitlines()
+
+    assert trim_log_excerpt_lines(
+        log_lines,
+        failed_steps=["Run pytest"],
+        max_lines=6,
+    ) == trim_log_excerpt(log_text, failed_steps=["Run pytest"], max_lines=6)
+    assert extract_failed_step_output_lines(
+        log_lines,
+        failed_steps=["Run pytest"],
+        max_lines=20,
+    ) == extract_failed_step_output(log_text, failed_steps=["Run pytest"], max_lines=20)
 
 
 class _PagedWorkflowJobsClient:
