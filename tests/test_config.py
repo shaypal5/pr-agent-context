@@ -70,6 +70,8 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_MAX_EXTERNAL_CHECKS": "5",
             "PR_AGENT_CONTEXT_MAX_FAILING_CHECKS": "11",
             "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB": "33",
+            "PR_AGENT_CONTEXT_INCLUDE_FAILED_STEP_OUTPUT": "true",
+            "PR_AGENT_CONTEXT_MAX_FAILED_STEP_OUTPUT_LINES": "123",
             "PR_AGENT_CONTEXT_CHECK_SETTLE_TIMEOUT_SECONDS": "22",
             "PR_AGENT_CONTEXT_CHECK_SETTLE_POLL_INTERVAL_SECONDS": "3",
             "PR_AGENT_CONTEXT_CHARACTERS_PER_LINE": "88",
@@ -115,6 +117,8 @@ def test_run_config_from_env(tmp_path):
     assert config.max_external_checks == 5
     assert config.max_failing_checks == 11
     assert config.max_log_lines_per_job == 33
+    assert config.include_failed_step_output is True
+    assert config.max_failed_step_output_lines == 123
     assert config.check_settle_timeout_seconds == 22
     assert config.check_settle_poll_interval_seconds == 3
     assert config.characters_per_line == 88
@@ -166,10 +170,12 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
 
     assert config.publish_all_clear_comments_in_refresh is False
     assert config.include_approval_gated_actions_run_notes is False
+    assert config.include_failed_step_output is False
     assert config.hide_previous_managed_comments_on_append is True
     assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
     assert config.coverage_report_filename == "coverage.xml"
     assert config.target_patch_coverage == 100.0
+    assert config.max_failed_step_output_lines == 500
 
 
 def test_run_config_parses_include_approval_gated_actions_run_notes(tmp_path):

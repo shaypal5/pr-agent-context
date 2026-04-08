@@ -6,6 +6,7 @@ from zipfile import ZipFile
 from conftest import load_text_fixture
 from pr_agent_context.github.workflow_jobs import (
     collect_failed_jobs,
+    extract_failed_step_output,
     extract_log_text,
     parse_failed_jobs,
     split_job_display_name,
@@ -76,6 +77,55 @@ def test_trim_log_excerpt_handles_empty_and_anchorless_logs():
     assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=2) == [
         "three",
         "four",
+    ]
+
+
+def test_extract_failed_step_output_returns_failed_group_block():
+    step_name, lines = extract_failed_step_output(
+        load_text_fixture("github/logs/pytest_failure.log"),
+        failed_steps=["Run pytest"],
+        max_lines=50,
+    )
+
+    assert step_name == "pytest"
+    assert lines[0].endswith("##[group]Run pytest")
+    assert lines[-1] == "##[error]Process completed with exit code 1."
+
+
+def test_extract_failed_step_output_falls_back_when_step_cannot_be_matched():
+    step_name, lines = extract_failed_step_output(
+        load_text_fixture("github/logs/pytest_failure.log"),
+        failed_steps=["Run mypy"],
+        max_lines=50,
+    )
+
+    assert step_name is None
+    assert lines == []
+
+
+def test_extract_failed_step_output_applies_line_cap():
+    log_text = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "line 1",
+            "line 2",
+            "line 3",
+            "line 4",
+            "##[error]Process completed with exit code 1.",
+        ]
+    )
+
+    step_name, lines = extract_failed_step_output(
+        log_text,
+        failed_steps=["Run mypy"],
+        max_lines=3,
+    )
+
+    assert step_name == "mypy"
+    assert lines == [
+        "2026-03-07T10:00:00Z ##[group]Run mypy",
+        "line 1",
+        "line 2",
     ]
 
 

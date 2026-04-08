@@ -619,27 +619,43 @@ def _render_failing_check(
         lines.append(f"Failed steps: {', '.join(failure.failed_steps)}")
     if failure.summary:
         lines.extend(["", "Summary:", _indent_block(_sanitize_block(failure.summary))])
-    if failure.excerpt_lines:
+    preferred_output_lines = (
+        failure.failed_step_output_lines if failure.failed_step_output_lines else failure.excerpt_lines
+    )
+    output_heading = "Excerpt:"
+    note_message = "Excerpt truncated to fit section budget."
+    target_strategy = "trim_log_excerpt"
+    if failure.failed_step_output_lines:
+        output_heading = "Failed step output:"
+        note_message = "Failed step output truncated to fit section budget."
+        target_strategy = "trim_failed_step_output"
+    if preferred_output_lines:
         excerpt_lines, note = truncate_lines(
-            failure.excerpt_lines,
-            max_lines=min(len(failure.excerpt_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES),
+            preferred_output_lines,
+            max_lines=min(len(preferred_output_lines), DEFAULT_FAILURE_EXCERPT_MAX_LINES),
             max_chars=DEFAULT_FAILURE_EXCERPT_CHARS,
             target=failure.item_id or "workflow-failure",
-            strategy="trim_log_excerpt",
-            note_message="Excerpt truncated to fit section budget.",
+            strategy=target_strategy,
+            note_message=note_message,
         )
         if note:
             notes.append(note)
             excerpt_lines = excerpt_lines + [
                 (
-                    "[note: excerpt truncated to "
-                    f"{len(excerpt_lines)} of {len(failure.excerpt_lines)} lines]"
+                    "[note: "
+                    + ("failed step output" if failure.failed_step_output_lines else "excerpt")
+                    + f" truncated to {len(excerpt_lines)} of {len(preferred_output_lines)} lines]"
                 ),
             ]
         lines.extend(
             [
                 "",
-                "Excerpt:",
+                output_heading,
+                *(
+                    [f"Step: {failure.failed_step_output_step}"]
+                    if failure.failed_step_output_lines and failure.failed_step_output_step
+                    else []
+                ),
                 _indent_block(_sanitize_block("\n".join(excerpt_lines))),
             ]
         )

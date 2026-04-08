@@ -136,6 +136,83 @@ def trim_log_excerpt(log_text: str, *, failed_steps: list[str], max_lines: int) 
     return excerpt[:max_lines]
 
 
+def extract_failed_step_output(
+    log_text: str,
+    *,
+    failed_steps: list[str],
+    max_lines: int,
+) -> tuple[str | None, list[str]]:
+    if max_lines <= 0 or not failed_steps:
+        return None, []
+
+    lines = log_text.splitlines()
+    if not lines:
+        return None, []
+
+    grouped_steps = _group_step_blocks(lines)
+    if not grouped_steps:
+        return None, []
+
+    normalized_lookup = {}
+    for step_name, step_lines in grouped_steps:
+        normalized_lookup.setdefault(_normalize_step_name(step_name), []).append((step_name, step_lines))
+
+    for failed_step in failed_steps:
+        matches = normalized_lookup.get(_normalize_step_name(failed_step), [])
+        if len(matches) != 1:
+            continue
+        step_name, step_lines = matches[0]
+        return step_name, step_lines[:max_lines]
+
+    return None, []
+
+
+def _group_step_blocks(lines: list[str]) -> list[tuple[str, list[str]]]:
+    blocks: list[tuple[str, list[str]]] = []
+    current_step: str | None = None
+    current_lines: list[str] = []
+
+    for line in lines:
+        step_name = _extract_grouped_step_name(line)
+        if step_name is not None:
+            if current_step is not None:
+                blocks.append((current_step, current_lines))
+            current_step = step_name
+            current_lines = [line]
+            continue
+
+        if current_step is None:
+            continue
+
+        if line.strip() == "##[endgroup]":
+            current_lines.append(line)
+            blocks.append((current_step, current_lines))
+            current_step = None
+            current_lines = []
+            continue
+
+        current_lines.append(line)
+
+    if current_step is not None:
+        blocks.append((current_step, current_lines))
+
+    return blocks
+
+
+def _extract_grouped_step_name(line: str) -> str | None:
+    marker = "##[group]Run "
+    if marker not in line:
+        return None
+    return line.split(marker, maxsplit=1)[1].strip() or None
+
+
+def _normalize_step_name(name: str) -> str:
+    normalized = " ".join(name.strip().split())
+    if normalized.casefold().startswith("run "):
+        normalized = normalized[4:]
+    return normalized.casefold()
+
+
 def extract_log_text(log_payload: bytes) -> str:
     try:
         with ZipFile(BytesIO(log_payload)) as archive:

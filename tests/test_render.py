@@ -1216,6 +1216,34 @@ def test_render_failing_checks_section_applies_metadata_drop_and_truncation():
     assert any(note.strategy == "drop_metadata" for note in tiny_notes)
 
 
+def test_render_failing_check_prefers_failed_step_output_over_excerpt():
+    failure = FailingCheck.model_validate(
+        {
+            "job_id": 1,
+            "workflow_name": "CI",
+            "job_name": "typecheck",
+            "url": "https://example.invalid/job",
+            "failed_steps": ["Run mypy"],
+            "excerpt_lines": ["fallback excerpt"],
+            "failed_step_output_step": "mypy",
+            "failed_step_output_lines": [
+                "2026-03-07T10:00:00Z ##[group]Run mypy",
+                "src/example.py:1: error: boom",
+                "Found 1 error in 1 file",
+            ],
+            "item_id": "FAIL-STEP-1",
+        }
+    )
+
+    rendered, notes = _render_failing_check(failure, max_chars=4000)
+
+    assert not notes
+    assert "Failed step output:" in rendered
+    assert "Step: mypy" in rendered
+    assert "src/example.py:1: error: boom" in rendered
+    assert "fallback excerpt" not in rendered
+
+
 def test_render_failing_checks_section_supports_mixed_failure_sources():
     failures = [
         FailingCheck.model_validate(
