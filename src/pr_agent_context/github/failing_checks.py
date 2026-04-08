@@ -17,11 +17,9 @@ from pr_agent_context.domain.models import FailingCheck, failing_check_sort_key
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
 from pr_agent_context.github.workflow_jobs import (
     FAILED_STEP_CONCLUSIONS,
-    extract_failed_step_output,
     extract_failed_step_output_lines,
     extract_log_text,
     split_job_display_name,
-    trim_log_excerpt,
     trim_log_excerpt_lines,
 )
 
@@ -816,10 +814,12 @@ def _normalize_actions_job(
             log_text = extract_log_text(log_bytes)
             log_lines = log_text.splitlines()
             if include_failed_step_output:
-                failed_step_output_step, failed_step_output_lines = extract_failed_step_output_lines(
-                    log_lines,
-                    failed_steps=failed_steps,
-                    max_lines=max_failed_step_output_lines,
+                failed_step_output_step, failed_step_output_lines = (
+                    extract_failed_step_output_lines(
+                        log_lines,
+                        failed_steps=failed_steps,
+                        max_lines=max_failed_step_output_lines,
+                    )
                 )
             excerpt_lines = trim_log_excerpt_lines(
                 log_lines,
