@@ -5,6 +5,10 @@ from zipfile import ZipFile
 
 from conftest import load_text_fixture
 from pr_agent_context.github.workflow_jobs import (
+    _extract_grouped_step_name,
+    _group_step_blocks,
+    _normalize_step_name,
+    _trim_trailing_blank_lines,
     collect_failed_jobs,
     extract_failed_step_output,
     extract_failed_step_output_lines,
@@ -79,6 +83,28 @@ def test_trim_log_excerpt_handles_empty_and_anchorless_logs():
     assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=2) == [
         "three",
         "four",
+    ]
+
+
+def test_trim_log_excerpt_lines_handles_no_matches_and_capacity_limit():
+    lines = [
+        "intro",
+        "Run pytest",
+        "context before",
+        "context after",
+        "##[error]Process completed with exit code 1.",
+        "tail",
+    ]
+
+    assert trim_log_excerpt_lines([], failed_steps=["Run pytest"], max_lines=4) == []
+    assert trim_log_excerpt_lines(lines, failed_steps=["Run mypy"], max_lines=3) == [
+        "context after",
+        "##[error]Process completed with exit code 1.",
+        "tail",
+    ]
+    assert trim_log_excerpt_lines(lines, failed_steps=["Run pytest"], max_lines=2) == [
+        "intro",
+        "Run pytest",
     ]
 
 
@@ -182,6 +208,46 @@ def test_extract_failed_step_output_handles_empty_and_duplicate_groups():
         failed_steps=["Run mypy"],
         max_lines=0,
     ) == (None, [])
+
+
+def test_extract_failed_step_output_lines_prefers_unique_failed_step_match_order():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run lint",
+        "lint failed",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run mypy",
+        "mypy failed",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest", "Run mypy"],
+        max_lines=10,
+    ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
+
+
+def test_step_block_helpers_cover_grouping_and_normalization_edges():
+    lines = [
+        "before group",
+        "2026-03-07T10:00:00Z ##[group]Run mypy",
+        "line 1",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "line 2",
+    ]
+
+    assert _extract_grouped_step_name("plain line") is None
+    assert _extract_grouped_step_name("2026-03-07T10:00:00Z ##[group]Run    ") is None
+    assert _extract_grouped_step_name("2026-03-07T10:00:00Z ##[group]Run mypy") == "mypy"
+    assert _normalize_step_name("  Run   mypy  ") == "mypy"
+    assert _normalize_step_name("pytest  ") == "pytest"
+    assert _trim_trailing_blank_lines(["line 1", "", "  "]) == ["line 1"]
+    assert _group_step_blocks([]) == []
+    assert _group_step_blocks(lines) == [
+        ("mypy", ["2026-03-07T10:00:00Z ##[group]Run mypy", "line 1", "##[endgroup]"]),
+        ("pytest", ["2026-03-07T10:00:01Z ##[group]Run pytest", "line 2"]),
+    ]
 
 
 def test_split_lines_helpers_match_string_helpers():

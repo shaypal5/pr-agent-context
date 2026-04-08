@@ -1263,6 +1263,49 @@ def test_render_failing_check_does_not_apply_excerpt_line_cap_to_failed_step_out
     assert "line 59" in rendered
 
 
+def test_render_failing_check_uses_excerpt_defaults_when_failed_step_output_absent():
+    failure = FailingCheck.model_validate(
+        {
+            "job_id": 1,
+            "workflow_name": "CI",
+            "job_name": "typecheck",
+            "url": "https://example.invalid/job",
+            "excerpt_lines": ["first line", "second line"],
+            "item_id": "FAIL-STEP-3",
+        }
+    )
+
+    rendered, notes = _render_failing_check(failure, max_chars=4000)
+
+    assert not notes
+    assert "Excerpt:" in rendered
+    assert "Failed step output:" not in rendered
+    assert "first line" in rendered
+
+
+def test_render_failing_check_failed_step_output_emits_failed_step_truncation_note():
+    failure = FailingCheck.model_validate(
+        {
+            "job_id": 1,
+            "workflow_name": "CI",
+            "job_name": "typecheck",
+            "url": "https://example.invalid/job",
+            "failed_step_output_step": "mypy",
+            "failed_step_output_lines": [f"line {index} " + ("x" * 220) for index in range(20)],
+            "item_id": "FAIL-STEP-4",
+        }
+    )
+
+    rendered, notes = _render_failing_check(failure, max_chars=4000)
+
+    assert "[note: failed step output truncated to" in rendered
+    assert any(
+        note.strategy == "trim_failed_step_output"
+        and note.message == "Failed step output truncated to fit section budget."
+        for note in notes
+    )
+
+
 def test_render_failing_checks_section_supports_mixed_failure_sources():
     failures = [
         FailingCheck.model_validate(

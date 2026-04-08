@@ -26,6 +26,11 @@ from pr_agent_context.config import (
     load_trigger_context_from_env,
     parse_bool_env,
 )
+from pr_agent_context.constants import (
+    DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
+)
+from pr_agent_context.domain.models import FailingCheck
 
 
 def test_run_config_from_env(tmp_path):
@@ -176,6 +181,15 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
     assert config.coverage_report_filename == "coverage.xml"
     assert config.target_patch_coverage == 100.0
     assert config.max_failed_step_output_lines == 500
+
+
+def test_failed_step_output_defaults_are_exposed_consistently():
+    failure = FailingCheck(url="https://example.invalid/check")
+
+    assert DEFAULT_INCLUDE_FAILED_STEP_OUTPUT is False
+    assert DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES == 500
+    assert failure.failed_step_output_lines == []
+    assert failure.failed_step_output_step is None
 
 
 def test_run_config_parses_include_approval_gated_actions_run_notes(tmp_path):

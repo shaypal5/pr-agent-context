@@ -1253,6 +1253,65 @@ def test_normalize_actions_job_handles_log_download_errors():
     assert failure.url == ""
 
 
+def test_normalize_actions_job_skips_log_download_for_non_failed_conclusions():
+    failure = failing_checks_module._normalize_actions_job(
+        FakeCurrentRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        run={"id": 9, "name": "CI", "html_url": ""},
+        raw_job={
+            "id": 999,
+            "name": "smoke (ubuntu-latest, 3.12)",
+            "workflow_name": "CI",
+            "conclusion": "success",
+            "html_url": "",
+            "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+        },
+        current_run_id=9,
+        current_run_attempt=1,
+        max_log_lines_per_job=6,
+        include_failed_step_output=True,
+        max_failed_step_output_lines=20,
+    )
+
+    assert failure.run_attempt == 1
+    assert failure.failed_steps == ["Run pytest"]
+    assert failure.excerpt_lines == []
+    assert failure.failed_step_output_lines == []
+    assert failure.logs_available is False
+
+
+def test_normalize_actions_job_respects_download_logs_false():
+    failure = failing_checks_module._normalize_actions_job(
+        FakeCurrentRunClient(),
+        owner="shaypal5",
+        repo="example",
+        head_sha="def456",
+        run={"id": 9, "run_attempt": 3, "run_number": 4, "name": "CI", "html_url": ""},
+        raw_job={
+            "id": 999,
+            "name": "smoke (ubuntu-latest, 3.12)",
+            "workflow_name": "CI",
+            "conclusion": "failure",
+            "html_url": "",
+            "steps": [{"name": "Run pytest", "conclusion": "failure"}],
+        },
+        current_run_id=9,
+        current_run_attempt=3,
+        max_log_lines_per_job=6,
+        include_failed_step_output=True,
+        max_failed_step_output_lines=20,
+        download_logs=False,
+    )
+
+    assert failure.run_attempt == 3
+    assert failure.failed_steps == ["Run pytest"]
+    assert failure.excerpt_lines == []
+    assert failure.failed_step_output_lines == []
+    assert failure.logs_available is False
+
+
 def test_normalize_actions_job_includes_failed_step_output_when_enabled():
     failure = failing_checks_module._normalize_actions_job(
         FakeCurrentRunClient(),
