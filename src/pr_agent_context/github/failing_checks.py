@@ -812,7 +812,6 @@ def _normalize_actions_job(
                 f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
             )
             log_text = extract_log_text(log_bytes)
-            failed_steps = _extract_failed_steps(raw_job)
             if include_failed_step_output:
                 failed_step_output_step, failed_step_output_lines = extract_failed_step_output(
                     log_text,
