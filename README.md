@@ -111,6 +111,8 @@ The reusable workflow inputs are:
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
+- `include_failed_step_output`: when enabled, GitHub Actions job failures prefer the failed step's full log block over the compact excerpt, default `false`
+- `max_failed_step_output_lines`: cap the collected failed-step log block before prompt rendering, default `500`
 - `include_approval_gated_actions_run_notes`: include a separate informational section for GitHub Actions runs that were waiting for maintainer approval and did not execute jobs, default `false`
 - `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
 - `wait_for_reviews_to_settle`: in refresh mode, briefly poll unresolved review threads before rendering, default `false`
@@ -453,6 +455,13 @@ Approval-gated GitHub Actions runs are treated separately from actionable failin
 
 Current-run failures remain first-class: when the current reusable-workflow run contributed the most
 useful failure instance, it is preferred and rendered first among equivalent failures.
+
+GitHub Actions job failures can optionally include richer failed-step output:
+
+- by default, `pr-agent-context` keeps rendering the compact anchored excerpt from the job log
+- when `include_failed_step_output` is enabled, it attempts to extract the full failed step log block
+- failed-step output is capped by `max_failed_step_output_lines` before render-time section truncation
+- if the failed step cannot be matched reliably in the log, the tool falls back to the existing excerpt behavior
 
 External checks depend on what GitHub exposes for the PR head SHA. Some providers offer only a
 name, summary, and URL; when logs/details are unavailable, `pr-agent-context` renders a compact

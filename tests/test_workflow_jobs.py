@@ -5,11 +5,18 @@ from zipfile import ZipFile
 
 from conftest import load_text_fixture
 from pr_agent_context.github.workflow_jobs import (
+    _extract_grouped_step_name,
+    _group_step_blocks,
+    _normalize_step_name,
+    _trim_trailing_blank_lines,
     collect_failed_jobs,
+    extract_failed_step_output,
+    extract_failed_step_output_lines,
     extract_log_text,
     parse_failed_jobs,
     split_job_display_name,
     trim_log_excerpt,
+    trim_log_excerpt_lines,
 )
 
 
@@ -73,10 +80,191 @@ def test_extract_log_text_falls_back_when_zip_has_no_file_entries():
 
 def test_trim_log_excerpt_handles_empty_and_anchorless_logs():
     assert trim_log_excerpt("", failed_steps=["Run pytest"], max_lines=3) == []
+    assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=0) == []
     assert trim_log_excerpt("one\ntwo\nthree\nfour", failed_steps=["Run pytest"], max_lines=2) == [
         "three",
         "four",
     ]
+
+
+def test_trim_log_excerpt_lines_handles_no_matches_and_capacity_limit():
+    lines = [
+        "intro",
+        "Run pytest",
+        "context before",
+        "context after",
+        "##[error]Process completed with exit code 1.",
+        "tail",
+    ]
+
+    assert trim_log_excerpt_lines([], failed_steps=["Run pytest"], max_lines=4) == []
+    assert trim_log_excerpt_lines(lines, failed_steps=["Run mypy"], max_lines=3) == [
+        "context after",
+        "##[error]Process completed with exit code 1.",
+        "tail",
+    ]
+    assert trim_log_excerpt_lines(lines, failed_steps=["Run pytest"], max_lines=2) == [
+        "intro",
+        "Run pytest",
+    ]
+
+
+def test_extract_failed_step_output_returns_failed_group_block():
+    step_name, lines = extract_failed_step_output(
+        load_text_fixture("github/logs/pytest_failure.log"),
+        failed_steps=["Run pytest"],
+        max_lines=50,
+    )
+
+    assert step_name == "pytest"
+    assert lines[0].endswith("##[group]Run pytest")
+    assert lines[-1] == "##[error]Process completed with exit code 1."
+
+
+def test_extract_failed_step_output_falls_back_when_step_cannot_be_matched():
+    step_name, lines = extract_failed_step_output(
+        load_text_fixture("github/logs/pytest_failure.log"),
+        failed_steps=["Run mypy"],
+        max_lines=50,
+    )
+
+    assert step_name is None
+    assert lines == []
+
+
+def test_extract_failed_step_output_applies_line_cap():
+    log_text = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "line 1",
+            "line 2",
+            "line 3",
+            "line 4",
+            "##[error]Process completed with exit code 1.",
+        ]
+    )
+
+    step_name, lines = extract_failed_step_output(
+        log_text,
+        failed_steps=["Run mypy"],
+        max_lines=3,
+    )
+
+    assert step_name == "mypy"
+    assert lines == [
+        "2026-03-07T10:00:00Z ##[group]Run mypy",
+        "line 1",
+        "line 2",
+    ]
+
+
+def test_extract_failed_step_output_trims_trailing_blank_lines():
+    log_text = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "src/example.py:1: error: boom",
+            "Found 1 error in 1 file",
+            "",
+            "   ",
+        ]
+    )
+
+    step_name, lines = extract_failed_step_output(
+        log_text,
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    )
+
+    assert step_name == "mypy"
+    assert lines[-1] == "Found 1 error in 1 file"
+
+
+def test_extract_failed_step_output_handles_empty_and_duplicate_groups():
+    assert extract_failed_step_output("", failed_steps=["Run mypy"], max_lines=10) == (None, [])
+    assert extract_failed_step_output(
+        "plain log\nwithout groups",
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    ) == (None, [])
+    duplicate_log = "\n".join(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "first",
+            "2026-03-07T10:00:01Z ##[group]Run mypy",
+            "second",
+        ]
+    )
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=["Run mypy"],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=[],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output(
+        duplicate_log,
+        failed_steps=["Run mypy"],
+        max_lines=0,
+    ) == (None, [])
+
+
+def test_extract_failed_step_output_lines_prefers_unique_failed_step_match_order():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run lint",
+        "lint failed",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run mypy",
+        "mypy failed",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest", "Run mypy"],
+        max_lines=10,
+    ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
+
+
+def test_step_block_helpers_cover_grouping_and_normalization_edges():
+    lines = [
+        "before group",
+        "2026-03-07T10:00:00Z ##[group]Run mypy",
+        "line 1",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "line 2",
+    ]
+
+    assert _extract_grouped_step_name("plain line") is None
+    assert _extract_grouped_step_name("2026-03-07T10:00:00Z ##[group]Run    ") is None
+    assert _extract_grouped_step_name("2026-03-07T10:00:00Z ##[group]Run mypy") == "mypy"
+    assert _normalize_step_name("  Run   mypy  ") == "mypy"
+    assert _normalize_step_name("pytest  ") == "pytest"
+    assert _trim_trailing_blank_lines(["line 1", "", "  "]) == ["line 1"]
+    assert _group_step_blocks([]) == []
+    assert _group_step_blocks(lines) == [
+        ("mypy", ["2026-03-07T10:00:00Z ##[group]Run mypy", "line 1", "##[endgroup]"]),
+        ("pytest", ["2026-03-07T10:00:01Z ##[group]Run pytest", "line 2"]),
+    ]
+
+
+def test_split_lines_helpers_match_string_helpers():
+    log_text = load_text_fixture("github/logs/pytest_failure.log")
+    log_lines = log_text.splitlines()
+
+    assert trim_log_excerpt_lines(
+        log_lines,
+        failed_steps=["Run pytest"],
+        max_lines=6,
+    ) == trim_log_excerpt(log_text, failed_steps=["Run pytest"], max_lines=6)
+    assert extract_failed_step_output_lines(
+        log_lines,
+        failed_steps=["Run pytest"],
+        max_lines=20,
+    ) == extract_failed_step_output(log_text, failed_steps=["Run pytest"], max_lines=20)
 
 
 class _PagedWorkflowJobsClient:

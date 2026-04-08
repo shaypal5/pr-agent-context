@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pr_agent_context.constants import (
     ACTIONS_APP_NAMES,
+    DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     FAILED_CHECK_CONCLUSIONS,
     FAILED_JOB_CONCLUSIONS,
     FAILED_STATUS_STATES,
@@ -15,9 +17,10 @@ from pr_agent_context.domain.models import FailingCheck, failing_check_sort_key
 from pr_agent_context.github.api import GitHubApiClient, GitHubApiError
 from pr_agent_context.github.workflow_jobs import (
     FAILED_STEP_CONCLUSIONS,
+    extract_failed_step_output_lines,
     extract_log_text,
     split_job_display_name,
-    trim_log_excerpt,
+    trim_log_excerpt_lines,
 )
 
 _monotonic = time.monotonic
@@ -41,6 +44,8 @@ def collect_failing_checks(
     max_external_checks: int,
     max_failing_checks: int,
     max_log_lines_per_job: int,
+    include_failed_step_output: bool = DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    max_failed_step_output_lines: int = DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     check_settle_timeout_seconds: int,
     check_settle_poll_interval_seconds: int,
     suppress_codecov_checks: bool = False,
@@ -105,6 +110,8 @@ def collect_failing_checks(
             current_run_attempt=current_run_attempt,
             max_actions_jobs=max_actions_jobs,
             max_log_lines_per_job=max_log_lines_per_job,
+            include_failed_step_output=include_failed_step_output,
+            max_failed_step_output_lines=max_failed_step_output_lines,
         )
     )
     raw_failures.extend(current_run_failures)
@@ -122,6 +129,8 @@ def collect_failing_checks(
                 max_actions_runs=max_actions_runs,
                 max_actions_jobs=max_actions_jobs,
                 max_log_lines_per_job=max_log_lines_per_job,
+                include_failed_step_output=include_failed_step_output,
+                max_failed_step_output_lines=max_failed_step_output_lines,
                 current_run_jobs_payloads=current_run_jobs_payloads,
             )
         )
@@ -398,6 +407,8 @@ def _collect_current_run_actions_failures(
     current_run_attempt: int,
     max_actions_jobs: int,
     max_log_lines_per_job: int,
+    include_failed_step_output: bool = DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    max_failed_step_output_lines: int = DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
 ) -> tuple[list[FailingCheck], list[str], list[dict[str, object]]]:
     warnings: list[str] = []
     jobs_payloads = _fetch_run_jobs(
@@ -427,6 +438,8 @@ def _collect_current_run_actions_failures(
             current_run_id=current_run_id,
             current_run_attempt=current_run_attempt,
             max_log_lines_per_job=max_log_lines_per_job,
+            include_failed_step_output=include_failed_step_output,
+            max_failed_step_output_lines=max_failed_step_output_lines,
             download_logs=True,
         )
         for raw_job in jobs_payloads
@@ -446,6 +459,8 @@ def _collect_actions_failures_for_head_sha(
     max_actions_runs: int,
     max_actions_jobs: int,
     max_log_lines_per_job: int,
+    include_failed_step_output: bool = DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    max_failed_step_output_lines: int = DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     current_run_jobs_payloads: list[dict[str, object]] | None = None,
 ) -> tuple[list[FailingCheck], list[FailingCheck], list[str]]:
     warnings: list[str] = []
@@ -498,6 +513,8 @@ def _collect_actions_failures_for_head_sha(
                         current_run_id=current_run_id,
                         current_run_attempt=current_run_attempt,
                         max_log_lines_per_job=max_log_lines_per_job,
+                        include_failed_step_output=include_failed_step_output,
+                        max_failed_step_output_lines=max_failed_step_output_lines,
                         download_logs=not is_current_run,
                     )
                 )
@@ -775,13 +792,18 @@ def _normalize_actions_job(
     current_run_id: int,
     current_run_attempt: int,
     max_log_lines_per_job: int,
+    include_failed_step_output: bool = DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    max_failed_step_output_lines: int = DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     download_logs: bool = True,
 ) -> FailingCheck:
     run_id = int(run["id"])
     run_attempt = int(run.get("run_attempt") or 1)
     job_id = int(raw_job["id"])
+    failed_steps = _extract_failed_steps(raw_job)
     log_bytes = b""
     excerpt_lines: list[str] = []
+    failed_step_output_step: str | None = None
+    failed_step_output_lines: list[str] = []
     logs_available = False
     if download_logs and str(raw_job.get("conclusion") or "") in FAILED_JOB_CONCLUSIONS:
         try:
@@ -789,12 +811,22 @@ def _normalize_actions_job(
                 "GET",
                 f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
             )
-            excerpt_lines = trim_log_excerpt(
-                extract_log_text(log_bytes),
-                failed_steps=_extract_failed_steps(raw_job),
+            log_text = extract_log_text(log_bytes)
+            log_lines = log_text.splitlines()
+            if include_failed_step_output:
+                failed_step_output_step, failed_step_output_lines = (
+                    extract_failed_step_output_lines(
+                        log_lines,
+                        failed_steps=failed_steps,
+                        max_lines=max_failed_step_output_lines,
+                    )
+                )
+            excerpt_lines = trim_log_excerpt_lines(
+                log_lines,
+                failed_steps=failed_steps,
                 max_lines=max_log_lines_per_job,
             )
-            logs_available = bool(excerpt_lines)
+            logs_available = bool(excerpt_lines or failed_step_output_lines)
         except GitHubApiError:
             excerpt_lines = []
 
@@ -809,8 +841,10 @@ def _normalize_actions_job(
         summary=str(run.get("display_title") or raw_job.get("name") or ""),
         conclusion=str(raw_job.get("conclusion") or ""),
         url=str(raw_job.get("html_url") or run.get("html_url") or ""),
-        failed_steps=_extract_failed_steps(raw_job),
+        failed_steps=failed_steps,
         excerpt_lines=excerpt_lines,
+        failed_step_output_lines=failed_step_output_lines,
+        failed_step_output_step=failed_step_output_step,
         head_sha=head_sha,
         is_current_run=run_id == current_run_id and run_attempt == current_run_attempt,
         logs_available=logs_available,

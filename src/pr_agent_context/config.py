@@ -23,9 +23,11 @@ from pr_agent_context.constants import (
     DEFAULT_EXECUTION_MODE,
     DEFAULT_FORK_BEHAVIOR,
     DEFAULT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES,
+    DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
     DEFAULT_MAX_EXTERNAL_CHECKS,
     DEFAULT_MAX_FAILED_JOBS,
     DEFAULT_MAX_FAILED_RUNS,
+    DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
     DEFAULT_MAX_FAILING_ITEMS,
     DEFAULT_MAX_LOG_LINES_PER_JOB,
     DEFAULT_MAX_REVIEW_THREADS,
@@ -272,6 +274,8 @@ class RunConfig(BaseModel):
     max_external_checks: int = DEFAULT_MAX_EXTERNAL_CHECKS
     max_failing_checks: int = DEFAULT_MAX_FAILING_ITEMS
     max_log_lines_per_job: int = DEFAULT_MAX_LOG_LINES_PER_JOB
+    include_failed_step_output: bool = DEFAULT_INCLUDE_FAILED_STEP_OUTPUT
+    max_failed_step_output_lines: int = DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES
     check_settle_timeout_seconds: int = DEFAULT_CHECK_SETTLE_TIMEOUT_SECONDS
     check_settle_poll_interval_seconds: int = DEFAULT_CHECK_SETTLE_POLL_INTERVAL_SECONDS
     review_settle_timeout_seconds: int = DEFAULT_REVIEW_SETTLE_TIMEOUT_SECONDS
@@ -460,6 +464,16 @@ class RunConfig(BaseModel):
                 env_map.get(
                     "PR_AGENT_CONTEXT_MAX_LOG_LINES_PER_JOB",
                     str(DEFAULT_MAX_LOG_LINES_PER_JOB),
+                )
+            ),
+            include_failed_step_output=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_FAILED_STEP_OUTPUT"),
+                default=DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+            ),
+            max_failed_step_output_lines=int(
+                env_map.get(
+                    "PR_AGENT_CONTEXT_MAX_FAILED_STEP_OUTPUT_LINES",
+                    str(DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES),
                 )
             ),
             check_settle_timeout_seconds=int(

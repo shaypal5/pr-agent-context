@@ -65,6 +65,8 @@ class FailingCheck(BaseModel):
     url: str
     failed_steps: list[str] = Field(default_factory=list)
     excerpt_lines: list[str] = Field(default_factory=list)
+    failed_step_output_lines: list[str] = Field(default_factory=list)
+    failed_step_output_step: str | None = None
     head_sha: str | None = None
     is_current_run: bool = False
     logs_available: bool = False

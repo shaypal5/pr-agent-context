@@ -97,6 +97,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         review_settle_poll_interval_seconds=config.review_settle_poll_interval_seconds,
         characters_per_line=config.characters_per_line,
         max_actions_runs=config.max_actions_runs,
+        include_failed_step_output=config.include_failed_step_output,
+        max_failed_step_output_lines=config.max_failed_step_output_lines,
         max_external_checks=config.max_external_checks,
         max_failing_checks=config.max_failing_checks,
     )
@@ -188,6 +190,8 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
                 max_external_checks=config.max_external_checks,
                 max_failing_checks=config.max_failing_checks,
                 max_log_lines_per_job=config.max_log_lines_per_job,
+                include_failed_step_output=config.include_failed_step_output,
+                max_failed_step_output_lines=config.max_failed_step_output_lines,
                 check_settle_timeout_seconds=config.check_settle_timeout_seconds,
                 check_settle_poll_interval_seconds=config.check_settle_poll_interval_seconds,
             )
