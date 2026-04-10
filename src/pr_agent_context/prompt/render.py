@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from pathlib import Path
 
 from pr_agent_context import __version__
@@ -34,9 +33,11 @@ from pr_agent_context.domain.models import (
 )
 from pr_agent_context.github.comment_markers import format_managed_comment_marker
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
-from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
-
-_PLACEHOLDER_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_-]*)\s*}}")
+from pr_agent_context.prompt.template import (
+    PLACEHOLDER_RE,
+    load_prompt_template,
+    render_prompt_template,
+)
 from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 
@@ -429,7 +430,7 @@ def _build_review_comments_template_value(
     review_section: str,
     template_text: str,
 ) -> str:
-    placeholders = set(_PLACEHOLDER_RE.findall(template_text))
+    placeholders = set(PLACEHOLDER_RE.findall(template_text))
     if (
         copilot_section
         and "copilot_comments_section" not in placeholders

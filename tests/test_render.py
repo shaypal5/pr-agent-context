@@ -859,6 +859,29 @@ def test_render_prompt_folds_copilot_comments_into_legacy_review_section(tmp_pat
     )
 
 
+def test_render_prompt_keeps_explicit_copilot_section_separate(tmp_path):
+    template = tmp_path / "template.md"
+    template.write_text(
+        "# PR {{ pr_number }}\n\n{{ copilot_comments_section }}\n\n{{ review_comments_section }}",
+        encoding="utf-8",
+    )
+
+    rendered = render_prompt(
+        pull_request_number=17,
+        review_threads=[
+            _sample_review_thread(item_id="COPILOT-1", classifier="copilot"),
+            _sample_review_thread(item_id="REVIEW-1", classifier="review"),
+        ],
+        failing_checks=[],
+        prompt_template_file=template,
+    )
+
+    assert rendered.prompt_markdown.count("# Copilot Comments") == 1
+    assert rendered.prompt_markdown.count("## COPILOT-1") == 1
+    assert rendered.prompt_markdown.count("# Other Review Comments") == 1
+    assert rendered.prompt_markdown.count("## REVIEW-1") == 1
+
+
 def test_render_prompt_rejects_unknown_template_placeholders(tmp_path):
     template = tmp_path / "template.md"
     template.write_text("{{ unsupported_placeholder }}", encoding="utf-8")
