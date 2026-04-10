@@ -435,9 +435,7 @@ def _build_review_comments_template_value(
         and "copilot_comments_section" not in placeholders
         and "review_comments_section" in placeholders
     ):
-        return "\n\n".join(
-            section for section in (copilot_section, review_section) if section
-        )
+        return "\n\n".join(section for section in (copilot_section, review_section) if section)
     return review_section
 
 

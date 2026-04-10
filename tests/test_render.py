@@ -854,9 +854,8 @@ def test_render_prompt_folds_copilot_comments_into_legacy_review_section(tmp_pat
     assert "## COPILOT-1" in rendered.prompt_markdown
     assert "# Other Review Comments" in rendered.prompt_markdown
     assert "## REVIEW-1" in rendered.prompt_markdown
-    assert (
-        rendered.prompt_markdown.index("# Copilot Comments")
-        < rendered.prompt_markdown.index("# Other Review Comments")
+    assert rendered.prompt_markdown.index("# Copilot Comments") < rendered.prompt_markdown.index(
+        "# Other Review Comments"
     )
 
 
