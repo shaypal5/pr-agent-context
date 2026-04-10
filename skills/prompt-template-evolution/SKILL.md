@@ -21,6 +21,7 @@ Use this playbook when the rendered prompt contract changes in `pr-agent-context
 
 ## Placement Rules
 - If a section is optional but should still render when enabled, document what happens when a custom template omits its placeholder.
+- Preserve backward compatibility for older templates when a section is split into multiple placeholders. For example, if Copilot comments move into their own placeholder, legacy templates that still render the generic review-comments placeholder should continue to surface them deterministically.
 - Keep the default behavior deterministic and explicitly describe fallback placement in docs.
 - Treat template-contract changes as API changes for downstream consumers.
 

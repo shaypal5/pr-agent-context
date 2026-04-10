@@ -197,6 +197,11 @@ Example custom template file:
 `prompt_preamble`, when non-empty, is always inserted near the top in a deterministic way,
 even if a custom template omits the explicit placeholder.
 
+If a custom template omits `{{ copilot_comments_section }}` but still includes
+`{{ review_comments_section }}`, `pr-agent-context` folds Copilot comments into the review
+comments placeholder to preserve compatibility with templates created before the split between
+Copilot and non-Copilot review sections.
+
 When `include_approval_gated_actions_run_notes` is enabled, custom templates should include
 `{{ approval_gated_actions_run_notes_section }}` if they want to control where the informational
 approval-gated section appears. If the placeholder is omitted, `pr-agent-context` appends that
