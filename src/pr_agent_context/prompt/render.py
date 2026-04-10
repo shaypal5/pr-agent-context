@@ -33,7 +33,11 @@ from pr_agent_context.domain.models import (
 )
 from pr_agent_context.github.comment_markers import format_managed_comment_marker
 from pr_agent_context.prompt.line_wrap import wrap_markdown_prose
-from pr_agent_context.prompt.template import load_prompt_template, render_prompt_template
+from pr_agent_context.prompt.template import (
+    PLACEHOLDER_RE,
+    load_prompt_template,
+    render_prompt_template,
+)
 from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 
 
@@ -129,7 +133,11 @@ def render_prompt(
                 include_refresh_metadata=include_refresh_metadata,
             ),
             "copilot_comments_section": copilot_section,
-            "review_comments_section": review_section,
+            "review_comments_section": _build_review_comments_template_value(
+                copilot_section=copilot_section,
+                review_section=review_section,
+                template_text=template_text,
+            ),
             "failing_checks_section": failing_section,
             "approval_gated_actions_run_notes_section": approval_gated_actions_runs_section,
             "patch_coverage_section": patch_section,
@@ -414,6 +422,22 @@ def _render_review_threads_section(
     if note:
         notes.append(note)
     return trimmed, notes
+
+
+def _build_review_comments_template_value(
+    *,
+    copilot_section: str,
+    review_section: str,
+    template_text: str,
+) -> str:
+    placeholders = set(PLACEHOLDER_RE.findall(template_text))
+    if (
+        copilot_section
+        and "copilot_comments_section" not in placeholders
+        and "review_comments_section" in placeholders
+    ):
+        return "\n\n".join(section for section in (copilot_section, review_section) if section)
+    return review_section
 
 
 def _render_review_thread(

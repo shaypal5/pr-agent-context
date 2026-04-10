@@ -78,4 +78,5 @@ jobs:
       include_failed_step_output: true
       include_patch_coverage: true
       coverage_artifact_prefix: pr-agent-context-coverage
+      coverage_source_workflows: CI
       debug_artifacts: true

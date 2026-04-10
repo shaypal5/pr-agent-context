@@ -832,6 +832,56 @@ def test_render_prompt_supports_custom_template_file(tmp_path):
     assert "# Other Review Comments" in rendered.prompt_markdown
 
 
+def test_render_prompt_folds_copilot_comments_into_legacy_review_section(tmp_path):
+    template = tmp_path / "template.md"
+    template.write_text(
+        "# PR {{ pr_number }}\n\n{{ prompt_preamble }}\n\n{{ review_comments_section }}",
+        encoding="utf-8",
+    )
+
+    rendered = render_prompt(
+        pull_request_number=17,
+        review_threads=[
+            _sample_review_thread(item_id="COPILOT-1", classifier="copilot"),
+            _sample_review_thread(item_id="REVIEW-1", classifier="review"),
+        ],
+        failing_checks=[],
+        prompt_preamble="Repository: example",
+        prompt_template_file=template,
+    )
+
+    assert "# Copilot Comments" in rendered.prompt_markdown
+    assert "## COPILOT-1" in rendered.prompt_markdown
+    assert "# Other Review Comments" in rendered.prompt_markdown
+    assert "## REVIEW-1" in rendered.prompt_markdown
+    assert rendered.prompt_markdown.index("# Copilot Comments") < rendered.prompt_markdown.index(
+        "# Other Review Comments"
+    )
+
+
+def test_render_prompt_keeps_explicit_copilot_section_separate(tmp_path):
+    template = tmp_path / "template.md"
+    template.write_text(
+        "# PR {{ pr_number }}\n\n{{ copilot_comments_section }}\n\n{{ review_comments_section }}",
+        encoding="utf-8",
+    )
+
+    rendered = render_prompt(
+        pull_request_number=17,
+        review_threads=[
+            _sample_review_thread(item_id="COPILOT-1", classifier="copilot"),
+            _sample_review_thread(item_id="REVIEW-1", classifier="review"),
+        ],
+        failing_checks=[],
+        prompt_template_file=template,
+    )
+
+    assert rendered.prompt_markdown.count("# Copilot Comments") == 1
+    assert rendered.prompt_markdown.count("## COPILOT-1") == 1
+    assert rendered.prompt_markdown.count("# Other Review Comments") == 1
+    assert rendered.prompt_markdown.count("## REVIEW-1") == 1
+
+
 def test_render_prompt_rejects_unknown_template_placeholders(tmp_path):
     template = tmp_path / "template.md"
     template.write_text("{{ unsupported_placeholder }}", encoding="utf-8")
