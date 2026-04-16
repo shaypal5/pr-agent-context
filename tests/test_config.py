@@ -27,8 +27,8 @@ from pr_agent_context.config import (
     parse_bool_env,
 )
 from pr_agent_context.constants import (
-    DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS,
     DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS,
     DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
 )
 from pr_agent_context.domain.models import FailingCheck

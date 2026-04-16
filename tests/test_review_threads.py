@@ -507,6 +507,8 @@ def test_collect_unresolved_review_threads_returns_empty_when_max_threads_is_zer
 
     assert threads == []
     assert client.calls == 0
+
+
 def test_parse_review_threads_skips_outdated_threads_when_disabled(review_threads_payload):
     nodes = review_threads_payload["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
 
@@ -520,4 +522,3 @@ def test_parse_review_threads_skips_outdated_threads_when_disabled(review_thread
     )
 
     assert [thread.thread_id for thread in threads] == ["PRRT_example_101", "PRRT_example_202"]
-
