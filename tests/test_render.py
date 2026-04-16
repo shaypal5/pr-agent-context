@@ -1205,6 +1205,7 @@ def test_render_review_thread_drops_metadata_and_then_truncates():
 
     assert "Root author:" not in rendered
     assert "[note: thread truncated to fit section budget]" in rendered
+    assert [note.strategy for note in notes] == ["drop_metadata", "section_budget"]
 
 
 def test_render_review_thread_marks_outdated_threads():
