@@ -456,6 +456,8 @@ def _render_review_thread(
         "",
         "Comment:",
     ]
+    if thread.is_outdated:
+        lines.insert(3, "Status: outdated")
     root_body, note = truncate_text(
         _sanitize_block(root.body),
         max_chars=DEFAULT_ROOT_COMMENT_BODY_CHARS,

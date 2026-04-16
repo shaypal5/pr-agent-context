@@ -43,6 +43,8 @@ jobs:
       publish_all_clear_comments_in_refresh: false
       target_patch_coverage: "100"
       include_review_comments: true
+      # Optional: exclude unresolved threads once GitHub marks them outdated.
+      # include_outdated_review_threads: false
       include_failing_checks: true
       include_patch_coverage: true
       enable_cross_run_coverage_lookup: true
