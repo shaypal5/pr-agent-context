@@ -28,6 +28,7 @@ from pr_agent_context.config import (
 )
 from pr_agent_context.constants import (
     DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS,
     DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES,
 )
 from pr_agent_context.domain.models import FailingCheck
@@ -63,6 +64,7 @@ def test_run_config_from_env(tmp_path):
             "PR_AGENT_CONTEXT_TOOL_REF": "v4",
             "PR_AGENT_CONTEXT_WORKSPACE": str(tmp_path),
             "PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS": "false",
+            "PR_AGENT_CONTEXT_INCLUDE_OUTDATED_REVIEW_THREADS": "false",
             "PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS": "true",
             "PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES": "false",
             "PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS": "false",
@@ -109,6 +111,7 @@ def test_run_config_from_env(tmp_path):
     assert config.run_attempt == 4
     assert config.workspace == tmp_path
     assert config.include_review_comments is False
+    assert config.include_outdated_review_threads is False
     assert config.include_failing_checks is True
     assert config.include_cross_run_failures is False
     assert config.include_external_checks is False
@@ -175,7 +178,8 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
 
     assert config.publish_all_clear_comments_in_refresh is False
     assert config.include_approval_gated_actions_run_notes is False
-    assert config.include_failed_step_output is False
+    assert config.include_outdated_review_threads is DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS
+    assert config.include_failed_step_output is True
     assert config.hide_previous_managed_comments_on_append is True
     assert config.patch_coverage_source_mode == "raw_coverage_artifacts"
     assert config.coverage_report_filename == "coverage.xml"
@@ -186,7 +190,7 @@ def test_run_config_defaults_publish_all_clear_comments_in_refresh_to_false(tmp_
 def test_failed_step_output_defaults_are_exposed_consistently():
     failure = FailingCheck(url="https://example.invalid/check")
 
-    assert DEFAULT_INCLUDE_FAILED_STEP_OUTPUT is False
+    assert DEFAULT_INCLUDE_FAILED_STEP_OUTPUT is True
     assert DEFAULT_MAX_FAILED_STEP_OUTPUT_LINES == 500
     assert failure.failed_step_output_lines == []
     assert failure.failed_step_output_step is None

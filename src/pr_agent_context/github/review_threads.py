@@ -61,6 +61,7 @@ def collect_unresolved_review_threads(
     pull_request_number: int,
     max_threads: int,
     copilot_matcher: CopilotAuthorMatcherConfig,
+    include_outdated: bool = True,
 ) -> list[ReviewThread]:
     threads: list[ReviewThread] = []
     cursor: str | None = None
@@ -77,7 +78,11 @@ def collect_unresolved_review_threads(
         pull_request = response["repository"]["pullRequest"]
         review_threads = pull_request["reviewThreads"]
         threads.extend(
-            parse_review_threads(review_threads["nodes"], copilot_matcher=copilot_matcher)
+            parse_review_threads(
+                review_threads["nodes"],
+                copilot_matcher=copilot_matcher,
+                include_outdated=include_outdated,
+            )
         )
         page_info = review_threads["pageInfo"]
         if not page_info["hasNextPage"]:
@@ -94,6 +99,7 @@ def wait_for_review_threads_to_settle(
     pull_request_number: int,
     max_threads: int,
     copilot_matcher: CopilotAuthorMatcherConfig,
+    include_outdated: bool = True,
     timeout_seconds: int,
     poll_interval_seconds: int,
 ) -> tuple[list[ReviewThread], dict[str, object]]:
@@ -105,6 +111,7 @@ def wait_for_review_threads_to_settle(
             pull_request_number=pull_request_number,
             max_threads=max_threads,
             copilot_matcher=copilot_matcher,
+            include_outdated=include_outdated,
         )
         return threads, {
             "enabled": True,
@@ -123,6 +130,7 @@ def wait_for_review_threads_to_settle(
             pull_request_number=pull_request_number,
             max_threads=max_threads,
             copilot_matcher=copilot_matcher,
+            include_outdated=include_outdated,
         )
         return threads, {
             "enabled": True,
@@ -148,6 +156,7 @@ def wait_for_review_threads_to_settle(
             pull_request_number=pull_request_number,
             max_threads=max_threads,
             copilot_matcher=copilot_matcher,
+            include_outdated=include_outdated,
         )
         fingerprint = tuple(
             sorted(message.comment_id for thread in latest_threads for message in thread.messages)
@@ -180,10 +189,13 @@ def parse_review_threads(
     nodes: Iterable[dict[str, object]],
     *,
     copilot_matcher: CopilotAuthorMatcherConfig,
+    include_outdated: bool = True,
 ) -> list[ReviewThread]:
     parsed_threads: list[ReviewThread] = []
     for node in nodes:
-        if node.get("isResolved") or node.get("isOutdated"):
+        if node.get("isResolved"):
+            continue
+        if node.get("isOutdated") and not include_outdated:
             continue
         messages = [
             ReviewMessage(

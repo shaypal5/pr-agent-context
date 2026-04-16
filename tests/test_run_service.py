@@ -347,7 +347,7 @@ def test_run_service_creates_managed_comment(tmp_path, issue_comments_payload):
     outputs = _read_outputs(config.github_output_path)
     assert client.created_bodies
     assert client.minimized_comment_node_ids == []
-    assert outputs["unresolved_thread_count"] == "2"
+    assert outputs["unresolved_thread_count"] == "3"
     assert outputs["failing_check_count"] == "3"
     assert outputs["comment_written"] == "true"
     assert len(outputs["prompt_sha256"]) == 64
@@ -439,7 +439,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
     assert events["start"]["pull_request_number"] == 17
     assert events["start"]["head_sha"] == "def456"
     assert events["review_threads"] == {
-        "count": 2,
+        "count": 3,
         "enabled": True,
         "event": "review_threads",
         "tool": "pr-agent-context",
@@ -455,7 +455,7 @@ def test_run_service_logs_runtime_diagnostics(tmp_path, issue_comments_payload):
     }
     assert events["render"]["event"] == "render"
     assert events["comment_sync"]["action"] == "created"
-    assert events["summary"]["unresolved_thread_count"] == 2
+    assert events["summary"]["unresolved_thread_count"] == 3
     assert events["summary"]["failing_check_count"] == 3
 
 
@@ -827,7 +827,7 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     comment_body = (config.debug_artifacts_dir / "comment-body.md").read_text(encoding="utf-8")
 
     assert summary["tool_ref"] == "v4"
-    assert summary["unresolved_thread_count"] == 2
+    assert summary["unresolved_thread_count"] == 3
     assert summary["failing_check_source_counts"] == {}
     assert "template_diagnostics" in summary
     assert collected["pull_request"]["number"] == 17
@@ -852,6 +852,25 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert (config.debug_artifacts_dir / "coverage-source.json").exists() is False
     assert (config.debug_artifacts_dir / "pull-request-context.json").exists()
     assert (config.debug_artifacts_dir / "comment-sync.json").exists()
+    assert "Status: outdated" in prompt_text
+    assert "Status: outdated" in comment_body
+
+
+def test_run_service_can_skip_outdated_review_threads(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(tmp_path, include_outdated_review_threads=False)
+
+    assert run_service(config, client=client) == 0
+
+    outputs = _read_outputs(config.github_output_path)
+    prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
+
+    assert outputs["unresolved_thread_count"] == "2"
+    assert "Status: outdated" not in prompt_text
 
 
 def test_run_service_hides_previous_managed_comments_after_append_publish(

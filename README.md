@@ -108,10 +108,11 @@ The reusable workflow inputs are:
   managed comments on the same PR after posting the new one, default `true`
 - `include_refresh_metadata`: include a compact refreshed-snapshot note in the prompt when applicable, default `true`
 - `include_review_comments`: include unresolved PR review threads, default `true`
+- `include_outdated_review_threads`: when review comments are enabled, keep unresolved threads even if GitHub marks them outdated, default `true`
 - `include_failing_checks`: include failing checks in the rendered prompt, default `true`
 - `include_cross_run_failures`: expand Actions failure collection from the current run to PR-head-SHA-wide failed runs/jobs, default `true`
 - `include_external_checks`: include failed external check runs and commit statuses for the PR head SHA, default `true`
-- `include_failed_step_output`: when enabled, GitHub Actions job failures prefer the failed step's full log block over the compact excerpt, default `false`
+- `include_failed_step_output`: GitHub Actions job failures prefer the failed step's full log block over the compact excerpt, default `true`
 - `max_failed_step_output_lines`: cap the collected failed-step log block before prompt rendering, default `500`
 - `include_approval_gated_actions_run_notes`: include a separate informational section for GitHub Actions runs that were waiting for maintainer approval and did not execute jobs, default `false`
 - `wait_for_checks_to_settle`: briefly poll the PR head SHA check universe so late-arriving checks can appear before collection, default `true`
@@ -153,6 +154,11 @@ The reusable workflow inputs are:
 - `review_settle_timeout_seconds`: maximum seconds to wait for unresolved review threads to stabilize in refresh mode, default `180`
 - `review_settle_poll_interval_seconds`: polling interval while waiting for review-thread stability, default `10`
 - `characters_per_line`: wrap plain prose lines in rendered output to this width, default `100`
+
+By default, unresolved review threads are still included after GitHub marks them outdated. That
+keeps unresolved Copilot and human review feedback visible until someone explicitly resolves the
+thread. If your repo prefers to ignore stale diff locations, set
+`include_outdated_review_threads: false`.
 
 When failing-check collection is enabled, `pr-agent-context` now waits briefly for the PR head
 SHA check universe to settle before collecting failures. This helps late-arriving external checks
@@ -307,6 +313,8 @@ jobs:
       publish_all_clear_comments_in_refresh: false
       target_patch_coverage: "100"
       include_review_comments: true
+      # Optional: exclude unresolved threads once GitHub marks them outdated.
+      # include_outdated_review_threads: false
       include_failing_checks: true
       include_patch_coverage: true
       # Optional: disable the default append-mode hiding behavior if you prefer
@@ -461,10 +469,10 @@ Approval-gated GitHub Actions runs are treated separately from actionable failin
 Current-run failures remain first-class: when the current reusable-workflow run contributed the most
 useful failure instance, it is preferred and rendered first among equivalent failures.
 
-GitHub Actions job failures can optionally include richer failed-step output:
+GitHub Actions job failures include richer failed-step output by default:
 
-- by default, `pr-agent-context` keeps rendering the compact anchored excerpt from the job log
-- when `include_failed_step_output` is enabled, it attempts to extract the full failed step log block
+- by default, `pr-agent-context` attempts to extract the full failed step log block
+- set `include_failed_step_output: false` to fall back to the compact anchored excerpt-only behavior
 - failed-step output is capped by `max_failed_step_output_lines` before render-time section truncation
 - if the failed step cannot be matched reliably in the log, the tool falls back to the existing excerpt behavior
 

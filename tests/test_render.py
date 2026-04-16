@@ -1205,7 +1205,36 @@ def test_render_review_thread_drops_metadata_and_then_truncates():
 
     assert "Root author:" not in rendered
     assert "[note: thread truncated to fit section budget]" in rendered
-    assert {note.strategy for note in notes} >= {"drop_metadata", "section_budget"}
+    assert [note.strategy for note in notes] == ["drop_metadata", "section_budget"]
+
+
+def test_render_review_thread_marks_outdated_threads():
+    thread = ReviewThread.model_validate(
+        {
+            "thread_id": 1,
+            "classifier": "copilot",
+            "path": "src/example.py",
+            "line": 12,
+            "original_line": 12,
+            "is_resolved": False,
+            "is_outdated": True,
+            "url": "https://example.invalid/thread",
+            "messages": [
+                {
+                    "comment_id": 101,
+                    "author_login": "copilot-pull-request-reviewer[bot]",
+                    "body": "body",
+                    "url": "https://example.invalid/comment",
+                }
+            ],
+            "item_id": "COPILOT-1",
+        }
+    )
+
+    rendered, notes = _render_review_thread(thread, max_chars=5000)
+
+    assert "Status: outdated" in rendered
+    assert notes == []
 
 
 def test_render_review_thread_root_truncation_and_metadata_only_fallback():

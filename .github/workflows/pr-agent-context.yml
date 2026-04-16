@@ -28,6 +28,11 @@ on:
         required: false
         default: true
         type: boolean
+      include_outdated_review_threads:
+        description: Include unresolved review threads even when GitHub marks them outdated.
+        required: false
+        default: true
+        type: boolean
       include_failing_checks:
         description: Include failing checks in the rendered prompt.
         required: false
@@ -111,7 +116,7 @@ on:
       include_failed_step_output:
         description: Prefer the failed step's full log block over the compact excerpt for GitHub Actions job failures.
         required: false
-        default: false
+        default: true
         type: boolean
       max_failed_step_output_lines:
         description: Maximum collected lines from a failed GitHub Actions step before render-time truncation.
@@ -319,6 +324,7 @@ jobs:
           PR_AGENT_CONTEXT_INCLUDE_REFRESH_METADATA: ${{ inputs.include_refresh_metadata }}
           PR_AGENT_CONTEXT_WORKSPACE: ${{ github.workspace }}/caller-repo
           PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS: ${{ inputs.include_review_comments }}
+          PR_AGENT_CONTEXT_INCLUDE_OUTDATED_REVIEW_THREADS: ${{ inputs.include_outdated_review_threads }}
           PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS: ${{ inputs.include_failing_checks }}
           PR_AGENT_CONTEXT_INCLUDE_CROSS_RUN_FAILURES: ${{ inputs.include_cross_run_failures }}
           PR_AGENT_CONTEXT_INCLUDE_EXTERNAL_CHECKS: ${{ inputs.include_external_checks }}

@@ -69,6 +69,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
         "config",
         include_refresh_metadata=config.include_refresh_metadata,
         include_review_comments=config.include_review_comments,
+        include_outdated_review_threads=config.include_outdated_review_threads,
         include_failing_checks=config.include_failing_checks,
         include_cross_run_failures=config.include_cross_run_failures,
         include_external_checks=config.include_external_checks,
@@ -132,6 +133,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
                 pull_request_number=pull_request.number,
                 max_threads=config.max_review_threads,
                 copilot_matcher=config.copilot_author_patterns,
+                include_outdated=config.include_outdated_review_threads,
                 timeout_seconds=config.review_settle_timeout_seconds,
                 poll_interval_seconds=config.review_settle_poll_interval_seconds,
             )
@@ -143,6 +145,7 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
                 pull_request_number=pull_request.number,
                 max_threads=config.max_review_threads,
                 copilot_matcher=config.copilot_author_patterns,
+                include_outdated=config.include_outdated_review_threads,
             )
             if config.execution_mode == "refresh":
                 review_settlement_debug = {

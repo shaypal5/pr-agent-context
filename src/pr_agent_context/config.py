@@ -24,6 +24,7 @@ from pr_agent_context.constants import (
     DEFAULT_FORK_BEHAVIOR,
     DEFAULT_INCLUDE_APPROVAL_GATED_ACTIONS_RUN_NOTES,
     DEFAULT_INCLUDE_FAILED_STEP_OUTPUT,
+    DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS,
     DEFAULT_MAX_EXTERNAL_CHECKS,
     DEFAULT_MAX_FAILED_JOBS,
     DEFAULT_MAX_FAILED_RUNS,
@@ -248,6 +249,7 @@ class RunConfig(BaseModel):
     publish_mode: PublishMode = DEFAULT_PUBLISH_MODE
     include_refresh_metadata: bool = True
     include_review_comments: bool = True
+    include_outdated_review_threads: bool = DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS
     include_failing_checks: bool = True
     include_cross_run_failures: bool = True
     include_external_checks: bool = True
@@ -371,6 +373,10 @@ class RunConfig(BaseModel):
             include_review_comments=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_REVIEW_COMMENTS"),
                 default=True,
+            ),
+            include_outdated_review_threads=_parse_bool(
+                env_map.get("PR_AGENT_CONTEXT_INCLUDE_OUTDATED_REVIEW_THREADS"),
+                default=DEFAULT_INCLUDE_OUTDATED_REVIEW_THREADS,
             ),
             include_failing_checks=_parse_bool(
                 env_map.get("PR_AGENT_CONTEXT_INCLUDE_FAILING_CHECKS"),

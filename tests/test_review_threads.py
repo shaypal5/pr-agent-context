@@ -19,14 +19,21 @@ def test_parse_review_threads_filters_and_classifies(review_threads_payload):
             exact_logins=("copilot-pull-request-reviewer[bot]",),
             regex_patterns=("copilot.*bot",),
         ),
+        include_outdated=True,
     )
 
-    assert [thread.thread_id for thread in threads] == ["PRRT_example_101", "PRRT_example_202"]
-    assert [thread.sort_key for thread in threads] == [1001, 2001]
+    assert [thread.thread_id for thread in threads] == [
+        "PRRT_example_101",
+        "PRRT_example_202",
+        "PRRT_example_250",
+    ]
+    assert [thread.sort_key for thread in threads] == [1001, 2001, 2501]
     assert threads[0].classifier == "copilot"
     assert threads[0].messages[0].author_login == "copilot-pull-request-reviewer[bot]"
     assert threads[1].classifier == "review"
     assert threads[1].path == "tests/test_example.py"
+    assert threads[2].classifier == "review"
+    assert threads[2].is_outdated is True
 
 
 def test_parse_review_threads_supports_custom_copilot_matchers():
@@ -183,10 +190,10 @@ def test_wait_for_review_threads_to_settle_collects_once_when_timeout_non_positi
         poll_interval_seconds=10,
     )
 
-    assert len(threads) == 2
+    assert len(threads) == 3
     assert debug["skipped_reason"] == "timeout_non_positive"
     assert debug["poll_count"] == 1
-    assert debug["thread_count"] == 2
+    assert debug["thread_count"] == 3
 
 
 def test_wait_for_review_threads_to_settle_collects_once_when_poll_interval_non_positive(
@@ -206,10 +213,10 @@ def test_wait_for_review_threads_to_settle_collects_once_when_poll_interval_non_
         poll_interval_seconds=0,
     )
 
-    assert len(threads) == 2
+    assert len(threads) == 3
     assert debug["skipped_reason"] == "poll_interval_non_positive"
     assert debug["poll_count"] == 1
-    assert debug["thread_count"] == 2
+    assert debug["thread_count"] == 3
 
 
 def test_parse_review_threads_skips_threads_without_messages():
@@ -500,3 +507,18 @@ def test_collect_unresolved_review_threads_returns_empty_when_max_threads_is_zer
 
     assert threads == []
     assert client.calls == 0
+
+
+def test_parse_review_threads_skips_outdated_threads_when_disabled(review_threads_payload):
+    nodes = review_threads_payload["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+
+    threads = parse_review_threads(
+        nodes,
+        copilot_matcher=CopilotAuthorMatcherConfig(
+            exact_logins=("copilot-pull-request-reviewer[bot]",),
+            regex_patterns=("copilot.*bot",),
+        ),
+        include_outdated=False,
+    )
+
+    assert [thread.thread_id for thread in threads] == ["PRRT_example_101", "PRRT_example_202"]
