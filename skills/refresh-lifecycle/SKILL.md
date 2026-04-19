@@ -22,10 +22,15 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
   - `wait_for_reviews_to_settle: true` when review timing matters
 - Prefer same-repo guards before comment mutation.
 - Prefer per-PR concurrency so bursts of review/check activity collapse to the newest run.
+- When bot-authored review events are approval-gated, prefer a repo-owned `schedule` that
+  redispatches the refresh workflow through `workflow_dispatch` with explicit PR number/base/head
+  overrides instead of relying only on the blocked event-triggered run.
 
 ## Trigger Guidance
 - Core review triggers: `pull_request_review`, `pull_request_review_comment`
 - Check-related triggers: `status`, `check_run`, `check_suite`
+- For approval-gated bot reviews, add `workflow_dispatch` plus a `schedule` fanout job that
+  dispatches same-repo open PR refreshes with explicit PR context.
 - Ignore GitHub Actions-originated `check_run` events unless the task explicitly wants self-observation.
 - When refresh runs reuse prior CI coverage artifacts, point `coverage_source_workflows` at the CI producer workflow name.
 

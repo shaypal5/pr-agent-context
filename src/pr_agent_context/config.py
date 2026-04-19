@@ -589,6 +589,20 @@ def _extract_repository(env: Mapping[str, str]) -> tuple[str, str]:
     return owner, repo
 
 
+def _optional_override(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _optional_int_override(value: str | None) -> int | None:
+    stripped = _optional_override(value)
+    if stripped is None:
+        return None
+    return int(stripped)
+
+
 def load_pull_request_context_from_env(
     env: Mapping[str, str],
 ) -> tuple[str, str, PullRequestRef]:
@@ -616,7 +630,21 @@ def load_trigger_context_from_env(env: Mapping[str, str]) -> TriggerContext:
     ).strip()
     action = (env.get("PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION") or "").strip() or None
     source = _build_trigger_source(event_name, action)
-    return _extract_trigger_context(event_name, action, source, event)
+    trigger = _extract_trigger_context(event_name, action, source, event)
+
+    overrides: dict[str, object] = {}
+    if pull_request_number := _optional_int_override(
+        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
+    ):
+        overrides["pull_request_number"] = pull_request_number
+    if base_sha := _optional_override(env.get("PR_AGENT_CONTEXT_BASE_SHA")):
+        overrides["base_sha"] = base_sha
+    if head_sha := _optional_override(env.get("PR_AGENT_CONTEXT_HEAD_SHA")):
+        overrides["head_sha"] = head_sha
+
+    if not overrides:
+        return trigger
+    return trigger.model_copy(update=overrides)
 
 
 def _extract_trigger_context(

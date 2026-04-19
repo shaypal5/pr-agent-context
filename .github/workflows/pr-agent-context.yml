@@ -13,6 +13,31 @@ on:
         required: false
         default: auto
         type: string
+      trigger_event_name_override:
+        description: Optional explicit trigger event name for dispatch- or schedule-driven refreshes.
+        required: false
+        default: ""
+        type: string
+      trigger_event_action_override:
+        description: Optional explicit trigger event action paired with trigger_event_name_override.
+        required: false
+        default: ""
+        type: string
+      pull_request_number_override:
+        description: Optional explicit pull request number for dispatch- or schedule-driven refreshes.
+        required: false
+        default: ""
+        type: string
+      pull_request_base_sha_override:
+        description: Optional explicit pull request base SHA for dispatch- or schedule-driven refreshes.
+        required: false
+        default: ""
+        type: string
+      pull_request_head_sha_override:
+        description: Optional explicit pull request head SHA for dispatch- or schedule-driven refreshes.
+        required: false
+        default: ""
+        type: string
       publish_mode:
         description: append, update_latest_managed, update_matching, or update_latest_scoped.
         required: false
@@ -320,6 +345,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_AGENT_CONTEXT_TOOL_REF: ${{ inputs.tool_ref }}
           PR_AGENT_CONTEXT_EXECUTION_MODE: ${{ inputs.execution_mode }}
+          PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME: ${{ inputs.trigger_event_name_override }}
+          PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION: ${{ inputs.trigger_event_action_override }}
+          PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number_override }}
+          PR_AGENT_CONTEXT_BASE_SHA: ${{ inputs.pull_request_base_sha_override }}
+          PR_AGENT_CONTEXT_HEAD_SHA: ${{ inputs.pull_request_head_sha_override }}
           PR_AGENT_CONTEXT_PUBLISH_MODE: ${{ inputs.publish_mode }}
           PR_AGENT_CONTEXT_INCLUDE_REFRESH_METADATA: ${{ inputs.include_refresh_metadata }}
           PR_AGENT_CONTEXT_WORKSPACE: ${{ github.workspace }}/caller-repo

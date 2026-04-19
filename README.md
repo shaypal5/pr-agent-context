@@ -91,6 +91,16 @@ The reusable workflow inputs are:
 - `execution_mode`: controls whether the run behaves like the initial CI pass or a later refresh
   pass. `ci` always uses CI behavior, `refresh` always uses refresh behavior, and `auto`
   infers the mode from the triggering event, default `auto`
+- `trigger_event_name_override`: optional explicit trigger event name for dispatch- or
+  schedule-driven refreshes, default `""`
+- `trigger_event_action_override`: optional explicit trigger event action paired with
+  `trigger_event_name_override`, default `""`
+- `pull_request_number_override`: optional explicit pull request number for dispatch- or
+  schedule-driven refreshes, default `""`
+- `pull_request_base_sha_override`: optional explicit pull request base SHA for dispatch- or
+  schedule-driven refreshes, default `""`
+- `pull_request_head_sha_override`: optional explicit pull request head SHA for dispatch- or
+  schedule-driven refreshes, default `""`
 - `publish_mode`: controls how managed PR comments are created or updated, default `append`
   - `append`: when the run publishes a managed comment, post it as a new PR comment instead of
     updating an existing one; by default, older `pr-agent-context` managed comments on the same
@@ -242,6 +252,9 @@ Recommended minimal caller-side pattern:
 2. Refresh workflow
 - triggers: `pull_request_review`, `pull_request_review_comment`
 - optional additional triggers: `workflow_run`, `status`, `check_run`, `check_suite`
+- optional hardening: add a repo-owned `schedule` plus `workflow_dispatch` path that fans out
+  explicit PR refreshes when bot-authored review events would otherwise leave runs stuck waiting
+  for approval
 - invokes the same reusable workflow with:
   - `execution_mode: refresh`
   - `publish_mode: append`
@@ -260,6 +273,8 @@ For production use, prefer a refresh workflow with:
 - concurrency per PR so rapid review/check bursts coalesce
 - `coverage_source_workflows` pinned to the CI producer workflow name when refresh runs reuse
   earlier coverage artifacts
+- a repo-owned scheduled dispatcher if Copilot or other bot-authored review events can leave
+  direct refresh runs waiting for maintainer approval
 
 Status-driven refreshes can arrive after a PR is closed or merged. In those cases,
 `pr-agent-context` resolves the PR from the trigger SHA and preserves the trigger head SHA for
@@ -277,12 +292,40 @@ on:
     types: [created, edited, deleted]
   check_run:
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to refresh explicitly.
+        required: true
+        type: string
+      pull_request_base_sha:
+        description: Base SHA for the explicit refresh target.
+        required: true
+        type: string
+      pull_request_head_sha:
+        description: Head SHA for the explicit refresh target.
+        required: true
+        type: string
+      trigger_event_name:
+        description: Synthetic trigger event name used in rendered metadata.
+        required: false
+        default: workflow_dispatch
+        type: string
+      trigger_event_action:
+        description: Synthetic trigger event action used in rendered metadata.
+        required: false
+        default: ""
+        type: string
+  schedule:
+    - cron: "*/15 * * * *"
 
 concurrency:
   group: >-
     ${{ github.workflow }}-${{
       github.event.pull_request.number ||
+      github.event.inputs.pull_request_number ||
       github.event.check_run.pull_requests[0].number ||
+      github.event.inputs.pull_request_head_sha ||
       github.event.check_run.head_sha ||
       github.sha
     }}
@@ -294,21 +337,74 @@ permissions:
   pull-requests: write
 
 jobs:
+  dispatch-scheduled-refreshes:
+    name: Dispatch scheduled refreshes
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const sameRepoPulls = pulls.filter(
+              (pull) => pull.head?.repo?.full_name === `${owner}/${repo}`,
+            );
+
+            core.notice(`Dispatching ${sameRepoPulls.length} refresh run(s).`);
+
+            for (const pull of sameRepoPulls) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: 'pr-agent-context-refresh.yml',
+                ref: context.ref.replace('refs/heads/', ''),
+                inputs: {
+                  pull_request_number: String(pull.number),
+                  pull_request_base_sha: pull.base.sha,
+                  pull_request_head_sha: pull.head.sha,
+                  trigger_event_name: 'schedule',
+                  trigger_event_action: '',
+                },
+              });
+            }
+
   pr-agent-context:
     if: >-
-      (github.event_name == 'pull_request_review' &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request_review_comment' &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'check_run' &&
-       github.event.action == 'completed' &&
-       github.event.check_run.app.slug != 'github-actions' &&
-       toJson(github.event.check_run.pull_requests) != '[]' &&
-       github.event.check_run.pull_requests[0].head.repo.full_name == github.repository)
+      github.event_name != 'schedule' &&
+      (
+        (github.event_name == 'pull_request_review' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'pull_request_review_comment' &&
+         github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'check_run' &&
+         github.event.action == 'completed' &&
+         github.event.check_run.app.slug != 'github-actions' &&
+         toJson(github.event.check_run.pull_requests) != '[]' &&
+         github.event.check_run.pull_requests[0].head.repo.full_name == github.repository) ||
+        (github.event_name == 'workflow_dispatch' &&
+         github.event.inputs.pull_request_number != '' &&
+         github.event.inputs.pull_request_base_sha != '' &&
+         github.event.inputs.pull_request_head_sha != '')
+      )
     uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
     with:
       tool_ref: v4
       execution_mode: refresh
+      trigger_event_name_override: ${{ github.event.inputs.trigger_event_name || '' }}
+      trigger_event_action_override: ${{ github.event.inputs.trigger_event_action || '' }}
+      pull_request_number_override: ${{ github.event.inputs.pull_request_number || '' }}
+      pull_request_base_sha_override: ${{ github.event.inputs.pull_request_base_sha || '' }}
+      pull_request_head_sha_override: ${{ github.event.inputs.pull_request_head_sha || '' }}
       publish_mode: append
       publish_all_clear_comments_in_refresh: false
       target_patch_coverage: "100"
@@ -337,6 +433,11 @@ Additional copy-pasteable examples live in [`examples/`](examples/):
 
 Refresh mode is best-effort on forks. When write access, external checks, or artifact access are
 restricted, the tool records those degradations in debug artifacts instead of failing wholesale.
+
+If Copilot or another bot can leave review-triggered refresh runs waiting for maintainer approval,
+the scheduled dispatcher pattern above avoids depending on that blocked run. The schedule wakes up
+as the repository itself, enumerates open same-repo PRs, and re-dispatches explicit refresh runs
+with `pull_request_*_override` inputs so `pr-agent-context` can still resolve the PR cleanly.
 
 ## Coverage Artifact Contract
 
