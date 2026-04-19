@@ -327,6 +327,7 @@ concurrency:
       github.event.check_run.pull_requests[0].number ||
       github.event.inputs.pull_request_head_sha ||
       github.event.check_run.head_sha ||
+      github.ref_name ||
       github.sha
     }}
   cancel-in-progress: true

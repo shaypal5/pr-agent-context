@@ -15,6 +15,8 @@ from pr_agent_context.config import (
     _extract_pull_request_shas,
     _extract_shas_from_pull_request_mapping,
     _extract_trigger_context,
+    _optional_int_override,
+    _optional_override,
     _parse_bool,
     _parse_coverage_selection_strategy,
     _parse_fork_behavior,
@@ -982,6 +984,26 @@ def test_extract_trigger_context_handles_sparse_refresh_payloads():
     assert pull_request.is_fork is None
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("   ", None),
+        ("abc123", "abc123"),
+        ("  abc123  ", "abc123"),
+    ],
+)
+def test_optional_override_normalizes_blank_and_whitespace_values(value, expected):
+    assert _optional_override(value) == expected
+
+
+def test_optional_int_override_parses_trimmed_integer_values():
+    assert _optional_int_override(None) is None
+    assert _optional_int_override("   ") is None
+    assert _optional_int_override(" 17 ") == 17
+
+
 def test_load_trigger_context_from_env_applies_explicit_pull_request_overrides(tmp_path):
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps({}), encoding="utf-8")
@@ -1003,6 +1025,36 @@ def test_load_trigger_context_from_env_applies_explicit_pull_request_overrides(t
     assert trigger.head_sha == "def456"
 
 
+def test_load_trigger_context_from_env_preserves_extracted_context_without_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "check_run": {
+                    "head_sha": "deadbeef",
+                    "pull_requests": [{"number": 17}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "check_run",
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": "completed",
+        }
+    )
+
+    assert trigger.event_name == "check_run"
+    assert trigger.action == "completed"
+    assert trigger.source == "check_run:completed"
+    assert trigger.pull_request_number == 17
+    assert trigger.base_sha is None
+    assert trigger.head_sha == "deadbeef"
+
+
 def test_load_pull_request_context_from_env_accepts_explicit_overrides(tmp_path):
     event_path = tmp_path / "event.json"
     event_path.write_text(json.dumps({}), encoding="utf-8")
@@ -1015,6 +1067,40 @@ def test_load_pull_request_context_from_env_accepts_explicit_overrides(tmp_path)
             "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
             "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
             "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        }
+    )
+
+    assert owner == "shaypal5"
+    assert repo == "example"
+    assert pull_request == PullRequestRef(
+        owner="shaypal5",
+        repo="example",
+        number=17,
+        base_sha="abc123",
+        head_sha="def456",
+    )
+
+
+def test_load_pull_request_context_from_env_uses_event_payload_when_overrides_absent(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner, repo, pull_request = load_pull_request_context_from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request",
         }
     )
 
