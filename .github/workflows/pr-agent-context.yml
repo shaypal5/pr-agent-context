@@ -397,8 +397,6 @@ jobs:
           PR_AGENT_CONTEXT_SKIP_COMMENT_ON_READONLY_TOKEN: ${{ inputs.skip_comment_on_readonly_token }}
           PR_AGENT_CONTEXT_COVERAGE_ARTIFACTS_DIR: ${{ github.workspace }}/coverage-artifacts
           PR_AGENT_CONTEXT_DEBUG_ARTIFACTS_DIR: ${{ github.workspace }}/pr-agent-context-debug
-          PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME: ${{ github.event_name }}
-          PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION: ${{ github.event.action }}
         run: pr-agent-context run
 
       - name: Upload debug artifacts
