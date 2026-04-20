@@ -999,9 +999,17 @@ def test_optional_override_normalizes_blank_and_whitespace_values(value, expecte
 
 
 def test_optional_int_override_parses_trimmed_integer_values():
-    assert _optional_int_override(None) is None
-    assert _optional_int_override("   ") is None
-    assert _optional_int_override(" 17 ") == 17
+    assert _optional_int_override(None, field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") is None
+    assert _optional_int_override("   ", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") is None
+    assert _optional_int_override(" 17 ", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") == 17
+    assert _optional_int_override("0", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") == 0
+
+
+def test_optional_int_override_raises_clear_error_for_invalid_values():
+    with pytest.raises(
+        ValueError, match="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER must be an integer"
+    ):
+        _optional_int_override("nope", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
 
 
 def test_load_trigger_context_from_env_applies_explicit_pull_request_overrides(tmp_path):

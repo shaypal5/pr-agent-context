@@ -345,8 +345,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           PR_AGENT_CONTEXT_TOOL_REF: ${{ inputs.tool_ref }}
           PR_AGENT_CONTEXT_EXECUTION_MODE: ${{ inputs.execution_mode }}
-          PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME: ${{ inputs.trigger_event_name_override }}
-          PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION: ${{ inputs.trigger_event_action_override }}
+          PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME: ${{ inputs.trigger_event_name_override != '' && inputs.trigger_event_name_override || github.event_name }}
+          PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION: ${{ inputs.trigger_event_action_override != '' && inputs.trigger_event_action_override || github.event.action }}
           PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number_override }}
           PR_AGENT_CONTEXT_BASE_SHA: ${{ inputs.pull_request_base_sha_override }}
           PR_AGENT_CONTEXT_HEAD_SHA: ${{ inputs.pull_request_head_sha_override }}

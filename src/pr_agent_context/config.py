@@ -596,11 +596,14 @@ def _optional_override(value: str | None) -> str | None:
     return stripped or None
 
 
-def _optional_int_override(value: str | None) -> int | None:
+def _optional_int_override(value: str | None, *, field_name: str) -> int | None:
     stripped = _optional_override(value)
     if stripped is None:
         return None
-    return int(stripped)
+    try:
+        return int(stripped)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an integer when provided.") from exc
 
 
 def load_pull_request_context_from_env(
@@ -633,9 +636,11 @@ def load_trigger_context_from_env(env: Mapping[str, str]) -> TriggerContext:
     trigger = _extract_trigger_context(event_name, action, source, event)
 
     overrides: dict[str, object] = {}
-    if pull_request_number := _optional_int_override(
-        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
-    ):
+    pull_request_number = _optional_int_override(
+        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER"),
+        field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER",
+    )
+    if pull_request_number is not None:
         overrides["pull_request_number"] = pull_request_number
     if base_sha := _optional_override(env.get("PR_AGENT_CONTEXT_BASE_SHA")):
         overrides["base_sha"] = base_sha
