@@ -1006,9 +1006,7 @@ def test_optional_int_override_parses_trimmed_integer_values():
 
 
 def test_optional_int_override_raises_clear_error_for_invalid_values():
-    with pytest.raises(
-        ValueError, match="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER must be an integer"
-    ):
+    with pytest.raises(ValueError, match="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER must be an integer"):
         _optional_int_override("nope", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
 
 
