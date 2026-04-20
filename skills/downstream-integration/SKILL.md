@@ -41,6 +41,10 @@ Use this playbook for client-repo adoption, refresh workflow fixes, and patch-co
 - If Copilot or another bot can trigger approval-gated review events in the caller repo, add a
   repo-owned `schedule` job that redispatches the refresh workflow through `workflow_dispatch`
   with explicit PR number/base/head overrides.
+- Do not make that scheduled job blindly redispatch every open PR. Prefer a guard that checks
+  whether the latest same-head refresh comment is missing or stale before redispatching.
+- Prefer keeping `cancel-in-progress` for direct event-triggered refreshes while disabling
+  cancel-on-rerun for the scheduled `workflow_dispatch` fallback path.
 - Closed or merged PR refreshes can resolve from the trigger SHA; when debugging those paths,
   inspect `pull-request-context.json` before assuming GitHub returned the wrong PR.
 

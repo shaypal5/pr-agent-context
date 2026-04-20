@@ -330,7 +330,7 @@ concurrency:
       github.ref_name ||
       github.sha
     }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -361,9 +361,41 @@ jobs:
               (pull) => pull.head?.repo?.full_name === `${owner}/${repo}`,
             );
 
-            core.notice(`Dispatching ${sameRepoPulls.length} refresh run(s).`);
+            const markerPrefix = '<!-- pr-agent-context:managed-comment;';
+            let dispatchCount = 0;
+            let skipCount = 0;
 
             for (const pull of sameRepoPulls) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pull.number,
+                per_page: 100,
+              });
+              const matchingRefreshComments = comments
+                .filter((comment) => comment.body?.startsWith(markerPrefix))
+                .filter((comment) => comment.body.includes('execution_mode=refresh;'))
+                .filter((comment) => comment.body.includes(`head_sha=${pull.head.sha};`))
+                .sort(
+                  (left, right) =>
+                    new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+                );
+              const latestRefreshComment = matchingRefreshComments[0];
+              const latestRefreshTimestamp = latestRefreshComment
+                ? new Date(latestRefreshComment.created_at).getTime()
+                : 0;
+              const pullUpdatedTimestamp = pull.updated_at
+                ? new Date(pull.updated_at).getTime()
+                : 0;
+
+              if (latestRefreshComment && latestRefreshTimestamp >= pullUpdatedTimestamp) {
+                core.notice(
+                  `Skipping PR #${pull.number}: refresh comment for head ${pull.head.sha} is current.`,
+                );
+                skipCount += 1;
+                continue;
+              }
+
               await github.rest.actions.createWorkflowDispatch({
                 owner,
                 repo,
@@ -377,7 +409,12 @@ jobs:
                   trigger_event_action: '',
                 },
               });
+              dispatchCount += 1;
             }
+
+            core.notice(
+              `Scheduled refresh guard dispatched ${dispatchCount} run(s) and skipped ${skipCount}.`,
+            );
 
   pr-agent-context:
     if: >-

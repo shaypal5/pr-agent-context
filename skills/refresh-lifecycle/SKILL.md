@@ -25,12 +25,19 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
 - When bot-authored review events are approval-gated, prefer a repo-owned `schedule` that
   redispatches the refresh workflow through `workflow_dispatch` with explicit PR number/base/head
   overrides instead of relying only on the blocked event-triggered run.
+- Guard scheduled redispatches so they only fan out when the latest same-head refresh comment is
+  missing or stale relative to PR activity; do not blindly redispatch every open PR on every tick.
+- Prefer leaving `cancel-in-progress` enabled for direct event-triggered refreshes while disabling
+  cancel-on-rerun for scheduled `workflow_dispatch` refreshes so the fallback path does not churn
+  in-flight runs.
 
 ## Trigger Guidance
 - Core review triggers: `pull_request_review`, `pull_request_review_comment`
 - Check-related triggers: `status`, `check_run`, `check_suite`
 - For approval-gated bot reviews, add `workflow_dispatch` plus a `schedule` fanout job that
   dispatches same-repo open PR refreshes with explicit PR context.
+- Scheduled fanout jobs should inspect recent managed refresh comments and skip dispatch when the
+  latest same-head refresh snapshot is already current.
 - Ignore GitHub Actions-originated `check_run` events unless the task explicitly wants self-observation.
 - When refresh runs reuse prior CI coverage artifacts, point `coverage_source_workflows` at the CI producer workflow name.
 
