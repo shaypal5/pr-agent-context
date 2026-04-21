@@ -57,14 +57,23 @@ on:
 
 concurrency:
   group: >-
-    ${{ github.workflow }}-${{
-      github.event.pull_request.number ||
-      github.event.inputs.pull_request_number ||
-      github.event.check_run.pull_requests[0].number ||
-      github.event.inputs.pull_request_head_sha ||
-      github.event.check_run.head_sha ||
-      github.ref_name ||
-      github.sha
+    ${{
+      github.event_name == 'workflow_dispatch' &&
+      format(
+        '{0}-{1}-{2}',
+        github.workflow,
+        github.event.inputs.pull_request_number,
+        github.event.inputs.pull_request_head_sha
+      ) ||
+      format(
+        '{0}-{1}',
+        github.workflow,
+        github.event.pull_request.number ||
+        github.event.check_run.pull_requests[0].number ||
+        github.event.check_run.head_sha ||
+        github.ref_name ||
+        github.sha
+      )
     }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
@@ -103,12 +112,17 @@ jobs:
             let errorCount = 0;
             const recentDispatchWindowMs = 60 * 60 * 1000;
 
-            const workflowDispatchRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+            const recentDispatchCutoff = Date.now() - recentDispatchWindowMs;
+            const { data: workflowRunsResponse } = await github.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: 'pr-agent-context-refresh.yml',
               event: 'workflow_dispatch',
               per_page: 100,
+            });
+            const workflowDispatchRuns = workflowRunsResponse.workflow_runs.filter((run) => {
+              const createdTimestamp = run.created_at ? Date.parse(run.created_at) : 0;
+              return createdTimestamp >= recentDispatchCutoff || run.status !== 'completed';
             });
 
             const hasCurrentRefreshComment = async (pull) => {

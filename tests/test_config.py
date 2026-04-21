@@ -1015,6 +1015,20 @@ def test_load_pull_request_overrides_returns_empty_when_all_are_absent():
     assert _load_pull_request_overrides({}) == {}
 
 
+def test_load_pull_request_overrides_normalizes_trimmed_values():
+    assert _load_pull_request_overrides(
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": " 17 ",
+            "PR_AGENT_CONTEXT_BASE_SHA": " abc123 ",
+            "PR_AGENT_CONTEXT_HEAD_SHA": " def456 ",
+        }
+    ) == {
+        "pull_request_number": 17,
+        "base_sha": "abc123",
+        "head_sha": "def456",
+    }
+
+
 def test_load_pull_request_overrides_returns_full_override_set():
     assert _load_pull_request_overrides(
         {
@@ -1106,6 +1120,24 @@ def test_load_trigger_context_from_env_preserves_extracted_context_without_overr
     assert trigger.pull_request_number == 17
     assert trigger.base_sha is None
     assert trigger.head_sha == "deadbeef"
+
+
+def test_load_trigger_context_from_env_falls_back_to_unknown_event_name_without_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+        }
+    )
+
+    assert trigger.event_name == "unknown"
+    assert trigger.action is None
+    assert trigger.source == "unknown"
+    assert trigger.pull_request_number is None
+    assert trigger.base_sha is None
+    assert trigger.head_sha is None
 
 
 def test_load_pull_request_context_from_env_accepts_explicit_overrides(tmp_path):
