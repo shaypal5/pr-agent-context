@@ -21,6 +21,9 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
   - `enable_cross_run_coverage_lookup: true`
   - `wait_for_reviews_to_settle: true` when review timing matters
 - Prefer same-repo guards before comment mutation.
+- In this repository's own self-refresh workflow, prefer a branch-coupled local reusable workflow
+  call plus PR-head `tool_ref` over calling a released `@v4` reusable workflow. That keeps the
+  self-dogfooding caller/callee contract aligned while unreleased inputs are still evolving.
 - Prefer per-PR concurrency so bursts of review/check activity collapse to the newest run.
 - When bot-authored review events are approval-gated, prefer a repo-owned `schedule` that
   redispatches the refresh workflow through `workflow_dispatch` with explicit PR number/base/head
