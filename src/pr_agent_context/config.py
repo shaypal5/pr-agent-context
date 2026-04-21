@@ -589,6 +589,48 @@ def _extract_repository(env: Mapping[str, str]) -> tuple[str, str]:
     return owner, repo
 
 
+def _optional_override(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _optional_int_override(value: str | None, *, field_name: str) -> int | None:
+    stripped = _optional_override(value)
+    if stripped is None:
+        return None
+    try:
+        return int(stripped)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an integer when provided.") from exc
+
+
+def _load_pull_request_overrides(env: Mapping[str, str]) -> dict[str, object]:
+    pull_request_number = _optional_int_override(
+        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER"),
+        field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER",
+    )
+    base_sha = _optional_override(env.get("PR_AGENT_CONTEXT_BASE_SHA"))
+    head_sha = _optional_override(env.get("PR_AGENT_CONTEXT_HEAD_SHA"))
+
+    override_values = {
+        "pull_request_number": pull_request_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+    }
+    populated_override_count = sum(value is not None for value in override_values.values())
+    if populated_override_count == 0:
+        return {}
+    if populated_override_count != len(override_values):
+        raise ValueError(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together when using pull request "
+            "context overrides."
+        )
+    return override_values
+
+
 def load_pull_request_context_from_env(
     env: Mapping[str, str],
 ) -> tuple[str, str, PullRequestRef]:
@@ -616,7 +658,12 @@ def load_trigger_context_from_env(env: Mapping[str, str]) -> TriggerContext:
     ).strip()
     action = (env.get("PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION") or "").strip() or None
     source = _build_trigger_source(event_name, action)
-    return _extract_trigger_context(event_name, action, source, event)
+    trigger = _extract_trigger_context(event_name, action, source, event)
+    overrides = _load_pull_request_overrides(env)
+
+    if not overrides:
+        return trigger
+    return trigger.model_copy(update=overrides)
 
 
 def _extract_trigger_context(

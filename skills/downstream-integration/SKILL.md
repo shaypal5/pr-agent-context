@@ -38,6 +38,19 @@ Use this playbook for client-repo adoption, refresh workflow fixes, and patch-co
 - Point `coverage_source_workflows` at the producer workflow name when refresh runs need to reuse earlier CI artifacts.
 - Prefer same-repo guards and per-PR concurrency in refresh workflows so comment mutation is
   limited to writable events and noisy bursts coalesce cleanly.
+- If Copilot or another bot can trigger approval-gated review events in the caller repo, add a
+  repo-owned `schedule` job that redispatches the refresh workflow through `workflow_dispatch`
+  with explicit PR number/base/head overrides.
+- Do not make that scheduled job blindly redispatch every open PR. Prefer a bounded lookup of
+  recent comments and skip redispatch when a same-head refresh managed comment already exists.
+- Avoid guards based on `pull.updated_at`, because managed comment publication can update that
+  timestamp and create false redispatch signals.
+- If refresh runs suppress all-clear comments, add a second dedupe guard for recent or in-flight
+  scheduled `workflow_dispatch` runs keyed by the same PR number and head SHA.
+- Prefer keeping `cancel-in-progress` for direct event-triggered refreshes while disabling
+  cancel-on-rerun for the scheduled `workflow_dispatch` fallback path.
+- Add per-PR error isolation in the scheduled dispatcher so one transient API failure does not
+  block the rest of the fanout.
 - Closed or merged PR refreshes can resolve from the trigger SHA; when debugging those paths,
   inspect `pull-request-context.json` before assuming GitHub returned the wrong PR.
 

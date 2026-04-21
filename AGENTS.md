@@ -4,6 +4,7 @@
 - Start every new feature, milestone, bugfix, or other non-trivial implementation branch from up-to-date `main`.
 - Before beginning new implementation work, update local `main` from `origin/main` and branch from that refreshed tip.
 - Do not continue new work on an already-merged feature branch unless the user explicitly asks for that.
+- Treat feature or PR work as incomplete until a non-draft GitHub PR is open from the working branch with a detailed description, appropriate labels, and a milestone when one applies.
 
 ## Repo Playbook
 
@@ -22,6 +23,7 @@
 - CI runs may publish an all-clear comment.
 - Refresh runs should default to append-mode comment history and suppress no-op all-clear comments.
 - The current recommended refresh pattern is `publish_mode: append` with `publish_all_clear_comments_in_refresh: false`.
+- If bot-authored review events can leave refresh runs stuck in approval, prefer a repo-owned `schedule` -> `workflow_dispatch` fallback that passes explicit PR context overrides.
 
 ### Update Ripple Checklist
 - If you change reusable workflow inputs, config parsing, or environment variable handling, update the README input docs, examples, config tests, and this repo's self-consumer workflows when relevant.
@@ -37,6 +39,12 @@
 - After the release PR is merged, tag the merged `main` commit with `vX.Y.Z`.
 - Let `release-tags.yml` move the `v4` major tag; do not retag a PR branch tip.
 
+### PR Completion
+- For feature, fix, and release-PR work, do not stop at local commits.
+- Push the branch and open a non-draft PR on GitHub with a detailed description before considering the task done, unless the user explicitly says not to.
+- Apply repository-appropriate labels and assign a milestone when one fits the work.
+- If the required label or milestone does not exist yet, create it.
+
 ### GitHub Tooling
 - Keep using the repo-specific git and GitHub MCPs first.
 - Use `gh api` only for gaps the MCPs do not cover yet, such as resolving review threads.
@@ -47,3 +55,4 @@
 - For managed comment publication behavior and append/update mode decisions, consult [`skills/comment-publishing/SKILL.md`](skills/comment-publishing/SKILL.md).
 - For downstream/client repo integration or patch-coverage wiring/debugging, consult [`skills/downstream-integration/SKILL.md`](skills/downstream-integration/SKILL.md).
 - For prompt template and rendered-section changes, consult [`skills/prompt-template-evolution/SKILL.md`](skills/prompt-template-evolution/SKILL.md).
+- For finishing feature work and publishing a ready PR, consult [`skills/pr-delivery/SKILL.md`](skills/pr-delivery/SKILL.md).

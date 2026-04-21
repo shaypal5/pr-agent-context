@@ -15,6 +15,9 @@ from pr_agent_context.config import (
     _extract_pull_request_shas,
     _extract_shas_from_pull_request_mapping,
     _extract_trigger_context,
+    _load_pull_request_overrides,
+    _optional_int_override,
+    _optional_override,
     _parse_bool,
     _parse_coverage_selection_strategy,
     _parse_fork_behavior,
@@ -980,6 +983,245 @@ def test_extract_trigger_context_handles_sparse_refresh_payloads():
     assert fallback.event_name == "workflow_dispatch"
     assert fallback.pull_request_number is None
     assert pull_request.is_fork is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("", None),
+        ("   ", None),
+        ("abc123", "abc123"),
+        ("  abc123  ", "abc123"),
+    ],
+)
+def test_optional_override_normalizes_blank_and_whitespace_values(value, expected):
+    assert _optional_override(value) == expected
+
+
+def test_optional_int_override_parses_trimmed_integer_values():
+    assert _optional_int_override(None, field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") is None
+    assert _optional_int_override("   ", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") is None
+    assert _optional_int_override(" 17 ", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") == 17
+    assert _optional_int_override("0", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER") == 0
+
+
+def test_optional_int_override_raises_clear_error_for_invalid_values():
+    with pytest.raises(ValueError, match="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER must be an integer"):
+        _optional_int_override("nope", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
+
+
+def test_load_pull_request_overrides_returns_empty_when_all_are_absent():
+    assert _load_pull_request_overrides({}) == {}
+
+
+def test_load_pull_request_overrides_normalizes_trimmed_values():
+    assert _load_pull_request_overrides(
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": " 17 ",
+            "PR_AGENT_CONTEXT_BASE_SHA": " abc123 ",
+            "PR_AGENT_CONTEXT_HEAD_SHA": " def456 ",
+        }
+    ) == {
+        "pull_request_number": 17,
+        "base_sha": "abc123",
+        "head_sha": "def456",
+    }
+
+
+def test_load_pull_request_overrides_returns_full_override_set():
+    assert _load_pull_request_overrides(
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        }
+    ) == {
+        "pull_request_number": 17,
+        "base_sha": "abc123",
+        "head_sha": "def456",
+    }
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+        },
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        },
+        {
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        },
+    ],
+)
+def test_load_pull_request_overrides_rejects_partial_override_sets(env):
+    with pytest.raises(
+        ValueError,
+        match=(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together"
+        ),
+    ):
+        _load_pull_request_overrides(env)
+
+
+def test_load_trigger_context_from_env_applies_explicit_pull_request_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_NAME": "schedule",
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        }
+    )
+
+    assert trigger.event_name == "schedule"
+    assert trigger.pull_request_number == 17
+    assert trigger.base_sha == "abc123"
+    assert trigger.head_sha == "def456"
+
+
+def test_load_trigger_context_from_env_preserves_extracted_context_without_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "check_run": {
+                    "head_sha": "deadbeef",
+                    "pull_requests": [{"number": 17}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "check_run",
+            "PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION": "completed",
+        }
+    )
+
+    assert trigger.event_name == "check_run"
+    assert trigger.action == "completed"
+    assert trigger.source == "check_run:completed"
+    assert trigger.pull_request_number == 17
+    assert trigger.base_sha is None
+    assert trigger.head_sha == "deadbeef"
+
+
+def test_load_trigger_context_from_env_falls_back_to_unknown_event_name_without_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    trigger = load_trigger_context_from_env(
+        {
+            "GITHUB_EVENT_PATH": str(event_path),
+        }
+    )
+
+    assert trigger.event_name == "unknown"
+    assert trigger.action is None
+    assert trigger.source == "unknown"
+    assert trigger.pull_request_number is None
+    assert trigger.base_sha is None
+    assert trigger.head_sha is None
+
+
+def test_load_pull_request_context_from_env_accepts_explicit_overrides(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    owner, repo, pull_request = load_pull_request_context_from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        }
+    )
+
+    assert owner == "shaypal5"
+    assert repo == "example"
+    assert pull_request == PullRequestRef(
+        owner="shaypal5",
+        repo="example",
+        number=17,
+        base_sha="abc123",
+        head_sha="def456",
+    )
+
+
+def test_load_pull_request_context_from_env_rejects_partial_overrides_before_generic_failure(
+    tmp_path,
+):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together"
+        ),
+    ):
+        load_pull_request_context_from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+                "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            }
+        )
+
+
+def test_load_pull_request_context_from_env_uses_event_payload_when_overrides_absent(tmp_path):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "number": 17,
+                    "base": {"sha": "abc123"},
+                    "head": {"sha": "def456"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner, repo, pull_request = load_pull_request_context_from_env(
+        {
+            "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_EVENT_PATH": str(event_path),
+            "GITHUB_EVENT_NAME": "pull_request",
+        }
+    )
+
+    assert owner == "shaypal5"
+    assert repo == "example"
+    assert pull_request == PullRequestRef(
+        owner="shaypal5",
+        repo="example",
+        number=17,
+        base_sha="abc123",
+        head_sha="def456",
+    )
 
 
 def test_resolve_execution_mode_accepts_explicit_values():
