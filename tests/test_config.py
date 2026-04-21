@@ -15,6 +15,7 @@ from pr_agent_context.config import (
     _extract_pull_request_shas,
     _extract_shas_from_pull_request_mapping,
     _extract_trigger_context,
+    _load_pull_request_overrides,
     _optional_int_override,
     _optional_override,
     _parse_bool,
@@ -1008,6 +1009,52 @@ def test_optional_int_override_parses_trimmed_integer_values():
 def test_optional_int_override_raises_clear_error_for_invalid_values():
     with pytest.raises(ValueError, match="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER must be an integer"):
         _optional_int_override("nope", field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER")
+
+
+def test_load_pull_request_overrides_returns_empty_when_all_are_absent():
+    assert _load_pull_request_overrides({}) == {}
+
+
+def test_load_pull_request_overrides_returns_full_override_set():
+    assert _load_pull_request_overrides(
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        }
+    ) == {
+        "pull_request_number": 17,
+        "base_sha": "abc123",
+        "head_sha": "def456",
+    }
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+        },
+        {
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        },
+        {
+            "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            "PR_AGENT_CONTEXT_HEAD_SHA": "def456",
+        },
+    ],
+)
+def test_load_pull_request_overrides_rejects_partial_override_sets(env):
+    with pytest.raises(
+        ValueError,
+        match=(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together"
+        ),
+    ):
+        _load_pull_request_overrides(env)
 
 
 def test_load_trigger_context_from_env_applies_explicit_pull_request_overrides(tmp_path):

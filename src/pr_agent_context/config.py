@@ -606,6 +606,31 @@ def _optional_int_override(value: str | None, *, field_name: str) -> int | None:
         raise ValueError(f"{field_name} must be an integer when provided.") from exc
 
 
+def _load_pull_request_overrides(env: Mapping[str, str]) -> dict[str, object]:
+    pull_request_number = _optional_int_override(
+        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER"),
+        field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER",
+    )
+    base_sha = _optional_override(env.get("PR_AGENT_CONTEXT_BASE_SHA"))
+    head_sha = _optional_override(env.get("PR_AGENT_CONTEXT_HEAD_SHA"))
+
+    override_values = {
+        "pull_request_number": pull_request_number,
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+    }
+    populated_override_count = sum(value is not None for value in override_values.values())
+    if populated_override_count == 0:
+        return {}
+    if populated_override_count != len(override_values):
+        raise ValueError(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together when using pull request "
+            "context overrides."
+        )
+    return override_values
+
+
 def load_pull_request_context_from_env(
     env: Mapping[str, str],
 ) -> tuple[str, str, PullRequestRef]:
@@ -634,18 +659,7 @@ def load_trigger_context_from_env(env: Mapping[str, str]) -> TriggerContext:
     action = (env.get("PR_AGENT_CONTEXT_TRIGGER_EVENT_ACTION") or "").strip() or None
     source = _build_trigger_source(event_name, action)
     trigger = _extract_trigger_context(event_name, action, source, event)
-
-    overrides: dict[str, object] = {}
-    pull_request_number = _optional_int_override(
-        env.get("PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER"),
-        field_name="PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER",
-    )
-    if pull_request_number is not None:
-        overrides["pull_request_number"] = pull_request_number
-    if base_sha := _optional_override(env.get("PR_AGENT_CONTEXT_BASE_SHA")):
-        overrides["base_sha"] = base_sha
-    if head_sha := _optional_override(env.get("PR_AGENT_CONTEXT_HEAD_SHA")):
-        overrides["head_sha"] = head_sha
+    overrides = _load_pull_request_overrides(env)
 
     if not overrides:
         return trigger

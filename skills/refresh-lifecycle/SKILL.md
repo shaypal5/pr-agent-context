@@ -25,8 +25,10 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
 - When bot-authored review events are approval-gated, prefer a repo-owned `schedule` that
   redispatches the refresh workflow through `workflow_dispatch` with explicit PR number/base/head
   overrides instead of relying only on the blocked event-triggered run.
-- Guard scheduled redispatches so they only fan out when the latest same-head refresh comment is
-  missing or stale relative to PR activity; do not blindly redispatch every open PR on every tick.
+- Guard scheduled redispatches with a bounded lookup for recent same-head refresh managed comments;
+  do not blindly redispatch every open PR on every tick.
+- Avoid staleness heuristics based on `pull.updated_at`, because publishing the managed comment can
+  perturb that timestamp and cause self-invalidating redispatch decisions.
 - Prefer leaving `cancel-in-progress` enabled for direct event-triggered refreshes while disabling
   cancel-on-rerun for scheduled `workflow_dispatch` refreshes so the fallback path does not churn
   in-flight runs.
@@ -36,8 +38,10 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
 - Check-related triggers: `status`, `check_run`, `check_suite`
 - For approval-gated bot reviews, add `workflow_dispatch` plus a `schedule` fanout job that
   dispatches same-repo open PR refreshes with explicit PR context.
-- Scheduled fanout jobs should inspect recent managed refresh comments and skip dispatch when the
-  latest same-head refresh snapshot is already current.
+- Scheduled fanout jobs should inspect a bounded window of recent comments and skip dispatch when a
+  same-head refresh managed comment already exists.
+- Add per-PR error isolation so one API failure does not block dispatch decisions for every other
+  open PR.
 - Ignore GitHub Actions-originated `check_run` events unless the task explicitly wants self-observation.
 - When refresh runs reuse prior CI coverage artifacts, point `coverage_source_workflows` at the CI producer workflow name.
 

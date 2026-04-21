@@ -364,57 +364,66 @@ jobs:
             const markerPrefix = '<!-- pr-agent-context:managed-comment;';
             let dispatchCount = 0;
             let skipCount = 0;
+            let errorCount = 0;
 
-            for (const pull of sameRepoPulls) {
-              const comments = await github.paginate(github.rest.issues.listComments, {
+            const hasCurrentRefreshComment = async (pull) => {
+              const { data: comments } = await github.rest.issues.listComments({
                 owner,
                 repo,
                 issue_number: pull.number,
-                per_page: 100,
+                per_page: 50,
+                sort: 'created',
+                direction: 'desc',
               });
-              const matchingRefreshComments = comments
-                .filter((comment) => comment.body?.startsWith(markerPrefix))
-                .filter((comment) => comment.body.includes('execution_mode=refresh;'))
-                .filter((comment) => comment.body.includes(`head_sha=${pull.head.sha};`))
-                .sort(
-                  (left, right) =>
-                    new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
-                );
-              const latestRefreshComment = matchingRefreshComments[0];
-              const latestRefreshTimestamp = latestRefreshComment
-                ? new Date(latestRefreshComment.created_at).getTime()
-                : 0;
-              const pullUpdatedTimestamp = pull.updated_at
-                ? new Date(pull.updated_at).getTime()
-                : 0;
 
-              if (latestRefreshComment && latestRefreshTimestamp >= pullUpdatedTimestamp) {
-                core.notice(
-                  `Skipping PR #${pull.number}: refresh comment for head ${pull.head.sha} is current.`,
+              return comments.some(
+                (comment) =>
+                  comment.body?.startsWith(markerPrefix) &&
+                  comment.body.includes('execution_mode=refresh;') &&
+                  comment.body.includes(`head_sha=${pull.head.sha};`),
+              );
+            };
+
+            for (const pull of sameRepoPulls) {
+              try {
+                const refreshCommentExists = await hasCurrentRefreshComment(pull);
+
+                if (refreshCommentExists) {
+                  core.notice(
+                    `Skipping PR #${pull.number}: refresh comment for head ${pull.head.sha} already exists.`,
+                  );
+                  skipCount += 1;
+                  continue;
+                }
+
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,
+                  repo,
+                  workflow_id: 'pr-agent-context-refresh.yml',
+                  ref: context.ref.replace('refs/heads/', ''),
+                  inputs: {
+                    pull_request_number: String(pull.number),
+                    pull_request_base_sha: pull.base.sha,
+                    pull_request_head_sha: pull.head.sha,
+                    trigger_event_name: 'schedule',
+                    trigger_event_action: '',
+                  },
+                });
+                dispatchCount += 1;
+              } catch (error) {
+                errorCount += 1;
+                core.warning(
+                  `Unable to evaluate or dispatch PR #${pull.number}: ${error instanceof Error ? error.message : String(error)}`,
                 );
-                skipCount += 1;
-                continue;
               }
-
-              await github.rest.actions.createWorkflowDispatch({
-                owner,
-                repo,
-                workflow_id: 'pr-agent-context-refresh.yml',
-                ref: context.ref.replace('refs/heads/', ''),
-                inputs: {
-                  pull_request_number: String(pull.number),
-                  pull_request_base_sha: pull.base.sha,
-                  pull_request_head_sha: pull.head.sha,
-                  trigger_event_name: 'schedule',
-                  trigger_event_action: '',
-                },
-              });
-              dispatchCount += 1;
             }
 
             core.notice(
               `Scheduled refresh guard dispatched ${dispatchCount} run(s) and skipped ${skipCount}.`,
             );
+            if (errorCount > 0) {
+              core.warning(`Scheduled refresh guard encountered ${errorCount} per-PR error(s).`);
+            }
 
   pr-agent-context:
     if: >-
@@ -474,8 +483,10 @@ restricted, the tool records those degradations in debug artifacts instead of fa
 
 If Copilot or another bot can leave review-triggered refresh runs waiting for maintainer approval,
 the scheduled dispatcher pattern above avoids depending on that blocked run. The schedule wakes up
-as the repository itself, enumerates open same-repo PRs, and re-dispatches explicit refresh runs
-with `pull_request_*_override` inputs so `pr-agent-context` can still resolve the PR cleanly.
+as the repository itself, enumerates open same-repo PRs, and performs a bounded lookup of recent
+PR comments before re-dispatching. If a same-head refresh managed comment already exists, it skips
+that PR; otherwise it dispatches explicit refresh runs with `pull_request_*_override` inputs so
+`pr-agent-context` can still resolve the PR cleanly.
 
 ## Coverage Artifact Contract
 
