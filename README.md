@@ -398,7 +398,7 @@ jobs:
             const recentDispatchWindowMs = 60 * 60 * 1000;
 
             const recentDispatchCutoff = Date.now() - recentDispatchWindowMs;
-            const { data: workflowRunsResponse } = await github.rest.actions.listWorkflowRuns({
+            const { data: workflowRunsResponse } = await github.rest.actions.listWorkflowRunsForWorkflow({
               owner,
               repo,
               workflow_id: 'pr-agent-context-refresh.yml',
