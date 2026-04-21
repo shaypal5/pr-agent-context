@@ -284,6 +284,27 @@ Production-hardened refresh workflow example:
 
 ```yaml
 name: pr-agent-context-refresh
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch' &&
+    format(
+      'scheduled refresh PR #{0} @ {1}',
+      github.event.inputs.pull_request_number,
+      github.event.inputs.pull_request_head_sha
+    ) ||
+    github.event_name == 'schedule' &&
+    'scheduled refresh fanout' ||
+    github.event_name == 'pull_request_review' &&
+    format('review refresh PR #{0}', github.event.pull_request.number) ||
+    github.event_name == 'pull_request_review_comment' &&
+    format('review-comment refresh PR #{0}', github.event.pull_request.number) ||
+    github.event_name == 'check_run' &&
+    format(
+      'check refresh {0}',
+      github.event.check_run.pull_requests[0].number || github.event.check_run.head_sha
+    ) ||
+    github.workflow
+  }}
 
 on:
   pull_request_review:
@@ -365,6 +386,15 @@ jobs:
             let dispatchCount = 0;
             let skipCount = 0;
             let errorCount = 0;
+            const recentDispatchWindowMs = 60 * 60 * 1000;
+
+            const workflowDispatchRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: 'pr-agent-context-refresh.yml',
+              event: 'workflow_dispatch',
+              per_page: 100,
+            });
 
             const hasCurrentRefreshComment = async (pull) => {
               const { data: comments } = await github.rest.issues.listComments({
@@ -384,13 +414,41 @@ jobs:
               );
             };
 
+            const hasRecentOrInFlightScheduledDispatchRun = (pull) => {
+              const expectedTitle = `scheduled refresh PR #${pull.number} @ ${pull.head.sha}`;
+              const now = Date.now();
+
+              return workflowDispatchRuns.some((run) => {
+                if (run.display_title !== expectedTitle) {
+                  return false;
+                }
+                if (run.status !== 'completed') {
+                  return true;
+                }
+                const completedTimestamp = run.updated_at
+                  ? new Date(run.updated_at).getTime()
+                  : run.created_at
+                    ? new Date(run.created_at).getTime()
+                    : 0;
+                return completedTimestamp > 0 && now - completedTimestamp <= recentDispatchWindowMs;
+              });
+            };
+
             for (const pull of sameRepoPulls) {
               try {
                 const refreshCommentExists = await hasCurrentRefreshComment(pull);
+                const hasRecentDispatchRun = hasRecentOrInFlightScheduledDispatchRun(pull);
 
                 if (refreshCommentExists) {
                   core.notice(
                     `Skipping PR #${pull.number}: refresh comment for head ${pull.head.sha} already exists.`,
+                  );
+                  skipCount += 1;
+                  continue;
+                }
+                if (hasRecentDispatchRun) {
+                  core.notice(
+                    `Skipping PR #${pull.number}: recent or in-flight scheduled dispatch for head ${pull.head.sha} already exists.`,
                   );
                   skipCount += 1;
                   continue;
@@ -483,10 +541,12 @@ restricted, the tool records those degradations in debug artifacts instead of fa
 
 If Copilot or another bot can leave review-triggered refresh runs waiting for maintainer approval,
 the scheduled dispatcher pattern above avoids depending on that blocked run. The schedule wakes up
-as the repository itself, enumerates open same-repo PRs, and performs a bounded lookup of recent
-PR comments before re-dispatching. If a same-head refresh managed comment already exists, it skips
-that PR; otherwise it dispatches explicit refresh runs with `pull_request_*_override` inputs so
-`pr-agent-context` can still resolve the PR cleanly.
+as the repository itself, enumerates open same-repo PRs, and uses a composite dedupe guard before
+re-dispatching: it first checks for a same-head refresh managed comment, then checks for a recent
+or in-flight scheduled `workflow_dispatch` run with the same PR number and head SHA. That second
+guard matters when refresh runs suppress all-clear comments, because a no-op refresh may otherwise
+leave no managed comment behind. Only when neither signal exists does it dispatch explicit refresh
+runs with `pull_request_*_override` inputs so `pr-agent-context` can still resolve the PR cleanly.
 
 ## Coverage Artifact Contract
 

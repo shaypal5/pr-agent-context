@@ -1134,6 +1134,30 @@ def test_load_pull_request_context_from_env_accepts_explicit_overrides(tmp_path)
     )
 
 
+def test_load_pull_request_context_from_env_rejects_partial_overrides_before_generic_failure(
+    tmp_path,
+):
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps({}), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER, PR_AGENT_CONTEXT_BASE_SHA, and "
+            "PR_AGENT_CONTEXT_HEAD_SHA must all be provided together"
+        ),
+    ):
+        load_pull_request_context_from_env(
+            {
+                "GITHUB_REPOSITORY": "shaypal5/example",
+                "GITHUB_EVENT_PATH": str(event_path),
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "PR_AGENT_CONTEXT_PULL_REQUEST_NUMBER": "17",
+                "PR_AGENT_CONTEXT_BASE_SHA": "abc123",
+            }
+        )
+
+
 def test_load_pull_request_context_from_env_uses_event_payload_when_overrides_absent(tmp_path):
     event_path = tmp_path / "event.json"
     event_path.write_text(

@@ -29,6 +29,9 @@ Use this playbook for refresh-mode workflow design and debugging in `pr-agent-co
   do not blindly redispatch every open PR on every tick.
 - Avoid staleness heuristics based on `pull.updated_at`, because publishing the managed comment can
   perturb that timestamp and cause self-invalidating redispatch decisions.
+- When refresh runs suppress all-clear comments, comment presence alone is not a sufficient skip
+  signal. Add a second dedupe guard for recent or in-flight scheduled `workflow_dispatch` runs for
+  the same PR number and head SHA.
 - Prefer leaving `cancel-in-progress` enabled for direct event-triggered refreshes while disabling
   cancel-on-rerun for scheduled `workflow_dispatch` refreshes so the fallback path does not churn
   in-flight runs.

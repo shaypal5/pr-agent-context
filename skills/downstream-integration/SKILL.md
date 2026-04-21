@@ -45,6 +45,8 @@ Use this playbook for client-repo adoption, refresh workflow fixes, and patch-co
   recent comments and skip redispatch when a same-head refresh managed comment already exists.
 - Avoid guards based on `pull.updated_at`, because managed comment publication can update that
   timestamp and create false redispatch signals.
+- If refresh runs suppress all-clear comments, add a second dedupe guard for recent or in-flight
+  scheduled `workflow_dispatch` runs keyed by the same PR number and head SHA.
 - Prefer keeping `cancel-in-progress` for direct event-triggered refreshes while disabling
   cancel-on-rerun for the scheduled `workflow_dispatch` fallback path.
 - Add per-PR error isolation in the scheduled dispatcher so one transient API failure does not
