@@ -228,6 +228,92 @@ def test_extract_failed_step_output_lines_prefers_unique_failed_step_match_order
     ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
 
 
+def test_extract_failed_step_output_lines_scans_only_relevant_failed_steps():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run setup",
+        "setup output",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run lint",
+        "lint output",
+        "##[endgroup]",
+        "2026-03-07T10:00:02Z ##[group]Run pytest",
+        "tests/test_example.py::test_behavior FAILED",
+        "##[error]Process completed with exit code 1.",
+        "##[endgroup]",
+        "2026-03-07T10:00:03Z ##[group]Run summary",
+        "summary output",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (
+        "pytest",
+        [
+            "2026-03-07T10:00:02Z ##[group]Run pytest",
+            "tests/test_example.py::test_behavior FAILED",
+            "##[error]Process completed with exit code 1.",
+            "##[endgroup]",
+        ],
+    )
+
+
+def test_extract_failed_step_output_lines_skips_ambiguous_first_match_for_later_unique_step():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "first pytest block",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run mypy",
+        "mypy failed",
+        "##[endgroup]",
+        "2026-03-07T10:00:02Z ##[group]Run pytest",
+        "second pytest block",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest", "Run mypy"],
+        max_lines=10,
+    ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
+
+
+def test_extract_failed_step_output_lines_handles_duplicate_and_unterminated_candidate_groups():
+    duplicate_lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "first pytest block",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "second pytest block",
+        "##[endgroup]",
+    ]
+    unterminated_lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "tests/test_example.py::test_behavior FAILED",
+        "",
+        "   ",
+    ]
+
+    assert extract_failed_step_output_lines(
+        duplicate_lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output_lines(
+        unterminated_lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (
+        "pytest",
+        [
+            "2026-03-07T10:00:00Z ##[group]Run pytest",
+            "tests/test_example.py::test_behavior FAILED",
+        ],
+    )
+
+
 def test_step_block_helpers_cover_grouping_and_normalization_edges():
     lines = [
         "before group",
