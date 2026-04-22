@@ -4,10 +4,12 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from conftest import load_text_fixture
+from pr_agent_context.github import workflow_jobs as workflow_jobs_module
 from pr_agent_context.github.workflow_jobs import (
     _extract_grouped_step_name,
     _group_step_blocks,
     _normalize_step_name,
+    _scan_target_step_blocks,
     _trim_trailing_blank_lines,
     collect_failed_jobs,
     extract_failed_step_output,
@@ -228,6 +230,179 @@ def test_extract_failed_step_output_lines_prefers_unique_failed_step_match_order
     ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
 
 
+def test_extract_failed_step_output_lines_scans_only_relevant_failed_steps():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run setup",
+        "setup output",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run lint",
+        "lint output",
+        "##[endgroup]",
+        "2026-03-07T10:00:02Z ##[group]Run pytest",
+        "tests/test_example.py::test_behavior FAILED",
+        "##[error]Process completed with exit code 1.",
+        "##[endgroup]",
+        "2026-03-07T10:00:03Z ##[group]Run summary",
+        "summary output",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (
+        "pytest",
+        [
+            "2026-03-07T10:00:02Z ##[group]Run pytest",
+            "tests/test_example.py::test_behavior FAILED",
+            "##[error]Process completed with exit code 1.",
+            "##[endgroup]",
+        ],
+    )
+
+
+def test_extract_failed_step_output_lines_returns_none_when_failed_steps_normalize_to_empty():
+    assert extract_failed_step_output_lines(
+        ["2026-03-07T10:00:00Z ##[group]Run pytest", "failed"],
+        failed_steps=["   "],
+        max_lines=10,
+    ) == (None, [])
+
+
+def test_extract_failed_step_output_lines_skips_ambiguous_first_match_for_later_unique_step():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "first pytest block",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run mypy",
+        "mypy failed",
+        "##[endgroup]",
+        "2026-03-07T10:00:02Z ##[group]Run pytest",
+        "second pytest block",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest", "Run mypy"],
+        max_lines=10,
+    ) == ("mypy", ["2026-03-07T10:00:01Z ##[group]Run mypy", "mypy failed", "##[endgroup]"])
+
+
+def test_extract_failed_step_output_lines_handles_duplicate_and_unterminated_candidate_groups():
+    duplicate_lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "first pytest block",
+        "##[endgroup]",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "second pytest block",
+        "##[endgroup]",
+    ]
+    unterminated_lines = [
+        "2026-03-07T10:00:00Z ##[group]Run pytest",
+        "tests/test_example.py::test_behavior FAILED",
+        "",
+        "   ",
+    ]
+
+    assert extract_failed_step_output_lines(
+        duplicate_lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (None, [])
+    assert extract_failed_step_output_lines(
+        unterminated_lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (
+        "pytest",
+        [
+            "2026-03-07T10:00:00Z ##[group]Run pytest",
+            "tests/test_example.py::test_behavior FAILED",
+        ],
+    )
+
+
+def test_extract_failed_step_output_lines_resets_state_after_irrelevant_group_end():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run setup",
+        "setup output",
+        "##[endgroup]",
+        "outside group",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "pytest failed",
+        "##[endgroup]",
+    ]
+
+    assert extract_failed_step_output_lines(
+        lines,
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (
+        "pytest",
+        [
+            "2026-03-07T10:00:01Z ##[group]Run pytest",
+            "pytest failed",
+            "##[endgroup]",
+        ],
+    )
+
+
+def test_extract_failed_step_output_lines_skips_inconsistent_single_count_match_state(monkeypatch):
+    def fake_scan_target_step_blocks(lines, target_names):  # noqa: ANN001
+        return {"pytest": 1}, {"pytest": [("pytest", ["first"]), ("pytest", ["second"])]}
+
+    monkeypatch.setattr(
+        workflow_jobs_module,
+        "_scan_target_step_blocks",
+        fake_scan_target_step_blocks,
+    )
+
+    assert extract_failed_step_output_lines(
+        ["2026-03-07T10:00:00Z ##[group]Run pytest", "pytest failed"],
+        failed_steps=["Run pytest"],
+        max_lines=10,
+    ) == (None, [])
+
+
+def test_scan_target_step_blocks_tracks_only_requested_step_names():
+    lines = [
+        "2026-03-07T10:00:00Z ##[group]Run setup",
+        "setup output",
+        "##[endgroup]",
+        "outside group",
+        "2026-03-07T10:00:01Z ##[group]Run pytest",
+        "pytest failed",
+        "##[endgroup]",
+        "2026-03-07T10:00:02Z ##[group]Run pytest",
+        "pytest failed again",
+    ]
+
+    counts, matches = _scan_target_step_blocks(lines, {"pytest"})
+
+    assert counts == {"pytest": 2}
+    assert matches == {
+        "pytest": [
+            (
+                "pytest",
+                [
+                    "2026-03-07T10:00:01Z ##[group]Run pytest",
+                    "pytest failed",
+                    "##[endgroup]",
+                ],
+            ),
+            (
+                "pytest",
+                [
+                    "2026-03-07T10:00:02Z ##[group]Run pytest",
+                    "pytest failed again",
+                ],
+            ),
+        ]
+    }
+
+
 def test_step_block_helpers_cover_grouping_and_normalization_edges():
     lines = [
         "before group",
@@ -245,6 +420,17 @@ def test_step_block_helpers_cover_grouping_and_normalization_edges():
     assert _normalize_step_name("pytest  ") == "pytest"
     assert _trim_trailing_blank_lines(["line 1", "", "  "]) == ["line 1"]
     assert _group_step_blocks([]) == []
+    assert _group_step_blocks(
+        [
+            "2026-03-07T10:00:00Z ##[group]Run mypy",
+            "line 1",
+            "2026-03-07T10:00:01Z ##[group]Run pytest",
+            "line 2",
+        ]
+    ) == [
+        ("mypy", ["2026-03-07T10:00:00Z ##[group]Run mypy", "line 1"]),
+        ("pytest", ["2026-03-07T10:00:01Z ##[group]Run pytest", "line 2"]),
+    ]
     assert _group_step_blocks(lines) == [
         ("mypy", ["2026-03-07T10:00:00Z ##[group]Run mypy", "line 1", "##[endgroup]"]),
         ("pytest", ["2026-03-07T10:00:01Z ##[group]Run pytest", "line 2"]),

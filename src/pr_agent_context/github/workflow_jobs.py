@@ -172,18 +172,17 @@ def extract_failed_step_output_lines(
     if max_lines <= 0 or not failed_steps or not lines:
         return None, []
 
-    grouped_steps = _group_step_blocks(lines)
-    if not grouped_steps:
+    normalized_failed_steps = [_normalize_step_name(step_name) for step_name in failed_steps]
+    target_names = {step_name for step_name in normalized_failed_steps if step_name}
+    if not target_names:
         return None, []
 
-    normalized_lookup = {}
-    for step_name, step_lines in grouped_steps:
-        normalized_lookup.setdefault(_normalize_step_name(step_name), []).append(
-            (step_name, step_lines)
-        )
+    grouped_step_counts, grouped_step_matches = _scan_target_step_blocks(lines, target_names)
 
-    for failed_step in failed_steps:
-        matches = normalized_lookup.get(_normalize_step_name(failed_step), [])
+    for normalized_failed_step in normalized_failed_steps:
+        if grouped_step_counts.get(normalized_failed_step) != 1:
+            continue
+        matches = grouped_step_matches.get(normalized_failed_step, [])
         if len(matches) != 1:
             continue
         step_name, step_lines = matches[0]
@@ -191,6 +190,58 @@ def extract_failed_step_output_lines(
         return step_name, trimmed_step_lines[:max_lines]
 
     return None, []
+
+
+def _scan_target_step_blocks(
+    lines: list[str],
+    target_names: set[str],
+) -> tuple[dict[str, int], dict[str, list[tuple[str, list[str]]]]]:
+    grouped_step_counts: dict[str, int] = {}
+    grouped_step_matches: dict[str, list[tuple[str, list[str]]]] = {}
+    current_step: str | None = None
+    current_normalized_step: str | None = None
+    current_lines: list[str] = []
+    capture_current_step = False
+
+    def flush_current_step() -> None:
+        nonlocal current_step, current_normalized_step, current_lines, capture_current_step
+        if current_step is not None and current_normalized_step is not None:
+            grouped_step_counts[current_normalized_step] = (
+                grouped_step_counts.get(current_normalized_step, 0) + 1
+            )
+            if capture_current_step:
+                grouped_step_matches.setdefault(current_normalized_step, []).append(
+                    (current_step, current_lines)
+                )
+        current_step = None
+        current_normalized_step = None
+        current_lines = []
+        capture_current_step = False
+
+    for line in lines:
+        step_name = _extract_grouped_step_name(line)
+        if step_name is not None:
+            flush_current_step()
+            normalized_step_name = _normalize_step_name(step_name)
+            current_step = step_name
+            current_normalized_step = (
+                normalized_step_name if normalized_step_name in target_names else None
+            )
+            capture_current_step = current_normalized_step is not None
+            current_lines = [line] if capture_current_step else []
+            continue
+
+        if current_step is None:
+            continue
+
+        if capture_current_step:
+            current_lines.append(line)
+
+        if line.strip() == "##[endgroup]":
+            flush_current_step()
+
+    flush_current_step()
+    return grouped_step_counts, grouped_step_matches
 
 
 def _group_step_blocks(lines: list[str]) -> list[tuple[str, list[str]]]:
