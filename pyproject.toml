@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pr-agent-context"
-version = "4.0.19"
+version = "4.0.20"
 description = "Reusable GitHub Actions tool for assembling PR handoff context for coding agents."
 readme = "README.md"
 license = "MIT"
