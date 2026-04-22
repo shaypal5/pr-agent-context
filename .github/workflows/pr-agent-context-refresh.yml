@@ -231,9 +231,9 @@ jobs:
          github.event.inputs.pull_request_base_sha != '' &&
          github.event.inputs.pull_request_head_sha != '')
       )
-    uses: shaypal5/pr-agent-context/.github/workflows/pr-agent-context.yml@v4
+    uses: ./.github/workflows/pr-agent-context.yml
     with:
-      tool_ref: v4
+      tool_ref: ${{ github.event.pull_request.head.sha || github.sha }}
       execution_mode: refresh
       trigger_event_name_override: ${{ github.event.inputs.trigger_event_name || '' }}
       trigger_event_action_override: ${{ github.event.inputs.trigger_event_action || '' }}

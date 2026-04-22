@@ -553,6 +553,12 @@ Additional copy-pasteable examples live in [`examples/`](examples/):
 Refresh mode is best-effort on forks. When write access, external checks, or artifact access are
 restricted, the tool records those degradations in debug artifacts instead of failing wholesale.
 
+This repository's own
+[`pr-agent-context-refresh.yml`](.github/workflows/pr-agent-context-refresh.yml) intentionally
+calls the local reusable workflow path and uses the PR head SHA as `tool_ref` when available. That
+keeps self-dogfooding branches branch-coupled so new caller inputs cannot drift ahead of the local
+reusable workflow contract during review-triggered refreshes.
+
 If Copilot or another bot can leave review-triggered refresh runs waiting for maintainer approval,
 the scheduled dispatcher pattern above avoids depending on that blocked run. The schedule wakes up
 as the repository itself, enumerates open same-repo PRs, and uses a composite dedupe guard before
