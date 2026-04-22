@@ -1261,14 +1261,45 @@ def test_compute_patch_coverage_rebases_absolute_measured_paths_from_split_check
     )
 
     assert summary.is_na is False
-    assert summary.actual_percent == 0
+    assert summary.actual_percent == 75
     assert summary.total_changed_executable_lines == 4
     assert [file_gap.path for file_gap in summary.files] == ["src/pkg/module.py"]
-    assert summary.files[0].covered_changed_executable_lines == []
-    assert summary.files[0].uncovered_changed_executable_lines == [1, 2, 3, 4]
+    assert summary.files[0].covered_changed_executable_lines == [1, 2, 3]
+    assert summary.files[0].uncovered_changed_executable_lines == [4]
     assert summary.files[0].has_measured_data is True
     assert scope_debug["scope_strategy"] == "measured_root_inference"
     assert scope_debug["inferred_source_roots"] == ["src/pkg"]
+
+
+def test_build_combined_coverage_adds_workspace_alias_for_absolute_split_checkout_paths(tmp_path):
+    job_workspace = tmp_path / "job-workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+
+    coverage_dir = job_workspace / "coverage-artifacts"
+    coverage_dir.mkdir(parents=True)
+    coverage_file = coverage_dir / ".coverage.py312"
+    _build_coverage_data_with_recorded_filenames(
+        coverage_file,
+        [
+            (
+                "/home/runner/work/pr-agent-context/pr-agent-context/src/pkg/module.py",
+                source_path,
+                "parse(True)",
+            )
+        ],
+    )
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+    measured_files = set(combined.get_data().measured_files())
+
+    assert str(source_path.resolve()) in measured_files
+    assert combined.analysis2(str(source_path))[3] == [4]
 
 
 def test_find_coverage_config_file_prefers_existing_project_config(tmp_path):
