@@ -205,15 +205,14 @@ def _scan_target_step_blocks(
 
     def flush_current_step() -> None:
         nonlocal current_step, current_normalized_step, current_lines, capture_current_step
-        if current_step is None or current_normalized_step is None:
-            return
-        grouped_step_counts[current_normalized_step] = (
-            grouped_step_counts.get(current_normalized_step, 0) + 1
-        )
-        if capture_current_step:
-            grouped_step_matches.setdefault(current_normalized_step, []).append(
-                (current_step, current_lines)
+        if current_step is not None and current_normalized_step is not None:
+            grouped_step_counts[current_normalized_step] = (
+                grouped_step_counts.get(current_normalized_step, 0) + 1
             )
+            if capture_current_step:
+                grouped_step_matches.setdefault(current_normalized_step, []).append(
+                    (current_step, current_lines)
+                )
         current_step = None
         current_normalized_step = None
         current_lines = []
