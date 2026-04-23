@@ -43,7 +43,20 @@ def _write_file(path: Path, content: str) -> None:
 
 
 def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> None:
-    coverage = Coverage(config_file=False, data_file=str(data_file))
+    _build_coverage_data_with_options(data_file, scripts, branch=False)
+
+
+def _build_branch_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> None:
+    _build_coverage_data_with_options(data_file, scripts, branch=True)
+
+
+def _build_coverage_data_with_options(
+    data_file: Path,
+    scripts: list[tuple[Path, str]],
+    *,
+    branch: bool,
+) -> None:
+    coverage = Coverage(config_file=False, data_file=str(data_file), branch=branch)
     coverage.start()
     for script_path, invocation in scripts:
         globals_dict = {"__name__": "__main__"}
@@ -59,8 +72,10 @@ def _build_coverage_data(data_file: Path, scripts: list[tuple[Path, str]]) -> No
 def _build_coverage_data_with_recorded_filenames(
     data_file: Path,
     scripts: list[tuple[str, Path, str]],
+    *,
+    branch: bool = False,
 ) -> None:
-    coverage = Coverage(config_file=False, data_file=str(data_file))
+    coverage = Coverage(config_file=False, data_file=str(data_file), branch=branch)
     coverage.start()
     for recorded_filename, script_path, invocation in scripts:
         globals_dict = {"__name__": "__main__"}
@@ -1293,6 +1308,38 @@ def test_build_combined_coverage_adds_workspace_alias_for_absolute_split_checkou
                 "parse(True)",
             )
         ],
+    )
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+    measured_files = set(combined.get_data().measured_files())
+
+    assert str(source_path.resolve()) in measured_files
+    assert combined.analysis2(str(source_path))[3] == [4]
+
+
+def test_build_combined_coverage_adds_workspace_alias_for_branch_mode_paths(tmp_path):
+    job_workspace = tmp_path / "job-workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+
+    coverage_dir = job_workspace / "coverage-artifacts"
+    coverage_dir.mkdir(parents=True)
+    coverage_file = coverage_dir / ".coverage.py312"
+    _build_coverage_data_with_recorded_filenames(
+        coverage_file,
+        [
+            (
+                "/home/runner/work/pr-agent-context/pr-agent-context/src/pkg/module.py",
+                source_path,
+                "parse(True)",
+            )
+        ],
+        branch=True,
     )
 
     combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])

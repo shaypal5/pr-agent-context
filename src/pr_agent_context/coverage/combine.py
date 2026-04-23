@@ -100,10 +100,11 @@ def _is_valid_coverage_file(path: Path) -> bool:
 
 def _add_workspace_relative_filename_aliases(coverage: Coverage, workspace: Path) -> None:
     workspace_root = workspace.resolve()
-    lines_to_add: dict[str, list[int]] = {}
-    arcs_to_add: dict[str, list[tuple[int, int]]] = {}
     tracers_to_add: dict[str, str] = {}
     data = coverage.get_data()
+    uses_arcs = data.has_arcs()
+    lines_to_add: dict[str, list[int]] = {}
+    arcs_to_add: dict[str, list[tuple[int, int]]] = {}
 
     for measured_path in data.measured_files():
         aliased_path = _rebase_measured_path_to_workspace(measured_path, workspace_root)
@@ -112,17 +113,19 @@ def _add_workspace_relative_filename_aliases(coverage: Coverage, workspace: Path
         if aliased_path in data.measured_files():
             continue
 
-        if lines := data.lines(measured_path):
-            lines_to_add[aliased_path] = list(lines)
-        if arcs := data.arcs(measured_path):
-            arcs_to_add[aliased_path] = list(arcs)
+        if uses_arcs:
+            if arcs := data.arcs(measured_path):
+                arcs_to_add[aliased_path] = list(arcs)
+        else:
+            if lines := data.lines(measured_path):
+                lines_to_add[aliased_path] = list(lines)
         if tracer := data.file_tracer(measured_path):
             tracers_to_add[aliased_path] = tracer
 
-    if lines_to_add:
-        data.add_lines(lines_to_add)
     if arcs_to_add:
         data.add_arcs(arcs_to_add)
+    if lines_to_add:
+        data.add_lines(lines_to_add)
     if tracers_to_add:
         data.add_file_tracers(tracers_to_add)
 
