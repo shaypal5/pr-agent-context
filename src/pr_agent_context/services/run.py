@@ -361,7 +361,9 @@ def run_service(config: RunConfig, *, client: GitHubApiClient | None = None) -> 
     )
     rendered = render_prompt(
         pull_request_number=pull_request.number,
-        repository_url=f"https://github.com/{pull_request.owner}/{pull_request.repo}",
+        repository_url=(
+            f"{config.github_server_url.rstrip('/')}/{pull_request.owner}/{pull_request.repo}"
+        ),
         head_sha=pull_request.head_sha,
         run_id=config.run_id,
         run_attempt=config.run_attempt,

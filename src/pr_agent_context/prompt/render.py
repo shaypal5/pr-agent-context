@@ -273,11 +273,18 @@ def _build_opening_instructions(
     ]
     if not disabled_checks:
         return refresh_note + DEFAULT_ALL_CLEAR_PROMPT.format(
-            pr_number=pull_request_number,
+            pr_reference=_format_pr_reference(
+                pull_request_number=pull_request_number,
+                repository_url=repository_url,
+            ),
         )
     return (
-        refresh_note + "No actionable items were found in the enabled checks for PR "
-        f"#{pull_request_number} at head commit {head_sha or 'unknown'}."
+        refresh_note + "No actionable items were found in the enabled checks for "
+        + _format_pr_reference(
+            pull_request_number=pull_request_number,
+            repository_url=repository_url,
+        )
+        + f" at head commit {head_sha or 'unknown'}."
         + "\n\n"
         + "Note: This assessment only covers the enabled checks for this run. "
         + "Skipped checks: "
@@ -308,13 +315,14 @@ def _build_actionable_opening_instructions(
             "a patch coverage gap" if patch_gap_count == 1 else "patch coverage gaps"
         )
     opening_subject = _join_human_list(signal_labels) or "actionable items"
+    pr_reference = _format_pr_reference(
+        pull_request_number=pull_request_number,
+        repository_url=repository_url,
+    )
 
-    repository_suffix = ""
+    opening_sentence = f"This run includes {opening_subject} on {pr_reference}"
     if repository_url and repository_url.strip():
-        repository_suffix = f" in repository {repository_url.strip()}"
-    opening_sentence = f"This run includes {opening_subject} on PR #{pull_request_number}"
-    if repository_suffix:
-        lines = [f"{opening_sentence}{repository_suffix}"]
+        lines = [opening_sentence]
     else:
         lines = [f"{opening_sentence}."]
     if review_item_count:
@@ -344,6 +352,12 @@ def _build_actionable_opening_instructions(
         ]
     )
     return "\n".join(lines)
+
+
+def _format_pr_reference(*, pull_request_number: int, repository_url: str | None) -> str:
+    if repository_url and repository_url.strip():
+        return f"PR #{pull_request_number} in repository {repository_url.strip()}"
+    return f"PR #{pull_request_number}"
 
 
 def _build_review_follow_up_instructions(

@@ -611,6 +611,7 @@ def test_render_prompt_can_publish_all_clear_comment_in_refresh_mode_when_enable
 def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
     rendered = render_prompt(
         pull_request_number=17,
+        repository_url="https://github.com/shaypal5/example",
         head_sha="feedface",
         review_threads=[],
         failing_checks=[],
@@ -620,10 +621,29 @@ def test_render_prompt_all_clear_notes_when_some_signal_types_are_disabled():
         include_patch_coverage=False,
     )
 
-    assert "No actionable items were found in the enabled checks" in rendered.prompt_markdown
+    assert (
+        "No actionable items were found in the enabled checks for PR #17 in repository "
+        "https://github.com/shaypal5/example at head commit feedface."
+    ) in rendered.prompt_markdown
     assert "only covers the enabled checks for this run" in rendered.prompt_markdown
     assert "Skipped checks: review comments," in rendered.prompt_markdown
     assert "patch coverage." in rendered.prompt_markdown
+
+
+def test_render_prompt_all_clear_includes_repository_url_when_available():
+    rendered = render_prompt(
+        pull_request_number=17,
+        repository_url="https://github.com/shaypal5/example",
+        head_sha="feedface",
+        review_threads=[],
+        failing_checks=[],
+        patch_coverage=None,
+    )
+
+    assert (
+        "No unresolved review comments, failing checks, or actionable patch coverage gaps "
+        "were found on PR #17 in repository https://github.com/shaypal5/example."
+    ) in rendered.prompt_markdown
 
 
 def test_render_prompt_hides_approval_gated_note_section_by_default():

@@ -860,6 +860,26 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert "Status: outdated" in comment_body
 
 
+def test_run_service_uses_configured_github_server_url(tmp_path, issue_comments_payload):
+    client = FakeGitHubClient(
+        review_threads_payload=load_json_fixture("github/review_threads.json"),
+        workflow_jobs_payload={"jobs": []},
+        issue_comments_payload=[issue_comments_payload[0]],
+    )
+    config = _build_config(
+        tmp_path,
+        github_server_url="https://github.enterprise.example/",
+    )
+
+    assert run_service(config, client=client) == 0
+
+    prompt_text = (config.debug_artifacts_dir / "prompt.md").read_text(encoding="utf-8")
+    assert (
+        "This run includes unresolved review comments on PR #17 in repository "
+        "https://github.enterprise.example/shaypal5/example"
+    ) in prompt_text
+
+
 def test_run_service_can_skip_outdated_review_threads(tmp_path, issue_comments_payload):
     client = FakeGitHubClient(
         review_threads_payload=load_json_fixture("github/review_threads.json"),

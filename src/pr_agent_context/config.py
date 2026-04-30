@@ -137,7 +137,7 @@ def _extract_codecov_patch_target(data: object) -> float | None:
 def _parse_percent_like_value(value: object) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         numeric = float(value)
         if 0 <= numeric <= 1:
             return numeric * 100
@@ -229,6 +229,7 @@ class RunConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     github_api_url: str = "https://api.github.com"
+    github_server_url: str = "https://github.com"
     github_token: str
     tool_ref: str = DEFAULT_TOOL_REF
     repository_owner: str = ""
@@ -306,6 +307,13 @@ class RunConfig(BaseModel):
             return f"{self.pull_request.owner}/{self.pull_request.repo}"
         return ""
 
+    @property
+    def repository_url(self) -> str:
+        repository = self.repository
+        if not repository:
+            return ""
+        return f"{self.github_server_url.rstrip('/')}/{repository}"
+
     @model_validator(mode="after")
     def _validate_patch_coverage_source_config(self) -> RunConfig:
         if (
@@ -352,6 +360,7 @@ class RunConfig(BaseModel):
 
         return cls(
             github_api_url=env_map.get("GITHUB_API_URL", "https://api.github.com"),
+            github_server_url=env_map.get("GITHUB_SERVER_URL", "https://github.com"),
             github_token=env_map["GITHUB_TOKEN"],
             tool_ref=env_map.get("PR_AGENT_CONTEXT_TOOL_REF", DEFAULT_TOOL_REF).strip()
             or DEFAULT_TOOL_REF,
