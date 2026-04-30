@@ -73,6 +73,23 @@ def _build_coverage_data_with_recorded_filenames(
     coverage.save()
 
 
+def _build_branch_coverage_data_with_recorded_filenames(
+    data_file: Path,
+    scripts: list[tuple[str, Path, str]],
+) -> None:
+    coverage = Coverage(branch=True, config_file=False, data_file=str(data_file))
+    coverage.start()
+    for recorded_filename, script_path, invocation in scripts:
+        globals_dict = {"__name__": "__main__"}
+        exec(
+            compile(script_path.read_text(encoding="utf-8"), recorded_filename, "exec"),
+            globals_dict,
+        )
+        exec(invocation, globals_dict)
+    coverage.stop()
+    coverage.save()
+
+
 def _build_coverage_data_with_workspace_config(
     *,
     workspace: Path,
@@ -1298,6 +1315,39 @@ def test_build_combined_coverage_adds_workspace_alias_for_absolute_split_checkou
     combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
     measured_files = set(combined.get_data().measured_files())
 
+    assert str(source_path.resolve()) in measured_files
+    assert combined.analysis2(str(source_path))[3] == [4]
+
+
+def test_build_combined_coverage_adds_workspace_aliases_for_branch_data(tmp_path):
+    job_workspace = tmp_path / "job-workspace"
+    repo = job_workspace / "caller-repo"
+    repo.mkdir(parents=True)
+    source_path = repo / "src" / "pkg" / "module.py"
+    _write_file(
+        source_path,
+        "def parse(flag):\n    if flag:\n        return 1\n    return 2\n",
+    )
+
+    coverage_dir = job_workspace / "coverage-artifacts"
+    coverage_dir.mkdir(parents=True)
+    coverage_file = coverage_dir / ".coverage.py312"
+    _build_branch_coverage_data_with_recorded_filenames(
+        coverage_file,
+        [
+            (
+                "/home/runner/work/pr-agent-context/pr-agent-context/src/pkg/module.py",
+                source_path,
+                "parse(True)",
+            )
+        ],
+    )
+
+    combined = build_combined_coverage(workspace=repo, coverage_files=[coverage_file])
+    data = combined.get_data()
+    measured_files = set(data.measured_files())
+
+    assert data.has_arcs() is True
     assert str(source_path.resolve()) in measured_files
     assert combined.analysis2(str(source_path))[3] == [4]
 

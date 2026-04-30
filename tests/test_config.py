@@ -59,6 +59,7 @@ def test_run_config_from_env(tmp_path):
     config = RunConfig.from_env(
         {
             "GITHUB_REPOSITORY": "shaypal5/example",
+            "GITHUB_SERVER_URL": "https://github.enterprise.example",
             "GITHUB_EVENT_PATH": str(event_path),
             "GITHUB_RUN_ID": "123",
             "GITHUB_RUN_ATTEMPT": "4",
@@ -105,6 +106,8 @@ def test_run_config_from_env(tmp_path):
     )
 
     assert config.tool_ref == "v4"
+    assert config.github_server_url == "https://github.enterprise.example"
+    assert config.repository_url == "https://github.enterprise.example/shaypal5/example"
     assert config.pull_request.owner == "shaypal5"
     assert config.pull_request.repo == "example"
     assert config.pull_request.number == 17
@@ -858,6 +861,7 @@ def test_run_config_auto_execution_mode_resolves_by_event_name(
 def test_run_config_repository_property_prefers_explicit_repository_fields(tmp_path):
     config = RunConfig(
         github_token="token",
+        github_server_url="https://github.enterprise.example/",
         repository_owner="shaypal5",
         repository_name="example",
         run_id=1,
@@ -866,6 +870,7 @@ def test_run_config_repository_property_prefers_explicit_repository_fields(tmp_p
     )
 
     assert config.repository == "shaypal5/example"
+    assert config.repository_url == "https://github.enterprise.example/shaypal5/example"
 
 
 def test_run_config_repository_property_falls_back_to_pull_request(tmp_path):

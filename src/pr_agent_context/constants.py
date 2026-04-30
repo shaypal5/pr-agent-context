@@ -5,7 +5,7 @@ MANAGED_COMMENT_SCHEMA_VERSION = "v5"
 
 DEFAULT_ALL_CLEAR_PROMPT = (
     "No unresolved review comments, failing checks, or actionable patch "
-    "coverage gaps were found on PR #{pr_number}. Treat this PR as all clear "
+    "coverage gaps were found on {pr_reference}. Treat this PR as all clear "
     "unless new signals appear."
 )
 
