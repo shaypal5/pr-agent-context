@@ -112,10 +112,11 @@ def _add_workspace_relative_filename_aliases(coverage: Coverage, workspace: Path
         if aliased_path in data.measured_files():
             continue
 
-        if lines := data.lines(measured_path):
+        if data.has_arcs():
+            if arcs := data.arcs(measured_path):
+                arcs_to_add[aliased_path] = list(arcs)
+        elif lines := data.lines(measured_path):
             lines_to_add[aliased_path] = list(lines)
-        if arcs := data.arcs(measured_path):
-            arcs_to_add[aliased_path] = list(arcs)
         if tracer := data.file_tracer(measured_path):
             tracers_to_add[aliased_path] = tracer
 
