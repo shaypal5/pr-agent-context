@@ -839,6 +839,10 @@ def test_run_service_writes_debug_artifacts(tmp_path, issue_comments_payload):
     assert comment_sync["sync_debug"]["hidden_comment_ids"] == []
     assert comment_sync["sync_debug"]["hide_errors"] == []
     assert prompt_text.startswith("Repository: foldermix")
+    assert (
+        "This run includes unresolved review comments on PR #17 in repository "
+        "https://github.com/shaypal5/example"
+    ) in prompt_text
     assert comment_body.startswith(
         "<!-- pr-agent-context:managed-comment; schema=v5; publish_mode=append;"
     )

@@ -362,6 +362,22 @@ def test_render_prompt_builds_signal_specific_openings(
         assert "After I reply with my decision per item" not in rendered.prompt_markdown
 
 
+def test_render_prompt_includes_repository_url_in_actionable_opening_when_available():
+    rendered = render_prompt(
+        pull_request_number=25,
+        repository_url="https://github.com/leadforge-dev/leadforge",
+        head_sha="feedface",
+        review_threads=[_sample_review_thread()],
+        failing_checks=[_sample_failing_check()],
+        patch_coverage=None,
+    )
+
+    assert (
+        "This run includes an unresolved review comment and a failing check on PR #25 in "
+        "repository https://github.com/leadforge-dev/leadforge"
+    ) in rendered.prompt_markdown
+
+
 def test_render_prompt_all_three_signals_use_pluralized_opening():
     rendered = render_prompt(
         pull_request_number=17,

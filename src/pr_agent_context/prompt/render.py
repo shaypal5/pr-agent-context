@@ -44,6 +44,7 @@ from pr_agent_context.prompt.truncate import truncate_lines, truncate_text
 def render_prompt(
     *,
     pull_request_number: int,
+    repository_url: str | None = None,
     head_sha: str | None = None,
     run_id: int = 0,
     run_attempt: int = 1,
@@ -117,6 +118,7 @@ def render_prompt(
             "prompt_preamble": prompt_preamble.strip(),
             "opening_instructions": _build_opening_instructions(
                 pull_request_number=pull_request_number,
+                repository_url=repository_url,
                 head_sha=head_sha,
                 has_actionable_items=has_actionable_items,
                 review_item_count=len(review_threads) if include_review_comments else 0,
@@ -234,6 +236,7 @@ def build_managed_comment_body(
 def _build_opening_instructions(
     *,
     pull_request_number: int,
+    repository_url: str | None,
     head_sha: str | None,
     has_actionable_items: bool,
     review_item_count: int,
@@ -253,6 +256,7 @@ def _build_opening_instructions(
     if has_actionable_items:
         return refresh_note + _build_actionable_opening_instructions(
             pull_request_number=pull_request_number,
+            repository_url=repository_url,
             review_item_count=review_item_count,
             failing_check_count=failing_check_count,
             patch_gap_count=patch_gap_count,
@@ -285,6 +289,7 @@ def _build_opening_instructions(
 def _build_actionable_opening_instructions(
     *,
     pull_request_number: int,
+    repository_url: str | None,
     review_item_count: int,
     failing_check_count: int,
     patch_gap_count: int,
@@ -304,7 +309,14 @@ def _build_actionable_opening_instructions(
         )
     opening_subject = _join_human_list(signal_labels) or "actionable items"
 
-    lines = [f"This run includes {opening_subject} on PR #{pull_request_number}."]
+    repository_suffix = ""
+    if repository_url and repository_url.strip():
+        repository_suffix = f" in repository {repository_url.strip()}"
+    opening_sentence = f"This run includes {opening_subject} on PR #{pull_request_number}"
+    if repository_suffix:
+        lines = [f"{opening_sentence}{repository_suffix}"]
+    else:
+        lines = [f"{opening_sentence}."]
     if review_item_count:
         lines.extend(
             [

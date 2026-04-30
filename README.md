@@ -181,6 +181,9 @@ If `prompt_template_file` is not provided, `pr-agent-context` uses the built-in 
 template. If it is provided, the file is loaded from the caller repository workspace and
 rendered deterministically with a small placeholder renderer.
 
+When repository context is available, the built-in opening instructions include the caller
+repository URL in the first sentence, for example `in repository https://github.com/owner/repo`.
+
 Supported placeholders:
 
 - `{{ pr_number }}`
