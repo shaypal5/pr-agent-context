@@ -279,7 +279,8 @@ def _build_opening_instructions(
             ),
         )
     return (
-        refresh_note + "No actionable items were found in the enabled checks for "
+        refresh_note
+        + "No actionable items were found in the enabled checks for "
         + _format_pr_reference(
             pull_request_number=pull_request_number,
             repository_url=repository_url,
