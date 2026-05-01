@@ -5,6 +5,11 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+REFRESH_WORKFLOW_SNIPPET_PATHS = (
+    ".github/workflows/pr-agent-context-refresh.yml",
+    "examples/pr-agent-context-refresh.yml",
+    "README.md",
+)
 
 
 def _load_workflow(relative_path: str) -> dict[str, object]:
@@ -28,3 +33,14 @@ def test_self_refresh_uses_local_reusable_workflow_contract():
         refresh_job["with"]["tool_ref"] == "${{ github.event.pull_request.head.sha || github.sha }}"
     )
     assert set(refresh_job["with"]).issubset(set(reusable_inputs))
+
+
+def test_refresh_snippets_use_supported_workflow_runs_method():
+    unsupported_method = "github.rest.actions.listWorkflowRunsForWorkflow"
+    supported_method = "github.rest.actions.listWorkflowRuns({"
+
+    for relative_path in REFRESH_WORKFLOW_SNIPPET_PATHS:
+        snippet = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+        assert unsupported_method not in snippet
+        assert supported_method in snippet
