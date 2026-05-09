@@ -1,6 +1,6 @@
 # Repository Instructions
 
-- Always use the repo-specific git and GitHub MCPs configured in the environment. Only fall back to the corresponding CLIs for actions the MCPs do not support.
+- Use standard `git` and `gh` CLI first. Use repo-specific git and GitHub MCPs only for CLI gaps, unavailable CLI, or explicit user request.
 - Start every new feature, milestone, bugfix, or other non-trivial implementation branch from up-to-date `main`.
 - Before beginning new implementation work, update local `main` from `origin/main` and branch from that refreshed tip.
 - Do not continue new work on an already-merged feature branch unless the user explicitly asks for that.
@@ -46,8 +46,8 @@
 - If the required label or milestone does not exist yet, create it.
 
 ### GitHub Tooling
-- Keep using the repo-specific git and GitHub MCPs first.
-- Use `gh api` only for gaps the MCPs do not cover yet, such as resolving review threads.
+- Use standard `git` and `gh` CLI first.
+- Use repo-specific git and GitHub MCPs only for CLI gaps, unavailable CLI, or explicit user request.
 
 ### Repo-Local Skills
 - For release/version work, consult [`skills/release-flow/SKILL.md`](skills/release-flow/SKILL.md).
