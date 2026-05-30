@@ -8,6 +8,35 @@
 `pr-agent-context` is a reusable GitHub Actions tool that assembles managed
 PR handoff comments for coding agents.
 
+Created by [Shay Palachy Affek](http://www.shaypalachy.com/).
+
+## Quick Mental Model
+
+`pr-agent-context` turns live PR state into a durable handoff comment:
+
+```text
+PR review threads + failing checks + patch coverage + caller template
+                         |
+                         v
+          managed GitHub PR comment for coding agents
+                         |
+                         v
+        refresh runs keep later review/check signals visible
+```
+
+See an abbreviated generated artifact in
+[`docs/managed-comment-preview.md`](docs/managed-comment-preview.md).
+
+## README Map
+
+- [Downstream Usage](#downstream-usage): minimal reusable-workflow setup and versioning.
+- [Prompt Templating](#prompt-templating): customize the rendered handoff prompt.
+- [Refresh Mode](#refresh-mode): keep review/check updates visible after initial CI.
+- [Coverage Artifact Contract](#coverage-artifact-contract): feed patch coverage from artifacts.
+- [Debug Artifacts](#debug-artifacts): inspect deterministic JSON and Markdown outputs.
+- [PR-Wide Failing Checks](#pr-wide-failing-checks): understand check aggregation behavior.
+- [Patch Coverage Rules](#patch-coverage-rules): know what counts in patch coverage.
+
 Current behavior includes:
 
 - unresolved PR review threads
@@ -813,3 +842,7 @@ source = [
 If a repo uses unusual layout or aggressive path rewriting, `pr-agent-context` will still merge
 the available `.coverage*` files locally, but checked-in `coverage.py` config remains the safest
 option because it removes any ambiguity from source-scope inference.
+
+## Credits
+
+Created by [Shay Palachy Affek ](http://www.shaypalachy.com/) [[GitHub](https://github.com/shaypal5)]
